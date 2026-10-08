@@ -65,7 +65,8 @@ Coordinates are in **twips** (1/1440 inch; 15 twips = 1 CSS pixel at 96 DPI).
 | `doc_size`  | Whole document `[w, h]` in twips. |
 
 `path` may be relative to the engine's working directory; it is resolved with
-`realpath()`.
+`realpath()`. Supported: `.docx`, `.doc`, `.odt`, `.rtf`, `.txt`, and any
+format LibreOffice can import. LOK picks the filter from the file extension.
 
 ### `tile`
 

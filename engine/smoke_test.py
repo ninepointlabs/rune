@@ -150,6 +150,27 @@ def main():
 
         check(not a.call("key", doc_id=doc, type="down", char_code=65)["ok"], "bad key type rejected")
         check(not a.call("key", doc_id=999, type="input", char_code=65)["ok"], "unknown doc rejected")
+
+        # --- .doc (binary format) ---
+        doc_path = os.environ.get("RUNE_TEST_DOC", os.path.join(ROOT, "samples/test.doc"))
+        if os.path.exists(doc_path):
+            a.events.clear()
+            r = a.call("open", path=doc_path)
+            check(r["ok"], "open .doc")
+            doc_doc = r["doc_id"]
+            check(r["pages"] == len(r["page_rects"])
+                  and r["page_rect"] == r["page_rects"][0],
+                  ".doc open returns matching page_rects")
+            t = a.call("tile", doc_id=doc_doc, x=r["page_rect"][0], y=r["page_rect"][1],
+                        width=r["page_rect"][2], height=r["page_rect"][3], px_width=400)
+            check(t["ok"] and t["tile"].startswith("iVBOR"), ".doc tile is a base64 PNG")
+            check(a.call("key", doc_id=doc_doc, type="input", char_code=82)["ok"], ".doc key input")
+            check(a.wait_events(lambda ev: "cursor_changed" in kinds(ev)),
+                  ".doc typing pushes cursor_changed")
+            check(a.call("close", doc_id=doc_doc)["ok"], ".doc close")
+        else:
+            print("SKIP .doc (no sample file)")
+
         check(a.call("close", doc_id=doc)["ok"], "close")
         check(a.call("quit")["ok"], "quit")
         engine.wait(timeout=30)
