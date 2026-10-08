@@ -126,6 +126,36 @@ Lines without an `id`, sent to every client. All carry `event` and `doc_id`.
 | `selection_changed` | `rects` (empty = cleared); `start`/`end` handle rects when non-empty. |
 | `size_changed`      | `doc_size`, plus `pages` and `page_rects` re-read after the layout change. |
 
+### `ai`
+
+LLM provider integration (`ai_manager.cpp`). **Skeleton:** no HTTP calls are
+made yet; `send` returns a placeholder. Dispatches on `action`:
+
+```json
+→ {"id": 8, "cmd": "ai", "action": "list_providers"}
+← {"id": 8, "ok": true, "providers": ["chatgpt", "claude", "grok"]}
+
+→ {"id": 9, "cmd": "ai", "action": "status"}
+← {"id": 9, "ok": true, "providers": {"chatgpt": {"configured": false},
+   "claude": {"configured": true}, "grok": {"configured": false}}}
+
+→ {"id": 10, "cmd": "ai", "action": "set_token", "provider": "claude", "token": "sk-..."}
+← {"id": 10, "ok": true}
+
+→ {"id": 11, "cmd": "ai", "action": "send", "provider": "claude", "model": "claude-sonnet-4-6",
+   "system": "You are a writing assistant.", "user": "Improve this paragraph: ..."}
+← {"id": 11, "ok": true, "content": "[AI response will go here]", "model": "claude", "provider": "claude"}
+```
+
+| action           | fields |
+|------------------|--------|
+| `list_providers` | — Providers are `claude`, `chatgpt`, `grok` (sorted by name). |
+| `status`         | — `configured` is true once a token has been set. |
+| `set_token`      | `provider`, `token` (non-empty). Held in engine memory only, lost on exit; will move to the system keychain. |
+| `send`           | `provider`, `model`, `user` required; `system` optional. Does not currently require a token. `model` in the reply is the provider name for now. |
+
+Unknown providers, missing fields and unknown actions return `ok: false`.
+
 ### `close`
 
 ```json

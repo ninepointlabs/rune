@@ -197,6 +197,28 @@ def main():
         check(not a.call("new_md")["ok"], "new_md without markdown rejected")
         check(a.call("close", doc_id=md_doc)["ok"], "close new_md doc")
 
+        # --- AI manager (skeleton: no network) ---
+        r = a.call("ai", action="list_providers")
+        check(r["ok"] and sorted(r["providers"]) == ["chatgpt", "claude", "grok"],
+              "ai list_providers returns 3 providers")
+        r = a.call("ai", action="status")
+        check(r["ok"] and r["providers"] == {p: {"configured": False} for p in ("claude", "chatgpt", "grok")},
+              "ai status lists every provider as unconfigured")
+        check(a.call("ai", action="set_token", provider="claude", token="sk-test")["ok"], "ai set_token")
+        r = a.call("ai", action="status")
+        check(r["providers"]["claude"]["configured"] and not r["providers"]["chatgpt"]["configured"],
+              "ai set_token marks only that provider configured")
+        check(not a.call("ai", action="set_token", provider="nope", token="x")["ok"],
+              "ai set_token unknown provider rejected")
+        r = a.call("ai", action="send", provider="claude", model="claude-sonnet-4-6",
+                   system="You are a writing assistant.", user="Improve this paragraph: ...")
+        check(r["ok"] and r["content"] == "[AI response will go here]"
+              and r["model"] == "claude" and r["provider"] == "claude",
+              "ai send returns placeholder content")
+        check(not a.call("ai", action="send", provider="claude", model="m")["ok"],
+              "ai send without user rejected")
+        check(not a.call("ai", action="bogus")["ok"], "ai unknown action rejected")
+
         check(a.call("close", doc_id=doc)["ok"], "close")
         check(a.call("quit")["ok"], "quit")
         engine.wait(timeout=30)

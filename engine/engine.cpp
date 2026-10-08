@@ -13,6 +13,7 @@
 #include <LibreOfficeKit/LibreOfficeKitInit.h>
 #include <LibreOfficeKit/LibreOfficeKit.hxx>
 
+#include "ai_manager.h"
 #include "md_to_html.h"
 
 #include <png.h>
@@ -580,6 +581,8 @@ public:
             return newMd(req, id);
         if (cmd->s == "export_md")
             return exportMd(req, id);
+        if (cmd->s == "ai")
+            return ai(req, id);
         if (cmd->s == "quit") {
             m_quit = true;
             return Reply(id).ok(true).line();
@@ -607,6 +610,7 @@ private:
     };
 
     lok::Office *m_office; // never destroyed; see main()
+    AiManager m_ai;
     std::map<long long, DocState> m_docs;
     long long m_nextDocId = 0;
     bool m_quit = false;
@@ -983,6 +987,44 @@ private:
         m_docs.erase(it);
         logf("closed doc %lld", docId);
         return Reply(id).ok(true).line();
+    }
+
+    std::string ai(const Json &req, const Json *id)
+    {
+        auto field = [&req](const char *key) {
+            const Json *v = req.get(key);
+            return v && v->type == Json::String ? v->s : std::string();
+        };
+        const std::string action = field("action");
+        const std::string provider = field("provider");
+
+        if (action == "list_providers" || action == "status") {
+            std::string out = action == "status" ? "{" : "[";
+            for (const auto &p : m_ai.providers()) {
+                if (out.size() > 1)
+                    out += ',';
+                out += jsonQuote(p.first);
+                if (action == "status")
+                    out += std::string(":{\"configured\":") + (m_ai.hasToken(p.first) ? "true" : "false") + "}";
+            }
+            out += action == "status" ? "}" : "]";
+            return Reply(id).ok(true).raw("providers", out).line();
+        }
+        if (action == "set_token") {
+            if (!m_ai.hasProvider(provider))
+                return errorReply(id, "unknown provider: " + provider);
+            if (!m_ai.setToken(provider, field("token")))
+                return errorReply(id, "missing \"token\"");
+            return Reply(id).ok(true).line();
+        }
+        if (action == "send") {
+            AiManager::Result r = m_ai.sendMessage(provider, field("model"), field("system"), field("user"));
+            if (!r.ok)
+                return errorReply(id, r.error);
+            return Reply(id).ok(true).str("content", r.content).str("model", r.model)
+                .str("provider", provider).line();
+        }
+        return errorReply(id, action.empty() ? "missing \"action\"" : "unknown ai action: " + action);
     }
 };
 
