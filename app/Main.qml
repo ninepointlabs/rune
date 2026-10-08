@@ -377,17 +377,21 @@ Window {
     // Engine key names (VCL codes resolved engine-side).
     readonly property var specialKeys: ({
         [Qt.Key_Return]: "Return", [Qt.Key_Enter]: "Return", [Qt.Key_Backspace]: "Backspace",
-        [Qt.Key_Delete]: "Delete", [Qt.Key_Tab]: "Tab", [Qt.Key_Escape]: "Escape",
+        [Qt.Key_Delete]: "Delete", [Qt.Key_Escape]: "Escape",
         [Qt.Key_Left]: "Left", [Qt.Key_Right]: "Right", [Qt.Key_Up]: "Up", [Qt.Key_Down]: "Down",
         [Qt.Key_Home]: "Home", [Qt.Key_End]: "End",
         [Qt.Key_PageUp]: "PageUp", [Qt.Key_PageDown]: "PageDown"
     })
     // Named keys that change the text (the rest only navigate).
-    readonly property var editingKeys: ["Return", "Backspace", "Delete", "Tab"]
+    readonly property var editingKeys: ["Return", "Backspace", "Delete"]
 
     // Ctrl+key formatting shortcuts.
     readonly property var formatShortcuts: ({
-        [Qt.Key_B]: ".uno:Bold", [Qt.Key_I]: ".uno:Italic", [Qt.Key_U]: ".uno:Underline"
+        [Qt.Key_B]: ".uno:Bold", [Qt.Key_I]: ".uno:Italic", [Qt.Key_U]: ".uno:Underline",
+        // Clear formatting: Ctrl+Space clears character formatting (fonts,
+        // colors, sizes) back to the style; Ctrl+Q resets paragraph
+        // formatting (margins, indents, spacing) to style defaults.
+        [Qt.Key_Space]: ".uno:SetDefault", [Qt.Key_Q]: ".uno:ResetAttributes"
     })
 
     // Ctrl+C/X: the engine returns the selected text; we own the system clipboard.
@@ -433,6 +437,18 @@ Window {
                     pasteClipboard()
                 else
                     copySelection(event.key === Qt.Key_X)
+            }
+            return true
+        }
+        // Tab/Shift+Tab always change list level (Writer's DecrementLevel nests
+        // deeper, IncrementLevel un-nests), even outside a list: we can't tell
+        // from here whether the cursor is in one, so Tab never inserts a literal
+        // tab character. A future shortcut could insert one explicitly.
+        // Qt reports Shift+Tab as Key_Backtab.
+        if ((mods & ~Qt.ShiftModifier) === 0 && (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)) {
+            if (type === "input") {
+                const promote = event.key === Qt.Key_Backtab || mods === Qt.ShiftModifier
+                applyFormat(promote ? ".uno:IncrementLevel" : ".uno:DecrementLevel")
             }
             return true
         }

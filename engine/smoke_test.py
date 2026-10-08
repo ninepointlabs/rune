@@ -233,7 +233,22 @@ def main():
         check(not a.call("format", doc_id=999, command=".uno:Bold")["ok"], "format unknown doc rejected")
         check(not a.call("style", doc_id=999, name="Heading 1")["ok"], "style unknown doc rejected")
         check(not a.call("get_state", doc_id=999)["ok"], "get_state unknown doc rejected")
+
+        # --- Clear formatting / multilevel list (Ctrl+Space, Ctrl+Q, Tab/Shift+Tab) ---
+        check(a.call("format", doc_id=fdoc, command=".uno:SetDefault")["ok"],
+              "format .uno:SetDefault (clear character formatting)")
+        check(a.call("format", doc_id=fdoc, command=".uno:ResetAttributes")["ok"],
+              "format .uno:ResetAttributes (clear paragraph formatting)")
         check(a.call("close", doc_id=fdoc)["ok"], "close formatting doc")
+
+        a.events.clear()
+        r = a.call("new_md", markdown="- item1\n- item2\n")
+        listdoc = r["doc_id"]
+        check(a.call("format", doc_id=listdoc, command=".uno:DecrementLevel")["ok"],
+              "format .uno:DecrementLevel (Tab: demote list item)")
+        check(a.call("format", doc_id=listdoc, command=".uno:IncrementLevel")["ok"],
+              "format .uno:IncrementLevel (Shift+Tab: promote list item)")
+        check(a.call("close", doc_id=listdoc)["ok"], "close list doc")
 
         # --- mouse / copy / cut ---
         a.events.clear()
