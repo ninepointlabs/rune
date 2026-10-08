@@ -250,6 +250,57 @@ def main():
               "format .uno:IncrementLevel (Shift+Tab: promote list item)")
         check(a.call("close", doc_id=listdoc)["ok"], "close list doc")
 
+        # --- Format painter: get_char_style / apply_char_style ---
+        a.events.clear()
+        r = a.call("new_md", markdown="Paint source text\n")
+        pdoc = r["doc_id"]
+        time.sleep(1)
+        a.call("format", doc_id=pdoc, command=".uno:Bold")
+        time.sleep(0.5)
+        r = a.call("get_char_style", doc_id=pdoc)
+        check(r["ok"] and r["style"].get("Bold") is True, f"get_char_style returns Bold: true: {r.get('style')}")
+        check(isinstance(r["style"].get("Color"), int) and isinstance(r["style"].get("CharFontName"), str),
+              "get_char_style has numeric Color and string CharFontName")
+        check(set(r["style"]) <= {"Bold", "Italic", "Underline", "Strikeout", "CharFontName", "FontHeight",
+                                  "Color", "LeftPara", "CenterPara", "RightPara", "JustifyPara"},
+              "get_char_style returns only character/paragraph keys")
+        a.call("close", doc_id=pdoc)
+
+        # new_md defaults to Liberation Serif, so paint a different font.
+        a.events.clear()
+        r = a.call("new_md", markdown="Paint target text\n")
+        tdoc = r["doc_id"]
+        time.sleep(1)
+        a.call("key", doc_id=tdoc, type="input", key_code=VK_HOME | VK_MOD1)
+        a.call("key", doc_id=tdoc, type="up", key_code=VK_HOME | VK_MOD1)
+        for _ in range(5):
+            a.call("key", doc_id=tdoc, type="input", key_code=VK_RIGHT | VK_SHIFT)
+            a.call("key", doc_id=tdoc, type="up", key_code=VK_RIGHT | VK_SHIFT)
+        time.sleep(0.5)
+        before = a.call("get_state", doc_id=tdoc)["state"]
+        check(before.get("CharFontName") != "Liberation Mono" and before.get("Bold") is False,
+              "paint target starts non-bold and not Liberation Mono")
+        r = a.call("apply_char_style", doc_id=tdoc,
+                   style={"Bold": True, "CharFontName": "Liberation Mono", "FontHeight": "14", "Color": 16711680})
+        check(r["ok"], "apply_char_style returns ok")
+        time.sleep(0.5)
+        st = a.call("get_state", doc_id=tdoc)["state"]
+        check(st.get("CharFontName") == "Liberation Mono", f"apply_char_style changed the font: {st.get('CharFontName')!r}")
+        check(st.get("Bold") is True and st.get("FontHeight") == "14" and st.get("Color") == "16711680",
+              "apply_char_style set Bold, FontHeight and Color")
+        # Re-applying must not toggle Bold back off.
+        a.call("apply_char_style", doc_id=tdoc, style={"Bold": True})
+        time.sleep(0.5)
+        check(a.call("get_state", doc_id=tdoc)["state"].get("Bold") is True,
+              "apply_char_style with matching Bold leaves it on")
+        check(a.call("apply_char_style", doc_id=tdoc, style={})["ok"], "apply_char_style empty style is a no-op")
+        check(not a.call("apply_char_style", doc_id=tdoc)["ok"], "apply_char_style without style rejected")
+        check(not a.call("apply_char_style", doc_id=tdoc, style={"Bold": "yes"})["ok"],
+              "apply_char_style non-boolean Bold rejected")
+        check(not a.call("get_char_style", doc_id=999)["ok"], "get_char_style unknown doc rejected")
+        check(not a.call("apply_char_style", doc_id=999, style={})["ok"], "apply_char_style unknown doc rejected")
+        a.call("close", doc_id=tdoc)
+
         # --- mouse / copy / cut ---
         a.events.clear()
         r = a.call("new_md", markdown="Hello clipboard world\n\nSecond paragraph here.\n")

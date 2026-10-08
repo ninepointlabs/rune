@@ -146,6 +146,38 @@ selected. `cut` returns the same and then deletes the selection (a Delete
 key press); with no selection it does nothing. The engine does not touch
 the system clipboard — the client does.
 
+### `get_char_style` / `apply_char_style`
+
+Format painter: snapshot the formatting at the cursor, then apply it to
+another selection.
+
+```json
+→ {"id": 8, "cmd": "get_char_style", "doc_id": 0}
+← {"id": 8, "ok": true, "style": {"Bold": true, "Italic": false, "Underline": false,
+   "Strikeout": false, "CharFontName": "Liberation Sans", "FontHeight": "12", "Color": -1,
+   "LeftPara": true, "CenterPara": false, "RightPara": false, "JustifyPara": false}}
+→ {"id": 9, "cmd": "apply_char_style", "doc_id": 0, "style": {"Bold": true, "CharFontName": "Liberation Sans"}}
+← {"id": 9, "ok": true}
+```
+
+`get_char_style` reads the same STATE_CHANGED cache as `get_state`, limited
+to the keys above; keys LOK hasn't reported yet are omitted. `Color` is a
+number (R*65536 + G*256 + B, -1 = automatic).
+
+`apply_char_style` takes any subset of those keys (others are ignored, so
+`{}` is a no-op):
+
+| key | effect |
+|-----|--------|
+| `Bold`, `Italic`, `Underline`, `Strikeout` | Booleans. These UNO commands toggle, so each is sent only when the cached state at the selection differs from the target. |
+| `CharFontName` | Font name, always set. `""` (mixed selection) is skipped. |
+| `FontHeight` | Size in points (string or number), always set. `""` is skipped. |
+| `Color` | -1 (automatic) or 0..16777215, set like `color`. |
+| `LeftPara` … `JustifyPara` | The first `true` one sets the paragraph alignment. |
+
+Values are validated before anything is applied; a bad one fails the whole
+command.
+
 ### Push events
 
 Lines without an `id`, sent to every client. All carry `event` and `doc_id`.

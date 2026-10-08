@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <thread>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -792,6 +793,10 @@ public:
             return color(req, id);
         if (cmd->s == "get_state")
             return getState(req, id);
+        if (cmd->s == "get_char_style")
+            return getCharStyle(req, id);
+        if (cmd->s == "apply_char_style")
+            return applyCharStyle(req, id);
         if (cmd->s == "ai")
             return ai(req, id);
         if (cmd->s == "quit") {
@@ -1149,7 +1154,19 @@ private:
 
         if (!md->s.empty()) {
             const std::string html = mdToHtml(md->s);
-            if (!doc->paste("text/html", html.data(), html.size()))
+            // A fresh factory document's edit view can still be settling when
+            // many documents have cycled through this process; paste() can
+            // transiently fail right after documentLoad(). Not seen on a
+            // freshly-started engine, only after several prior open/closes,
+            // so retry briefly rather than failing a document that is
+            // otherwise perfectly fine.
+            bool pasted = false;
+            for (int attempt = 0; attempt < 5 && !pasted; ++attempt) {
+                if (attempt > 0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                pasted = doc->paste("text/html", html.data(), html.size());
+            }
+            if (!pasted)
                 return errorReply(id, "paste failed for text/html");
         }
         return addDoc(std::move(doc), id, "(new markdown document)", {});
@@ -1449,10 +1466,16 @@ private:
         long long value;
         if (!parseColor(hex->s, value))
             return errorReply(id, "invalid \"hex\": " + hex->s + " (#RRGGBB or auto)");
-        const std::string args = "{\"Color\":{\"type\":\"long\",\"value\":" + std::to_string(value) + "}}";
-        st->doc->postUnoCommand(".uno:Color", args.c_str());
+        setColor(*st, value);
         st->dirty = true;
         return Reply(id).ok(true).line();
+    }
+
+    // value: R*65536 + G*256 + B, or -1 for the automatic color.
+    static void setColor(DocState &st, long long value)
+    {
+        const std::string args = "{\"Color\":{\"type\":\"long\",\"value\":" + std::to_string(value) + "}}";
+        st.doc->postUnoCommand(".uno:Color", args.c_str());
     }
 
     // Applies a paragraph style to the paragraph(s) at the cursor.
@@ -1491,6 +1514,140 @@ private:
             state += jsonQuote(key) + ':' + value;
         }
         return Reply(id).ok(true).raw("state", state + "}").line();
+    }
+
+    // Format painter. Toggle commands flip the state, so they are only sent
+    // when the cached value differs from the target; the rest set a value.
+    static constexpr const char *kToggleKeys[] = {"Bold", "Italic", "Underline", "Strikeout"};
+    static constexpr const char *kAlignKeys[] = {"LeftPara", "CenterPara", "RightPara", "JustifyPara"};
+
+    // Character + paragraph formatting snapshot at the cursor, from the same
+    // STATE_CHANGED cache as get_state. Color is a number (-1 = automatic).
+    std::string getCharStyle(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        std::vector<const char *> keys(std::begin(kToggleKeys), std::end(kToggleKeys));
+        keys.insert(keys.end(), {"CharFontName", "FontHeight", "Color"});
+        keys.insert(keys.end(), std::begin(kAlignKeys), std::end(kAlignKeys));
+        std::string style = "{";
+        for (const char *key : keys) {
+            auto it = st->state.find(key);
+            if (it == st->state.end())
+                continue;
+            std::string value = it->second;
+            long long color;
+            if (std::strcmp(key, "Color") == 0) {
+                if (!parseStateColor(value, color))
+                    continue; // e.g. "disabled"
+                value = std::to_string(color);
+            }
+            if (style.size() > 1)
+                style += ',';
+            style += jsonQuote(key) + ':' + value;
+        }
+        return Reply(id).ok(true).raw("style", style + "}").line();
+    }
+
+    // A cached Color value ("\"16711680\"") -> number; false if not one.
+    static bool parseStateColor(const std::string &json, long long &out)
+    {
+        if (json.size() < 3 || json.front() != '"' || json.back() != '"')
+            return false;
+        const std::string s = json.substr(1, json.size() - 2);
+        auto [next, ec] = std::from_chars(s.data(), s.data() + s.size(), out);
+        return ec == std::errc() && next == s.data() + s.size();
+    }
+
+    // Applies a get_char_style snapshot to the selection. Unknown keys are
+    // ignored and empty values (mixed selection) skipped; everything is
+    // validated before any command is sent.
+    std::string applyCharStyle(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *style = req.get("style");
+        if (!style || style->type != Json::Object)
+            return errorReply(id, "\"style\" must be an object");
+
+        std::vector<std::pair<std::string, std::string>> commands; // (command, args or "")
+        for (const char *key : kToggleKeys) {
+            const Json *v = style->get(key);
+            if (!v)
+                continue;
+            if (v->type != Json::Bool)
+                return errorReply(id, std::string("\"") + key + "\" must be true or false");
+            auto it = st->state.find(key);
+            const bool current = it != st->state.end() && it->second == "true";
+            if (current != v->b)
+                commands.emplace_back(std::string(".uno:") + key, "");
+        }
+        if (const Json *v = style->get("CharFontName")) {
+            if (v->type != Json::String)
+                return errorReply(id, "\"CharFontName\" must be a string");
+            std::string args, error;
+            if (!v->s.empty()) {
+                if (!unoArgs(".uno:CharFontName", v->s, args, error))
+                    return errorReply(id, error);
+                commands.emplace_back(".uno:CharFontName", args);
+            }
+        }
+        if (const Json *v = style->get("FontHeight")) {
+            std::string size;
+            if (v->type == Json::String) {
+                size = v->s;
+            } else if (v->type == Json::Number) {
+                char buf[32];
+                std::snprintf(buf, sizeof buf, "%g", v->n);
+                size = buf;
+            } else {
+                return errorReply(id, "\"FontHeight\" must be a string or number");
+            }
+            std::string args, error;
+            if (!size.empty()) {
+                if (!unoArgs(".uno:FontHeight", size, args, error))
+                    return errorReply(id, error);
+                commands.emplace_back(".uno:FontHeight", args);
+            }
+        }
+        long long color = 0;
+        bool hasColor = false;
+        if (const Json *v = style->get("Color")) {
+            if (v->type != Json::Number || std::trunc(v->n) != v->n || v->n < -1 || v->n > 0xFFFFFF)
+                return errorReply(id, "\"Color\" must be -1 (automatic) or 0..16777215");
+            color = static_cast<long long>(v->n);
+            hasColor = true;
+        }
+        for (const char *key : kAlignKeys) {
+            const Json *v = style->get(key);
+            if (v && v->type != Json::Bool)
+                return errorReply(id, std::string("\"") + key + "\" must be true or false");
+            if (v && v->b) {
+                commands.emplace_back(std::string(".uno:") + key, "");
+                break;
+            }
+        }
+
+        for (const auto &[command, args] : commands) {
+            if (args.empty())
+                st->doc->postUnoCommand(command.c_str());
+            else
+                st->doc->postUnoCommand(command.c_str(), args.c_str());
+        }
+        if (hasColor)
+            setColor(*st, color);
+        // Toggles are async: record the target now so a second apply before
+        // STATE_CHANGED arrives does not flip them back.
+        for (const char *key : kToggleKeys)
+            if (const Json *v = style->get(key))
+                st->state[key] = v->b ? "true" : "false";
+        if (!commands.empty() || hasColor)
+            st->dirty = true;
+        return Reply(id).ok(true).line();
     }
 
     std::string close(const Json &req, const Json *id)

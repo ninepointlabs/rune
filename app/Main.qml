@@ -76,6 +76,14 @@ Window {
     // Formatting at the cursor from get_state: {Bold: true, StyleApply: "Heading 1", ...}.
     property var formattingState: ({})
 
+    // Format painter: paintedStyle (from get_char_style) is applied to the
+    // next click/selection; sticky mode (double-click) keeps painting until Esc.
+    property bool paintMode: false
+    property bool paintModeSticky: false
+    property var paintedStyle: null
+    // A document click/drag in paint mode is waiting for its selection to settle.
+    property bool paintPending: false
+
     // Path of the document on screen; empty for a new, never-saved one.
     property string currentPath: documentPath
     readonly property string documentName: currentPath
@@ -144,8 +152,8 @@ Window {
         switch (ev.event) {
         case "tiles_changed": markDirty(ev.y, ev.height); break
         // Typing moves the cursor; re-render the page it is on.
-        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); fetchFormatState(); break
-        case "selection_changed": updateSelection(ev); fetchFormatState(); break
+        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); fetchFormatState(); settlePaint(); break
+        case "selection_changed": updateSelection(ev); fetchFormatState(); settlePaint(); break
         case "cursor_visible": cursorVisible = ev.visible; break
         case "size_changed": if (ev.page_rects) setPageRects(ev.page_rects, true); break
         case "autosaved": dirty = false; break
@@ -274,6 +282,57 @@ Window {
                 else
                     console.warn("get_state failed: " + r.error)
             })
+        }
+    }
+
+    // Captures the formatting at the cursor and enters paint mode.
+    function startPaintMode(sticky) {
+        const doc = docId
+        if (doc < 0)
+            return
+        paintPending = false
+        paintModeSticky = sticky
+        paintMode = true
+        bridge.send({ cmd: "get_char_style", doc_id: doc }, function (r) {
+            if (doc !== root.docId)
+                return
+            if (r.ok) {
+                root.paintedStyle = r.style
+            } else {
+                console.warn("get_char_style failed: " + r.error)
+                root.exitPaintMode()
+            }
+        })
+    }
+
+    function exitPaintMode() {
+        paintMode = false
+        paintModeSticky = false
+        paintPending = false
+    }
+
+    // Selection/cursor events after a paint click: wait for them to settle
+    // so the engine's cached state reflects the new selection.
+    function settlePaint() {
+        if (paintPending)
+            paintTimer.restart()
+    }
+
+    Timer {
+        id: paintTimer
+        interval: 150
+        onTriggered: {
+            if (!root.paintPending || !root.paintMode || root.docId < 0 || !root.paintedStyle)
+                return
+            root.paintPending = false
+            root.markEdited()
+            bridge.send({ cmd: "apply_char_style", doc_id: root.docId, style: root.paintedStyle }, function (r) {
+                if (!r.ok)
+                    console.warn("apply_char_style failed: " + r.error)
+            })
+            root.fetchFormatState()
+            if (!root.paintModeSticky)
+                root.exitPaintMode()
         }
     }
 
@@ -454,6 +513,12 @@ Window {
         }
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
             return false
+        // Escape leaves format painter mode instead of reaching the document.
+        if (event.key === Qt.Key_Escape && paintMode) {
+            if (type === "input")
+                exitPaintMode()
+            return true
+        }
         const cmd = { cmd: "key", doc_id: docId, type: type, char_code: 0, key_code: 0 }
         const name = specialKeys[event.key]
         if (name !== undefined)
@@ -648,6 +713,7 @@ Window {
         property bool alwaysEnabled: false
         readonly property bool usable: alwaysEnabled || root.docId >= 0
         signal clicked()
+        signal doubleClicked()
 
         width: fixedWidth > 0 ? fixedWidth : Math.max(28, buttonText.implicitWidth + 14)
         height: 28
@@ -674,6 +740,7 @@ Window {
             hoverEnabled: true
             enabled: button.usable
             onClicked: button.clicked()
+            onDoubleClicked: button.doubleClicked()
         }
 
         Rectangle {
@@ -875,6 +942,16 @@ Window {
                     color: root.currentColorHex === "auto" ? theme.foreground : root.currentColorHex
                 }
             }
+
+            ToolButton {
+                label: "🖌"
+                tip: "Format painter: click to copy formatting once, double-click to keep painting (Esc stops)"
+                active: root.paintMode
+                // A double-click arrives as clicked then doubleClicked; the
+                // first click captures, the second makes the mode sticky.
+                onClicked: root.paintMode ? root.exitPaintMode() : root.startPaintMode(false)
+                onDoubleClicked: root.startPaintMode(true)
+            }
         }
 
         Rectangle {
@@ -970,7 +1047,7 @@ Window {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton
             preventStealing: true
-            cursorShape: Qt.IBeamCursor
+            cursorShape: root.paintMode ? Qt.CrossCursor : Qt.IBeamCursor
             onPressed: function (mouse) {
                 view.forceActiveFocus()
                 root.sendMouse("down", mouse.x, mouse.y)
@@ -979,7 +1056,13 @@ Window {
                 if (pressed)
                     root.sendMouse("move", mouse.x, mouse.y)
             }
-            onReleased: function (mouse) { root.sendMouse("up", mouse.x, mouse.y) }
+            onReleased: function (mouse) {
+                root.sendMouse("up", mouse.x, mouse.y)
+                if (root.paintMode) {
+                    root.paintPending = true
+                    paintTimer.restart()
+                }
+            }
         }
 
         Repeater {
