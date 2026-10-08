@@ -76,7 +76,26 @@ Window {
     // Formatting at the cursor from get_state: {Bold: true, StyleApply: "Heading 1", ...}.
     property var formattingState: ({})
 
-    readonly property string documentName: documentPath.substring(documentPath.lastIndexOf("/") + 1)
+    // Path of the document on screen; empty for a new, never-saved one.
+    property string currentPath: documentPath
+    readonly property string documentName: currentPath
+        ? currentPath.substring(currentPath.lastIndexOf("/") + 1) : "Untitled"
+
+    readonly property var fontNames: ["Liberation Sans", "Liberation Serif", "Liberation Mono",
+                                      "DejaVu Sans", "DejaVu Serif", "Noto Sans"]
+    readonly property var fontSizes: [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
+    // Text color presets: [label, engine hex]; "auto" is the default color.
+    readonly property var textColors: [["Automatic", "auto"], ["Black", "#000000"], ["Red", "#cc0000"],
+                                       ["Blue", "#0066cc"], ["Green", "#009933"]]
+    readonly property real currentFontSize: parseFloat(formattingState.FontHeight)
+    // Text color at the cursor as "#rrggbb", or "auto" (state reports -1).
+    readonly property string currentColorHex: {
+        const c = Number(formattingState.Color)
+        return formattingState.Color === undefined || !(c >= 0) ? "auto"
+            : "#" + c.toString(16).padStart(6, "0")
+    }
+    // Index into textColors of the color at the cursor; -1 for other colors.
+    readonly property int currentColorIndex: textColors.findIndex(t => t[1] === currentColorHex)
 
     width: 1000
     height: 1100
@@ -112,6 +131,8 @@ Window {
         }
     }
 
+    ClipboardHelper { id: clipboard }
+
     Component.onCompleted: {
         bridge.onEvent = handleEvent
         bridge.connectToEngine()
@@ -134,6 +155,10 @@ Window {
     function save() {
         if (docId < 0)
             return
+        if (!currentPath) {
+            flashStatus("Save As is not yet implemented; this document has no file yet")
+            return
+        }
         const seq = editSeq
         bridge.send({ cmd: "save", doc_id: docId }, function (r) {
             if (!r.ok) {
@@ -147,16 +172,68 @@ Window {
         })
     }
 
-    // Character/paragraph formatting via a .uno: command (".uno:Bold", ...).
-    function applyFormat(command) {
+    // Character/paragraph formatting via a .uno: command (".uno:Bold", ...),
+    // with an optional value ("Liberation Serif" for .uno:CharFontName).
+    function applyFormat(command, args) {
         if (docId < 0)
             return
         markEdited()
-        bridge.send({ cmd: "format", doc_id: docId, command: command }, function (r) {
+        const cmd = { cmd: "format", doc_id: docId, command: command }
+        if (args !== undefined)
+            cmd.args = String(args)
+        bridge.send(cmd, function (r) {
             if (!r.ok)
                 console.warn("format " + command + " failed: " + r.error)
         })
         fetchFormatState()
+    }
+
+    // Text color: "#RRGGBB" or "auto".
+    function applyColor(hex) {
+        if (docId < 0)
+            return
+        markEdited()
+        bridge.send({ cmd: "color", doc_id: docId, hex: hex }, function (r) {
+            if (!r.ok)
+                console.warn("color " + hex + " failed: " + r.error)
+        })
+        fetchFormatState()
+    }
+
+    function cycleFont() {
+        const i = fontNames.indexOf(formattingState.CharFontName)
+        applyFormat(".uno:CharFontName", fontNames[(i + 1) % fontNames.length])
+    }
+
+    // Steps the font size to the next preset up (+1) or down (-1).
+    function stepFontSize(direction) {
+        const cur = isNaN(currentFontSize) ? 12 : currentFontSize
+        const next = direction > 0 ? fontSizes.find(s => s > cur)
+                                   : fontSizes.slice().reverse().find(s => s < cur)
+        if (next !== undefined)
+            applyFormat(".uno:FontHeight", next)
+    }
+
+    function cycleColor() {
+        applyColor(textColors[(currentColorIndex + 1) % textColors.length][1])
+    }
+
+    // Opens a blank document in place of the current one.
+    function newDocument() {
+        if (!bridge.connected)
+            return
+        const previous = docId, wasDirty = dirty
+        bridge.send({ cmd: "new_md", markdown: "" }, function (r) {
+            if (!r.ok) {
+                flashStatus("New document failed: " + r.error)
+                return
+            }
+            // A dirty document stays open so its autosave recovery copy survives.
+            if (previous >= 0 && !wasDirty)
+                bridge.send({ cmd: "close", doc_id: previous }, function () {})
+            currentPath = ""
+            adoptDocument(r)
+        })
     }
 
     // Paragraph style by engine name ("Normal", "Heading 1", ...).
@@ -217,6 +294,10 @@ Window {
 
     function updateCursor(ev) {
         cursorTwips = [ev.x, ev.y, ev.width, ev.height]
+        // LOK's CURSOR_VISIBLE callback is unreliable (observed: it never
+        // fires after clicks or typing in this build), so treat any cursor
+        // position update as "now visible" ourselves.
+        cursorVisible = true
         cursorOverlay.opacity = 1
         blink.restart()
         if (Date.now() - lastKeyTime < 1000)
@@ -267,6 +348,32 @@ Window {
         }
     }
 
+    // Inverse of twipsToView: content point -> {x, y} twips (integers, as
+    // the engine requires), or null before the layout exists.
+    function viewToTwips(vx, vy) {
+        if (pageLayout.length === 0 || pageLayout.length !== pageRects.length || twipsScale <= 0)
+            return null
+        const i = pageIndexForViewY(vy)
+        const box = pageLayout[i], p = pageRects[i]
+        return {
+            x: Math.round(p[0] + (vx - box.x) / twipsScale),
+            y: Math.round(p[1] + (vy - box.y) / twipsScale)
+        }
+    }
+
+    function sendMouse(type, vx, vy) {
+        if (docId < 0)
+            return
+        const t = viewToTwips(vx, vy)
+        if (!t)
+            return
+        bridge.send({ cmd: "mouse", doc_id: docId, type: type, x: t.x, y: t.y,
+                      count: 1, buttons: 1, modifiers: 0 }, function (r) {
+            if (!r.ok)
+                console.warn("mouse " + type + " failed: " + r.error)
+        })
+    }
+
     // Engine key names (VCL codes resolved engine-side).
     readonly property var specialKeys: ({
         [Qt.Key_Return]: "Return", [Qt.Key_Enter]: "Return", [Qt.Key_Backspace]: "Backspace",
@@ -283,6 +390,32 @@ Window {
         [Qt.Key_B]: ".uno:Bold", [Qt.Key_I]: ".uno:Italic", [Qt.Key_U]: ".uno:Underline"
     })
 
+    // Ctrl+C/X: the engine returns the selected text; we own the system clipboard.
+    function copySelection(cut) {
+        bridge.send({ cmd: cut ? "cut" : "copy", doc_id: docId }, function (r) {
+            if (!r.ok) {
+                console.warn((cut ? "cut" : "copy") + " failed: " + r.error)
+                return
+            }
+            if (r.text) {
+                clipboard.setText(r.text)
+                if (cut)
+                    markEdited()
+            }
+        })
+    }
+
+    function pasteClipboard() {
+        const text = clipboard.text()
+        if (!text)
+            return
+        markEdited()
+        bridge.send({ cmd: "paste", doc_id: docId, mime_type: "text/plain", data: text }, function (r) {
+            if (!r.ok)
+                console.warn("paste failed: " + r.error)
+        })
+    }
+
     // Returns false for keys we don't forward (modifiers alone, other Ctrl/Alt shortcuts).
     function forwardKey(type, event) {
         if (docId < 0)
@@ -291,6 +424,16 @@ Window {
         if (mods === Qt.ControlModifier && formatShortcuts[event.key] !== undefined) {
             if (type === "input" && !event.isAutoRepeat)
                 applyFormat(formatShortcuts[event.key])
+            return true
+        }
+        if (mods === Qt.ControlModifier
+                && (event.key === Qt.Key_C || event.key === Qt.Key_X || event.key === Qt.Key_V)) {
+            if (type === "input" && !event.isAutoRepeat) {
+                if (event.key === Qt.Key_V)
+                    pasteClipboard()
+                else
+                    copySelection(event.key === Qt.Key_X)
+            }
             return true
         }
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
@@ -351,16 +494,30 @@ Window {
                 errorText = "Could not open " + documentName + ": " + r.error
                 return
             }
-            docId = r.doc_id
-            view.contentY = 0
-            // Autosave is always on; the engine writes recovery copies every 30 s.
-            bridge.send({ cmd: "autosave", doc_id: docId, enabled: true }, function (a) {
-                if (!a.ok)
-                    console.warn("autosave enable failed: " + a.error)
-            })
-            setPageRects(r.page_rects || [r.page_rect], false)
-            fetchFormatState()
+            currentPath = documentPath
+            adoptDocument(r)
         })
+    }
+
+    // Shows the document from an open/new_md reply, dropping the previous one's view state.
+    function adoptDocument(r) {
+        docId = r.doc_id
+        errorText = ""
+        renderQueue = []
+        dirtyPages = {}
+        cursorVisible = false
+        selectionRects = []
+        formattingState = {}
+        dirty = false
+        pageTiles.clear()
+        view.contentY = 0
+        // Autosave is always on; the engine writes recovery copies every 30 s.
+        bridge.send({ cmd: "autosave", doc_id: docId, enabled: true }, function (a) {
+            if (!a.ok)
+                console.warn("autosave enable failed: " + a.error)
+        })
+        setPageRects(r.page_rects || [r.page_rect], false)
+        fetchFormatState()
     }
 
     // Adopts a new page list; with invalidate, every kept tile is marked stale.
@@ -460,25 +617,33 @@ Window {
             pageTiles.set(loaded[k], { tile: "", stale: false })
     }
 
-    // A toolbar button: shows `label`, highlighted while `active`.
+    // A toolbar button: shows `label`, highlighted while `active`, with
+    // `tip` shown below it on hover. `fixedWidth` > 0 elides the label.
     component ToolButton: Rectangle {
         id: button
         property string label
+        property string tip
         property bool active: false
         property bool bold: false
         property bool italic: false
         property bool underline: false
+        property int fixedWidth: 0
+        // Usable without a document (New, Quit).
+        property bool alwaysEnabled: false
+        readonly property bool usable: alwaysEnabled || root.docId >= 0
         signal clicked()
 
-        width: Math.max(28, buttonText.implicitWidth + 14)
+        width: fixedWidth > 0 ? fixedWidth : Math.max(28, buttonText.implicitWidth + 14)
         height: 28
         radius: 4
         color: active ? theme.accent : mouse.containsMouse ? Qt.alpha(theme.foreground, 0.1) : "transparent"
-        opacity: root.docId >= 0 ? 1 : 0.5
+        opacity: usable ? 1 : 0.5
 
         Text {
             id: buttonText
-            anchors.centerIn: parent
+            anchors { verticalCenter: parent.verticalCenter; left: parent.left; right: parent.right; margins: 7 }
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
             text: button.label
             color: button.active ? theme.background : theme.foreground
             font.pixelSize: 13
@@ -491,8 +656,44 @@ Window {
             id: mouse
             anchors.fill: parent
             hoverEnabled: true
-            enabled: root.docId >= 0
+            enabled: button.usable
             onClicked: button.clicked()
+        }
+
+        Rectangle {
+            id: tooltip
+            visible: button.tip !== "" && mouse.containsMouse && tipDelay.elapsed
+            // Below the button, centered, kept inside the window.
+            x: {
+                const want = (button.width - width) / 2
+                const left = button.mapToItem(null, 0, 0).x
+                return Math.max(-left + 4, Math.min(want, root.width - left - width - 4))
+            }
+            y: button.height + 6
+            z: 100
+            width: tipText.implicitWidth + 12
+            height: tipText.implicitHeight + 6
+            radius: 3
+            color: theme.background
+            border.color: theme.muted
+            border.width: 1
+
+            Text {
+                id: tipText
+                anchors.centerIn: parent
+                text: button.tip
+                color: theme.foreground
+                font.pixelSize: 11
+            }
+
+            Timer {
+                id: tipDelay
+                property bool elapsed: false
+                interval: 400
+                running: mouse.containsMouse
+                onRunningChanged: if (!running) elapsed = false
+                onTriggered: elapsed = true
+            }
         }
     }
 
@@ -503,10 +704,12 @@ Window {
         color: theme.muted
     }
 
+    // File actions, above the formatting toolbar.
     Rectangle {
-        id: toolbar
+        id: fileBar
         anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: 40
+        height: 32
+        z: 3 // tooltips overlap the toolbar below
         color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
 
         Row {
@@ -514,17 +717,58 @@ Window {
             spacing: 4
 
             ToolButton {
-                label: "B"; bold: true
+                label: "+ New"; tip: "New document"
+                alwaysEnabled: bridge.connected
+                onClicked: root.newDocument()
+            }
+            ToolButton {
+                label: "Open"; tip: "Open document"
+                alwaysEnabled: true
+                onClicked: root.flashStatus("File → Open not yet implemented")
+            }
+            ToolButton {
+                label: "Save"; tip: "Save (Ctrl+S)"
+                onClicked: root.save()
+            }
+        }
+
+        ToolButton {
+            anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 4 }
+            label: "Quit"; tip: "Quit Rune"
+            alwaysEnabled: true
+            onClicked: Qt.quit()
+        }
+    }
+
+    Rectangle {
+        id: toolbar
+        anchors { left: parent.left; right: parent.right; top: fileBar.bottom }
+        height: 40
+        z: 2 // tooltips overlap the document view
+        color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
+
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: 1
+            color: Qt.alpha(theme.muted, 0.5)
+        }
+
+        Row {
+            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
+            spacing: 4
+
+            ToolButton {
+                label: "B"; bold: true; tip: "Bold (Ctrl+B)"
                 active: root.formattingState.Bold === true
                 onClicked: root.applyFormat(".uno:Bold")
             }
             ToolButton {
-                label: "I"; italic: true
+                label: "I"; italic: true; tip: "Italic (Ctrl+I)"
                 active: root.formattingState.Italic === true
                 onClicked: root.applyFormat(".uno:Italic")
             }
             ToolButton {
-                label: "U"; underline: true
+                label: "U"; underline: true; tip: "Underline (Ctrl+U)"
                 active: root.formattingState.Underline === true
                 onClicked: root.applyFormat(".uno:Underline")
             }
@@ -532,10 +776,12 @@ Window {
             ToolSeparator {}
 
             Repeater {
-                model: [["Normal", "Normal"], ["H1", "Heading 1"], ["H2", "Heading 2"], ["H3", "Heading 3"]]
+                model: [["Normal", "Normal", "Normal paragraph"], ["H1", "Heading 1", "Heading 1"],
+                        ["H2", "Heading 2", "Heading 2"], ["H3", "Heading 3", "Heading 3"]]
                 ToolButton {
                     required property var modelData
                     label: modelData[0]
+                    tip: modelData[2]
                     active: root.styleActive(modelData[1])
                     onClicked: root.applyStyle(modelData[1])
                 }
@@ -544,12 +790,12 @@ Window {
             ToolSeparator {}
 
             ToolButton {
-                label: "•"
+                label: "•"; tip: "Bullet list"
                 active: root.formattingState.DefaultBullet === true
                 onClicked: root.applyFormat(".uno:DefaultBullet")
             }
             ToolButton {
-                label: "1."
+                label: "1."; tip: "Numbered list"
                 active: root.formattingState.DefaultNumbering === true
                 onClicked: root.applyFormat(".uno:DefaultNumbering")
             }
@@ -557,12 +803,60 @@ Window {
             ToolSeparator {}
 
             Repeater {
-                model: [["L", "LeftPara"], ["C", "CenterPara"], ["R", "RightPara"]]
+                model: [["L", "LeftPara", "Align left"], ["C", "CenterPara", "Align center"],
+                        ["R", "RightPara", "Align right"]]
                 ToolButton {
                     required property var modelData
                     label: modelData[0]
+                    tip: modelData[2]
                     active: root.formattingState[modelData[1]] === true
                     onClicked: root.applyFormat(".uno:" + modelData[1])
+                }
+            }
+
+            ToolSeparator {}
+
+            ToolButton {
+                fixedWidth: 130
+                label: (root.formattingState.CharFontName || "Font") + " ▾"
+                tip: "Font: click for next (" + root.fontNames.join(", ") + ")"
+                border.color: Qt.alpha(theme.foreground, 0.2)
+                border.width: 1
+                onClicked: root.cycleFont()
+            }
+
+            ToolButton {
+                label: "−"; tip: "Decrease font size"
+                onClicked: root.stepFontSize(-1)
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 40
+                horizontalAlignment: Text.AlignHCenter
+                text: isNaN(root.currentFontSize) ? "—" : root.currentFontSize + "pt"
+                color: theme.foreground
+                opacity: root.docId >= 0 ? 1 : 0.5
+                font.pixelSize: 13
+            }
+            ToolButton {
+                label: "+"; tip: "Increase font size"
+                onClicked: root.stepFontSize(1)
+            }
+
+            ToolSeparator {}
+
+            ToolButton {
+                readonly property var current: root.currentColorIndex >= 0
+                    ? root.textColors[root.currentColorIndex] : ["Custom", ""]
+                label: "A"; bold: true
+                tip: "Text color: " + current[0] + " (click for next)"
+                onClicked: root.cycleColor()
+
+                // Swatch of the color at the cursor; automatic shows as the foreground.
+                Rectangle {
+                    anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
+                    width: 16; height: 3; radius: 1
+                    color: root.currentColorHex === "auto" ? theme.foreground : root.currentColorHex
                 }
             }
         }
@@ -649,6 +943,27 @@ Window {
                     onStatusChanged: if (status === Image.Ready) root.pageShown = true
                 }
             }
+        }
+
+        // Click places the cursor, left-drag selects (coordinates go to the
+        // engine as twips). preventStealing keeps the Flickable from turning
+        // a drag into a scroll mid-selection; wheel/touchpad scrolling is
+        // unaffected since this MouseArea has no wheel handler.
+        MouseArea {
+            id: docMouse
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            preventStealing: true
+            cursorShape: Qt.IBeamCursor
+            onPressed: function (mouse) {
+                view.forceActiveFocus()
+                root.sendMouse("down", mouse.x, mouse.y)
+            }
+            onPositionChanged: function (mouse) {
+                if (pressed)
+                    root.sendMouse("move", mouse.x, mouse.y)
+            }
+            onReleased: function (mouse) { root.sendMouse("up", mouse.x, mouse.y) }
         }
 
         Repeater {

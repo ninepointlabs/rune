@@ -9,7 +9,7 @@ qt_add_qml_module(rune
     URI Rune
     VERSION 1.0
     QML_FILES Main.qml
-    SOURCES BridgeSocket.h BridgeSocket.cpp
+    SOURCES BridgeSocket.h BridgeSocket.cpp ClipboardHelper.h ClipboardHelper.cpp
 )
 
 target_compile_definitions(rune PRIVATE

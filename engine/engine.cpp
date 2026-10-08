@@ -578,6 +578,56 @@ const std::map<std::string, const char *> kParaStyles = {
     {"Heading 1", "Heading 1"}, {"Heading 2", "Heading 2"}, {"Heading 3", "Heading 3"},
 };
 
+// `format` args -> the LOK typed-argument JSON postUnoCommand expects. A
+// JSON object passes through; a plain value is wrapped for the commands
+// that take one (font name, size in points).
+bool unoArgs(const std::string &command, const std::string &value, std::string &out, std::string &error)
+{
+    if (!value.empty() && value[0] == '{') {
+        Json j;
+        if (!JsonParser(value).parse(j) || j.type != Json::Object) {
+            error = "\"args\" is not a JSON object";
+            return false;
+        }
+        out = value;
+        return true;
+    }
+    if (command == ".uno:CharFontName") {
+        if (value.empty()) {
+            error = "empty font name";
+            return false;
+        }
+        out = "{\"CharFontName.FamilyName\":{\"type\":\"string\",\"value\":" + jsonQuote(value) + "}}";
+        return true;
+    }
+    if (command == ".uno:FontHeight") {
+        char *end = nullptr;
+        const double pt = std::strtod(value.c_str(), &end);
+        if (value.empty() || *end != '\0' || !(pt >= 1 && pt <= 999)) {
+            error = "invalid font size: " + value;
+            return false;
+        }
+        out = "{\"FontHeight.Height\":{\"type\":\"float\",\"value\":" + jsonQuote(value) + "}}";
+        return true;
+    }
+    error = "plain \"args\" not supported for " + command + "; pass a JSON object";
+    return false;
+}
+
+// "#RRGGBB" -> R*65536 + G*256 + B; "auto" -> -1 (COL_AUTO as a UNO long).
+bool parseColor(const std::string &hex, long long &value)
+{
+    if (hex == "auto") {
+        value = -1;
+        return true;
+    }
+    if (hex.size() != 7 || hex[0] != '#'
+        || hex.find_first_not_of("0123456789abcdefABCDEF", 1) != std::string::npos)
+        return false;
+    value = std::stoll(hex.substr(1), nullptr, 16);
+    return true;
+}
+
 // VCL key codes (vcl/keycodes.hxx, == css::awt::Key), which is not installed
 // with the SDK. Values checked against offapi.rdb for LO 26.8.
 const std::map<std::string, int> kKeyNames = {
@@ -720,6 +770,12 @@ public:
             return key(req, id);
         if (cmd->s == "paste")
             return paste(req, id);
+        if (cmd->s == "mouse")
+            return mouse(req, id);
+        if (cmd->s == "copy")
+            return copy(req, id, false);
+        if (cmd->s == "cut")
+            return copy(req, id, true);
         if (cmd->s == "new_md")
             return newMd(req, id);
         if (cmd->s == "export_md")
@@ -732,6 +788,8 @@ public:
             return format(req, id);
         if (cmd->s == "style")
             return style(req, id);
+        if (cmd->s == "color")
+            return color(req, id);
         if (cmd->s == "get_state")
             return getState(req, id);
         if (cmd->s == "ai")
@@ -1293,6 +1351,63 @@ private:
         return Reply(id).ok(true).line();
     }
 
+    // x/y in document twips, like tile and cursor coordinates.
+    std::string mouse(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        lok::Document *doc = st->doc.get();
+
+        const Json *type = req.get("type");
+        int lokType;
+        if (type && type->type == Json::String && type->s == "down")
+            lokType = LOK_MOUSEEVENT_MOUSEBUTTONDOWN;
+        else if (type && type->type == Json::String && type->s == "move")
+            lokType = LOK_MOUSEEVENT_MOUSEMOVE;
+        else if (type && type->type == Json::String && type->s == "up")
+            lokType = LOK_MOUSEEVENT_MOUSEBUTTONUP;
+        else
+            return errorReply(id, "\"type\" must be \"down\", \"move\" or \"up\"");
+
+        long long x, y, count = 1, buttons = 1, modifiers = 0;
+        if (!getInt(req, "x", x) || !getInt(req, "y", y) || x < INT_MIN || x > INT_MAX
+            || y < INT_MIN || y > INT_MAX)
+            return errorReply(id, "\"x\" and \"y\" must be integers");
+        if ((req.get("count") && !getInt(req, "count", count))
+            || (req.get("buttons") && !getInt(req, "buttons", buttons))
+            || (req.get("modifiers") && !getInt(req, "modifiers", modifiers)) || count < 1
+            || count > 3 || buttons < 0 || buttons > 0xFFFF || modifiers < 0 || modifiers > 0xFFFF)
+            return errorReply(id, "invalid count/buttons/modifiers");
+
+        doc->postMouseEvent(lokType, int(x), int(y), int(count), int(buttons), int(modifiers));
+        return Reply(id).ok(true).line();
+    }
+
+    // Selected text as UTF-8; `cut` then deletes the selection.
+    std::string copy(const Json &req, const Json *id, bool cut)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        lok::Document *doc = st->doc.get();
+
+        std::string text;
+        if (char *sel = doc->getTextSelection("text/plain;charset=utf-8", nullptr)) {
+            text = sel;
+            std::free(sel);
+        }
+        if (cut && !text.empty()) {
+            const int del = kKeyNames.at("Delete");
+            doc->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, del);
+            doc->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, del);
+            st->dirty = true;
+        }
+        return Reply(id).ok(true).str("text", text).line();
+    }
+
     // Pass-through to LOK; it runs asynchronously, so an unknown or
     // inapplicable command still replies ok. Only .uno: commands, so a
     // client can't dispatch macro: or script URLs.
@@ -1306,7 +1421,36 @@ private:
         if (!command || command->type != Json::String || command->s.rfind(".uno:", 0) != 0
             || command->s.size() == 5)
             return errorReply(id, "\"command\" must be a .uno: command");
-        st->doc->postUnoCommand(command->s.c_str());
+        const Json *argsField = req.get("args");
+        if (!argsField) {
+            st->doc->postUnoCommand(command->s.c_str());
+        } else {
+            if (argsField->type != Json::String)
+                return errorReply(id, "\"args\" must be a string");
+            std::string args, error;
+            if (!unoArgs(command->s, argsField->s, args, error))
+                return errorReply(id, error);
+            st->doc->postUnoCommand(command->s.c_str(), args.c_str());
+        }
+        st->dirty = true;
+        return Reply(id).ok(true).line();
+    }
+
+    // Sets the character color: "#RRGGBB", or "auto" for the automatic color.
+    std::string color(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *hex = req.get("hex");
+        if (!hex || hex->type != Json::String)
+            return errorReply(id, "missing \"hex\"");
+        long long value;
+        if (!parseColor(hex->s, value))
+            return errorReply(id, "invalid \"hex\": " + hex->s + " (#RRGGBB or auto)");
+        const std::string args = "{\"Color\":{\"type\":\"long\",\"value\":" + std::to_string(value) + "}}";
+        st->doc->postUnoCommand(".uno:Color", args.c_str());
         st->dirty = true;
         return Reply(id).ok(true).line();
     }

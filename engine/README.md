@@ -114,6 +114,38 @@ text-export markers (`•`, `1.`).
 `tile` is a base64-encoded RGBA PNG (straight alpha). In QML it can be used
 directly as `"data:image/png;base64," + tile`.
 
+### `mouse`
+
+```json
+→ {"id": 6, "cmd": "mouse", "doc_id": 0, "type": "down", "x": 1440, "y": 1440,
+   "count": 1, "buttons": 1, "modifiers": 0}
+← {"id": 6, "ok": true}
+```
+
+| field       | meaning |
+|-------------|---------|
+| `doc_id`    | Required. |
+| `type`      | Required: `down`, `move` or `up`. |
+| `x`, `y`    | Required integers, **in twips** (document coordinates). |
+| `count`     | Optional click count (1–3), default 1. 2 = double-click (select word). |
+| `buttons`   | Optional LOK button mask, default 1 (left). |
+| `modifiers` | Optional LOK modifier mask, default 0. |
+
+LOK handles the event asynchronously; the caret move arrives later as a
+`cursor_changed` push event, a drag selection as `selection_changed`.
+
+### `copy` / `cut`
+
+```json
+→ {"id": 7, "cmd": "copy", "doc_id": 0}
+← {"id": 7, "ok": true, "text": "selected text"}
+```
+
+`text` is the current selection as UTF-8 plain text, `""` when nothing is
+selected. `cut` returns the same and then deletes the selection (a Delete
+key press); with no selection it does nothing. The engine does not touch
+the system clipboard — the client does.
+
 ### Push events
 
 Lines without an `id`, sent to every client. All carry `event` and `doc_id`.

@@ -21,7 +21,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build/engine/rune-engine")
 DOC = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "samples/test.docx")
 
-VK_LEFT, VK_BACKSPACE, VK_SHIFT = 1026, 1283, 0x1000
+VK_LEFT, VK_RIGHT, VK_HOME, VK_BACKSPACE = 1026, 1027, 1028, 1283
+VK_SHIFT, VK_MOD1 = 0x1000, 0x2000
 
 
 class Client:
@@ -233,6 +234,61 @@ def main():
         check(not a.call("style", doc_id=999, name="Heading 1")["ok"], "style unknown doc rejected")
         check(not a.call("get_state", doc_id=999)["ok"], "get_state unknown doc rejected")
         check(a.call("close", doc_id=fdoc)["ok"], "close formatting doc")
+
+        # --- mouse / copy / cut ---
+        a.events.clear()
+        r = a.call("new_md", markdown="Hello clipboard world\n\nSecond paragraph here.\n")
+        cdoc, cpage = r["doc_id"], r["page_rect"]
+        time.sleep(0.5)
+
+        def shift_right(n):
+            for _ in range(n):
+                a.call("key", doc_id=cdoc, type="input", key_code=VK_RIGHT | VK_SHIFT)
+                a.call("key", doc_id=cdoc, type="up", key_code=VK_RIGHT | VK_SHIFT)
+            time.sleep(0.5)
+
+        r = a.call("copy", doc_id=cdoc)
+        check(r["ok"] and r["text"] == "", "copy with no selection returns empty text")
+        # new_md leaves the cursor at the end; Ctrl+Home to the start.
+        a.call("key", doc_id=cdoc, type="input", key_code=VK_HOME | VK_MOD1)
+        a.call("key", doc_id=cdoc, type="up", key_code=VK_HOME | VK_MOD1)
+        shift_right(5)
+        r = a.call("copy", doc_id=cdoc)
+        check(r["ok"] and r["text"] == "Hello", f"copy returns the selection: {r.get('text')!r}")
+        r = a.call("cut", doc_id=cdoc)
+        check(r["ok"] and r["text"] == "Hello", f"cut returns the selection: {r.get('text')!r}")
+        time.sleep(0.5)
+        check(a.call("copy", doc_id=cdoc)["text"] == "", "selection is gone after cut")
+        shift_right(10)
+        check(a.call("copy", doc_id=cdoc)["text"] == " clipboard", "cut removed the text from the document")
+        r = a.call("cut", doc_id=999)
+        check(not r["ok"], "cut unknown doc rejected")
+
+        # Click inside the first line (default 2 cm margins = 1134 twips).
+        x0, y0 = cpage[0] + 1134 + 200, cpage[1] + 1134 + 100
+        a.events.clear()
+        check(a.call("mouse", doc_id=cdoc, type="down", x=x0, y=y0)["ok"], "mouse down")
+        check(a.call("mouse", doc_id=cdoc, type="up", x=x0, y=y0)["ok"], "mouse up")
+        check(a.wait_events(lambda ev: "cursor_changed" in kinds(ev)), "mouse click pushes cursor_changed")
+        time.sleep(0.3)
+        check(a.call("copy", doc_id=cdoc)["text"] == "", "mouse click clears the selection")
+
+        a.events.clear()
+        a.call("mouse", doc_id=cdoc, type="down", x=x0, y=y0)
+        a.call("mouse", doc_id=cdoc, type="move", x=x0 + 1500, y=y0)
+        a.call("mouse", doc_id=cdoc, type="up", x=x0 + 1500, y=y0)
+        check(a.wait_events(lambda ev: any(e["event"] == "selection_changed" and e["rects"] for e in ev)),
+              "mouse drag pushes a non-empty selection_changed")
+        time.sleep(0.3)
+        check(a.call("copy", doc_id=cdoc)["text"] != "", "copy after mouse drag returns text")
+
+        check(not a.call("mouse", doc_id=cdoc, type="click", x=x0, y=y0)["ok"], "mouse unknown type rejected")
+        check(not a.call("mouse", doc_id=cdoc, x=x0, y=y0)["ok"], "mouse without type rejected")
+        check(not a.call("mouse", doc_id=cdoc, type="down", x="1", y=y0)["ok"], "mouse non-integer x rejected")
+        check(not a.call("mouse", doc_id=cdoc, type="down", x=x0)["ok"], "mouse without y rejected")
+        check(not a.call("mouse", doc_id=999, type="down", x=x0, y=y0)["ok"], "mouse unknown doc rejected")
+        check(not a.call("copy", doc_id=999)["ok"], "copy unknown doc rejected")
+        check(a.call("close", doc_id=cdoc)["ok"], "close clipboard doc")
 
         # --- AI manager (skeleton: no network) ---
         r = a.call("ai", action="list_providers")
