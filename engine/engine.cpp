@@ -13,6 +13,8 @@
 #include <LibreOfficeKit/LibreOfficeKitInit.h>
 #include <LibreOfficeKit/LibreOfficeKit.hxx>
 
+#include "md_to_html.h"
+
 #include <png.h>
 
 #include <poll.h>
@@ -574,6 +576,10 @@ public:
             return key(req, id);
         if (cmd->s == "paste")
             return paste(req, id);
+        if (cmd->s == "new_md")
+            return newMd(req, id);
+        if (cmd->s == "export_md")
+            return exportMd(req, id);
         if (cmd->s == "quit") {
             m_quit = true;
             return Reply(id).ok(true).line();
@@ -745,15 +751,98 @@ private:
         std::free(abs);
 
         std::unique_ptr<lok::Document> doc(m_office->documentLoad(url.c_str()));
-        if (!doc) {
-            char *err = m_office->getError();
-            std::string msg = "documentLoad failed: ";
-            msg += err && *err ? err : "unknown error";
-            m_office->freeError(err);
-            return errorReply(id, msg);
-        }
+        if (!doc)
+            return errorReply(id, "documentLoad failed: " + lokError());
+        doc->initializeForRendering();
+        return addDoc(std::move(doc), id, path->s);
+    }
+
+    std::string lokError()
+    {
+        char *err = m_office->getError();
+        std::string msg = err && *err ? err : "unknown error";
+        m_office->freeError(err);
+        return msg;
+    }
+
+    // A new Writer document seeded with Markdown (converted to HTML and pasted).
+    std::string newMd(const Json &req, const Json *id)
+    {
+        const Json *md = req.get("markdown");
+        if (!md || md->type != Json::String)
+            return errorReply(id, "missing \"markdown\"");
+
+        std::unique_ptr<lok::Document> doc(m_office->documentLoad("private:factory/swriter"));
+        if (!doc)
+            return errorReply(id, "documentLoad failed: " + lokError());
         doc->initializeForRendering();
 
+        if (!md->s.empty()) {
+            const std::string html = mdToHtml(md->s);
+            if (!doc->paste("text/html", html.data(), html.size()))
+                return errorReply(id, "paste failed for text/html");
+        }
+        return addDoc(std::move(doc), id, "(new markdown document)");
+    }
+
+    // Plain-text export reshaped as Markdown paragraphs. Lossy: formatting
+    // (headings, emphasis, lists) is not preserved, only the text.
+    std::string exportMd(const Json &req, const Json *id)
+    {
+        lok::Document *doc = findDoc(req);
+        if (!doc)
+            return errorReply(id, "unknown doc_id");
+
+        const char *tmpRoot = std::getenv("TMPDIR");
+        std::string dir = std::string(tmpRoot && *tmpRoot ? tmpRoot : "/tmp") + "/rune-export-XXXXXX";
+        if (!mkdtemp(dir.data()))
+            return errorReply(id, "mkdtemp: " + std::string(std::strerror(errno)));
+        const std::string file = dir + "/export.txt";
+
+        std::string text;
+        std::string error;
+        if (!doc->saveAs(fileUrl(file).c_str(), "txt", "UTF8")) {
+            error = "saveAs failed: " + lokError();
+        } else if (FILE *f = std::fopen(file.c_str(), "rb")) {
+            char buf[65536];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof buf, f)) > 0)
+                text.append(buf, n);
+            std::fclose(f);
+        } else {
+            error = file + ": " + std::strerror(errno);
+        }
+        unlink(file.c_str());
+        rmdir(dir.c_str());
+        if (!error.empty())
+            return errorReply(id, error);
+
+        if (text.rfind("\xEF\xBB\xBF", 0) == 0) // UTF-8 BOM
+            text.erase(0, 3);
+        std::string markdown;
+        for (size_t pos = 0; pos < text.size();) {
+            size_t nl = text.find('\n', pos);
+            if (nl == std::string::npos)
+                nl = text.size();
+            const std::string line = text.substr(pos, nl - pos);
+            pos = nl + 1;
+            // Trim: LO indents list items, which Markdown would read as code.
+            const size_t b = line.find_first_not_of(" \t\r");
+            if (b == std::string::npos)
+                continue;
+            if (!markdown.empty())
+                markdown += "\n\n";
+            markdown += line.substr(b, line.find_last_not_of(" \t\r") - b + 1);
+        }
+        if (!markdown.empty())
+            markdown += '\n';
+        return Reply(id).ok(true).str("markdown", markdown).line();
+    }
+
+    // Shared tail of open/new_md: takes a document already initialized for
+    // rendering, registers it and replies with its layout.
+    std::string addDoc(std::unique_ptr<lok::Document> doc, const Json *id, const std::string &what)
+    {
         long docW = 0, docH = 0;
         doc->getDocumentSize(&docW, &docH);
         std::vector<Rect> pages = pageRects(doc.get(), docW, docH);
@@ -763,7 +852,7 @@ private:
         auto ctx = std::make_unique<CallbackCtx>(CallbackCtx{this, docId});
         doc->registerCallback(&Engine::onLokCallback, ctx.get());
         doc->setClientVisibleArea(0, 0, int(docW), int(docH));
-        logf("opened doc %lld: %s (%d part(s), %zu page(s))", docId, path->s.c_str(), parts,
+        logf("opened doc %lld: %s (%d part(s), %zu page(s))", docId, what.c_str(), parts,
              pages.size());
 
         Reply reply(id);

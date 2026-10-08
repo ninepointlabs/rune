@@ -171,6 +171,32 @@ def main():
         else:
             print("SKIP .doc (no sample file)")
 
+        # --- Markdown import/export ---
+        md = "# Rune Title\n\nFirst **bold** paragraph.\n\nSecond *italic* paragraph.\n"
+        r = a.call("new_md", markdown=md)
+        check(r["ok"], "new_md")
+        md_doc, md_page = r["doc_id"], r["page_rect"]
+        check(r["pages"] == len(r["page_rects"]) and r["page_rect"] == r["page_rects"][0],
+              "new_md returns matching page_rects")
+        t = a.call("tile", doc_id=md_doc, x=md_page[0], y=md_page[1],
+                   width=md_page[2], height=md_page[3], px_width=400)
+        blank = a.call("new_md", markdown="")
+        check(blank["ok"], "new_md with empty markdown")
+        bt = a.call("tile", doc_id=blank["doc_id"], x=md_page[0], y=md_page[1],
+                    width=md_page[2], height=md_page[3], px_width=400)
+        check(t["ok"] and t["tile"].startswith("iVBOR") and t["tile"] != bt["tile"],
+              "new_md renders content (tile differs from empty doc)")
+        check(a.call("close", doc_id=blank["doc_id"])["ok"], "close empty new_md doc")
+
+        e = a.call("export_md", doc_id=md_doc)
+        check(e["ok"], "export_md")
+        paras = e.get("markdown", "").strip().split("\n\n")
+        check(paras == ["Rune Title", "First bold paragraph.", "Second italic paragraph."],
+              f"export_md returns blank-line-separated paragraphs: {paras!r}")
+        check(not a.call("export_md", doc_id=999)["ok"], "export_md unknown doc rejected")
+        check(not a.call("new_md")["ok"], "new_md without markdown rejected")
+        check(a.call("close", doc_id=md_doc)["ok"], "close new_md doc")
+
         check(a.call("close", doc_id=doc)["ok"], "close")
         check(a.call("quit")["ok"], "quit")
         engine.wait(timeout=30)

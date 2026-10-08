@@ -68,6 +68,34 @@ Coordinates are in **twips** (1/1440 inch; 15 twips = 1 CSS pixel at 96 DPI).
 `realpath()`. Supported: `.docx`, `.doc`, `.odt`, `.rtf`, `.txt`, and any
 format LibreOffice can import. LOK picks the filter from the file extension.
 
+### `new_md`
+
+```json
+→ {"id": 6, "cmd": "new_md", "markdown": "# Title\n\nSome **bold** text.\n"}
+← {"id": 6, "ok": true, "doc_id": 1, "parts": 1, "pages": 1, ...}
+```
+
+Creates a new, unsaved Writer document from Markdown and replies with the same
+fields as `open`. `markdown` is required (may be empty for a blank document).
+The engine converts it to HTML (`md_to_html.cpp`) and pastes that as
+`text/html`. Supported: ATX headings, paragraphs, `**bold**`/`__bold__`,
+`*italic*`/`_italic_`, flat `-`/`*`/`+` and `1.` lists, fenced code blocks,
+`` `inline code` ``, `[links](url)` and `---` rules. Anything else stays as
+literal text.
+
+### `export_md`
+
+```json
+→ {"id": 7, "cmd": "export_md", "doc_id": 1}
+← {"id": 7, "ok": true, "markdown": "Title\n\nSome bold text.\n"}
+```
+
+Works on any open document. It is exported as UTF-8 plain text to a temp
+directory (removed afterwards); each non-empty line, trimmed, becomes one
+paragraph, with a blank line between paragraphs. **Lossy:** headings,
+emphasis, links and code formatting are dropped. List items keep LO's
+text-export markers (`•`, `1.`).
+
 ### `tile`
 
 ```json
