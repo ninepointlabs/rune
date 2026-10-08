@@ -5,6 +5,10 @@
 // One JSON object per line in both directions; see README.md for the
 // protocol. Single-threaded: LOK is not thread-safe, so every command runs on
 // the main thread inside a poll() loop. Logs go to stderr; stdout is unused.
+//
+// LOK callbacks arrive on LibreOffice's own main-loop thread. They only queue
+// the raw payload and wake the poll loop through an eventfd; parsing and
+// broadcasting to clients happens back on our thread.
 
 #include <LibreOfficeKit/LibreOfficeKitInit.h>
 #include <LibreOfficeKit/LibreOfficeKit.hxx>
@@ -13,6 +17,7 @@
 
 #include <poll.h>
 #include <signal.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -30,6 +35,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -306,8 +312,11 @@ std::string jsonScalar(const Json *v)
     }
 }
 
+// Builds one reply line. The default constructor omits "id": that form is
+// for push events, which are not replies to anything.
 class Reply {
 public:
+    Reply() = default;
     explicit Reply(const Json *id) { raw("id", jsonScalar(id)); }
 
     Reply &raw(const char *key, const std::string &json)
@@ -433,8 +442,9 @@ struct Rect {
     long x = 0, y = 0, w = 0, h = 0;
 };
 
-// Writer reports page rectangles as "x, y, w, h; x, y, w, h; ..." in twips.
-std::vector<Rect> parsePageRects(const char *s)
+// LOK rectangle lists: "x, y, w, h; x, y, w, h; ..." in twips (page rects,
+// text selections). Trailing per-rect fields (e.g. part) are ignored.
+std::vector<Rect> parseRects(const char *s)
 {
     std::vector<Rect> rects;
     if (!s)
@@ -458,6 +468,51 @@ std::string rectJson(const Rect &r)
         + std::to_string(r.h) + "]";
 }
 
+std::string rectsJson(const std::vector<Rect> &rects)
+{
+    std::string out = "[";
+    for (const Rect &r : rects) {
+        if (out.size() > 1)
+            out += ',';
+        out += rectJson(r);
+    }
+    return out + ']';
+}
+
+// A single LOK rectangle. "EMPTY" (invalidate everything) maps to the
+// largest possible area, matching LOK's own convention.
+bool parseRect(const std::string &s, Rect &r)
+{
+    if (s.rfind("EMPTY", 0) == 0) {
+        r = {0, 0, INT_MAX, INT_MAX};
+        return true;
+    }
+    return std::sscanf(s.c_str(), " %ld , %ld , %ld , %ld", &r.x, &r.y, &r.w, &r.h) == 4;
+}
+
+// The visible-cursor payload is either a bare rectangle or, with
+// LOK_FEATURE_VIEWID_IN_VISCURSOR_INVALIDATION_CALLBACK, JSON carrying one
+// under "rectangle".
+bool parseCursorRect(const std::string &s, Rect &r)
+{
+    if (s.empty() || s[0] != '{')
+        return parseRect(s, r);
+    Json j;
+    if (!JsonParser(s).parse(j))
+        return false;
+    const Json *rect = j.get("rectangle");
+    return rect && rect->type == Json::String && parseRect(rect->s, r);
+}
+
+// VCL key codes (vcl/keycodes.hxx, == css::awt::Key), which is not installed
+// with the SDK. Values checked against offapi.rdb for LO 26.8.
+const std::map<std::string, int> kKeyNames = {
+    {"Down", 1024},     {"Up", 1025},     {"Left", 1026},   {"Right", 1027},
+    {"Home", 1028},     {"End", 1029},    {"PageUp", 1030}, {"PageDown", 1031},
+    {"Return", 1280},   {"Enter", 1280},  {"Escape", 1281}, {"Tab", 1282},
+    {"Backspace", 1283}, {"Space", 1284}, {"Insert", 1285}, {"Delete", 1286},
+};
+
 // ---------------------------------------------------------------------------
 // Command dispatch.
 
@@ -465,9 +520,37 @@ constexpr long long kMaxTilePx = 8192;
 
 class Engine {
 public:
-    explicit Engine(lok::Office *office) : m_office(office) {}
+    explicit Engine(lok::Office *office) : m_office(office)
+    {
+        m_wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+        if (m_wakeFd < 0)
+            logf("eventfd: %s", std::strerror(errno));
+    }
 
     bool quitRequested() const { return m_quit; }
+
+    // Readable when LOK callbacks have queued events; see takeEvents().
+    int eventFd() const { return m_wakeFd; }
+
+    // Drains queued LOK callbacks into push-event lines for all clients.
+    std::vector<std::string> takeEvents()
+    {
+        uint64_t count;
+        while (read(m_wakeFd, &count, sizeof count) > 0) {
+        }
+        std::vector<Pending> pending;
+        {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            pending.swap(m_queue);
+        }
+        std::vector<std::string> lines;
+        for (const Pending &p : pending) {
+            std::string line = formatEvent(p);
+            if (!line.empty())
+                lines.push_back(std::move(line));
+        }
+        return lines;
+    }
 
     std::string handle(const std::string &line)
     {
@@ -487,6 +570,10 @@ public:
             return tile(req, id);
         if (cmd->s == "close")
             return close(req, id);
+        if (cmd->s == "key")
+            return key(req, id);
+        if (cmd->s == "paste")
+            return paste(req, id);
         if (cmd->s == "quit") {
             m_quit = true;
             return Reply(id).ok(true).line();
@@ -495,10 +582,125 @@ public:
     }
 
 private:
+    // registerCallback() context: which engine and document a callback is for.
+    struct CallbackCtx {
+        Engine *engine;
+        long long docId;
+    };
+    struct Pending {
+        long long docId;
+        int type;
+        std::string payload;
+    };
+    // Main-thread-only per-document state.
+    struct DocState {
+        std::unique_ptr<lok::Document> doc;
+        std::unique_ptr<CallbackCtx> ctx;
+        std::string selStart, selEnd; // last TEXT_SELECTION_START/END rects
+    };
+
     lok::Office *m_office; // never destroyed; see main()
-    std::map<long long, std::unique_ptr<lok::Document>> m_docs;
+    std::map<long long, DocState> m_docs;
     long long m_nextDocId = 0;
     bool m_quit = false;
+
+    int m_wakeFd = -1;
+    std::mutex m_queueMutex; // guards m_queue; LOK calls back on its own thread
+    std::vector<Pending> m_queue;
+
+    // Runs on LibreOffice's main-loop thread: queue and wake, nothing else.
+    static void onLokCallback(int type, const char *payload, void *data)
+    {
+        if (getenv("RUNE_DEBUG_CB")) logf("cb %d: %.200s", type, payload ? payload : "(null)");
+        switch (type) {
+        case LOK_CALLBACK_INVALIDATE_TILES:
+        case LOK_CALLBACK_INVALIDATE_VISIBLE_CURSOR:
+        case LOK_CALLBACK_TEXT_SELECTION:
+        case LOK_CALLBACK_TEXT_SELECTION_START:
+        case LOK_CALLBACK_TEXT_SELECTION_END:
+        case LOK_CALLBACK_CURSOR_VISIBLE:
+        case LOK_CALLBACK_DOCUMENT_SIZE_CHANGED:
+            break;
+        default:
+            return;
+        }
+        auto *ctx = static_cast<CallbackCtx *>(data);
+        Engine *self = ctx->engine;
+        {
+            std::lock_guard<std::mutex> lock(self->m_queueMutex);
+            self->m_queue.push_back({ctx->docId, type, payload ? payload : ""});
+        }
+        const uint64_t one = 1;
+        if (write(self->m_wakeFd, &one, sizeof one) < 0 && errno != EAGAIN)
+            logf("eventfd write: %s", std::strerror(errno));
+    }
+
+    // One queued callback -> one push-event line ("" to drop it).
+    std::string formatEvent(const Pending &p)
+    {
+        auto it = m_docs.find(p.docId);
+        if (it == m_docs.end())
+            return {}; // closed since the callback fired
+        DocState &st = it->second;
+        Rect r;
+
+        switch (p.type) {
+        case LOK_CALLBACK_INVALIDATE_TILES:
+        case LOK_CALLBACK_INVALIDATE_VISIBLE_CURSOR: {
+            const bool tiles = p.type == LOK_CALLBACK_INVALIDATE_TILES;
+            if (!(tiles ? parseRect(p.payload, r) : parseCursorRect(p.payload, r))) {
+                logf("doc %lld: unparsed %s payload: %s", p.docId,
+                     tiles ? "INVALIDATE_TILES" : "INVALIDATE_VISIBLE_CURSOR", p.payload.c_str());
+                return {};
+            }
+            return Reply()
+                .str("event", tiles ? "tiles_changed" : "cursor_changed")
+                .num("doc_id", p.docId)
+                .num("x", r.x)
+                .num("y", r.y)
+                .num("width", r.w)
+                .num("height", r.h)
+                .line();
+        }
+        case LOK_CALLBACK_TEXT_SELECTION_START:
+            st.selStart = p.payload;
+            return {};
+        case LOK_CALLBACK_TEXT_SELECTION_END:
+            st.selEnd = p.payload;
+            return {};
+        case LOK_CALLBACK_TEXT_SELECTION: {
+            // LOK sends START/END before every TEXT_SELECTION, so they are
+            // current here. Empty payload means the selection was cleared.
+            const std::vector<Rect> rects = parseRects(p.payload.c_str());
+            Reply ev;
+            ev.str("event", "selection_changed").num("doc_id", p.docId).raw("rects", rectsJson(rects));
+            if (!rects.empty()) {
+                if (parseRect(st.selStart, r))
+                    ev.raw("start", rectJson(r));
+                if (parseRect(st.selEnd, r))
+                    ev.raw("end", rectJson(r));
+            }
+            return ev.line();
+        }
+        case LOK_CALLBACK_CURSOR_VISIBLE:
+            return Reply()
+                .str("event", "cursor_visible")
+                .num("doc_id", p.docId)
+                .raw("visible", p.payload == "true" ? "true" : "false")
+                .line();
+        case LOK_CALLBACK_DOCUMENT_SIZE_CHANGED: {
+            long w = 0, h = 0;
+            if (std::sscanf(p.payload.c_str(), " %ld , %ld", &w, &h) != 2)
+                st.doc->getDocumentSize(&w, &h);
+            return Reply()
+                .str("event", "size_changed")
+                .num("doc_id", p.docId)
+                .raw("doc_size", "[" + std::to_string(w) + "," + std::to_string(h) + "]")
+                .line();
+        }
+        }
+        return {};
+    }
 
     lok::Document *findDoc(const Json &req)
     {
@@ -506,7 +708,7 @@ private:
         if (!getInt(req, "doc_id", docId))
             return nullptr;
         auto it = m_docs.find(docId);
-        return it == m_docs.end() ? nullptr : it->second.get();
+        return it == m_docs.end() ? nullptr : it->second.doc.get();
     }
 
     std::string open(const Json &req, const Json *id)
@@ -534,14 +736,17 @@ private:
         long docW = 0, docH = 0;
         doc->getDocumentSize(&docW, &docH);
         char *rectStr = doc->getPartPageRectangles();
-        std::vector<Rect> pages = parsePageRects(rectStr);
+        std::vector<Rect> pages = parseRects(rectStr);
         std::free(rectStr);
         // Non-Writer documents report no page rects; use the whole part.
         const Rect first = pages.empty() ? Rect{0, 0, docW, docH} : pages.front();
         const int parts = doc->getParts();
 
         const long long docId = m_nextDocId++;
-        m_docs.emplace(docId, std::move(doc));
+        auto ctx = std::make_unique<CallbackCtx>(CallbackCtx{this, docId});
+        doc->registerCallback(&Engine::onLokCallback, ctx.get());
+        doc->setClientVisibleArea(0, 0, int(docW), int(docH));
+        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}};
         logf("opened doc %lld: %s (%d part(s), %zu page(s))", docId, path->s.c_str(), parts,
              pages.size());
 
@@ -607,11 +812,68 @@ private:
             .line();
     }
 
+    std::string key(const Json &req, const Json *id)
+    {
+        lok::Document *doc = findDoc(req);
+        if (!doc)
+            return errorReply(id, "unknown doc_id");
+
+        const Json *type = req.get("type");
+        int lokType;
+        if (type && type->type == Json::String && type->s == "input")
+            lokType = LOK_KEYEVENT_KEYINPUT;
+        else if (type && type->type == Json::String && type->s == "up")
+            lokType = LOK_KEYEVENT_KEYUP;
+        else
+            return errorReply(id, "\"type\" must be \"input\" or \"up\"");
+
+        long long charCode = 0, keyCode = 0;
+        if ((req.get("char_code") && !getInt(req, "char_code", charCode))
+            || (req.get("key_code") && !getInt(req, "key_code", keyCode)) || charCode < 0
+            || charCode > 0x10FFFF || keyCode < 0 || keyCode > 0xFFFF)
+            return errorReply(id, "invalid char_code/key_code");
+        // Convenience for hand testing: a key name instead of a VCL code.
+        if (const Json *name = req.get("key")) {
+            auto it = name->type == Json::String ? kKeyNames.find(name->s) : kKeyNames.end();
+            if (it == kKeyNames.end())
+                return errorReply(id, "unknown \"key\" name");
+            keyCode |= it->second;
+        }
+        if (charCode == 0 && keyCode == 0)
+            return errorReply(id, "char_code or key_code is required");
+
+        doc->postKeyEvent(lokType, int(charCode), int(keyCode));
+        return Reply(id).ok(true).line();
+    }
+
+    std::string paste(const Json &req, const Json *id)
+    {
+        lok::Document *doc = findDoc(req);
+        if (!doc)
+            return errorReply(id, "unknown doc_id");
+        const Json *mime = req.get("mime_type");
+        const Json *data = req.get("data");
+        if (!data || data->type != Json::String)
+            return errorReply(id, "missing \"data\"");
+        std::string mimeType = mime && mime->type == Json::String ? mime->s : "";
+        // LO only recognises plain text with an explicit charset.
+        if (mimeType.empty() || mimeType == "text/plain")
+            mimeType = "text/plain;charset=utf-8";
+        if (!doc->paste(mimeType.c_str(), data->s.data(), data->s.size()))
+            return errorReply(id, "paste failed for " + mimeType);
+        return Reply(id).ok(true).line();
+    }
+
     std::string close(const Json &req, const Json *id)
     {
         long long docId;
-        if (!getInt(req, "doc_id", docId) || !m_docs.erase(docId))
+        auto it = getInt(req, "doc_id", docId) ? m_docs.find(docId) : m_docs.end();
+        if (it == m_docs.end())
             return errorReply(id, "unknown doc_id");
+        // Unregister first: LOK invokes callbacks under the SolarMutex, which
+        // registerCallback also takes, so none is in flight once it returns.
+        it->second.doc->registerCallback(nullptr, nullptr);
+        m_docs.erase(it);
         logf("closed doc %lld", docId);
         return Reply(id).ok(true).line();
     }
@@ -763,13 +1025,20 @@ int main(int argc, char *argv[])
     logf("listening on %s", socketPath.c_str());
 
     Engine engine(office);
+    if (engine.eventFd() < 0) {
+        unlink(socketPath.c_str());
+        hardExit(1);
+    }
     std::vector<Client> clients;
 
     while (!g_stop && !engine.quitRequested()) {
+        // Layout: [listen, events, clients...].
         std::vector<pollfd> fds;
         fds.push_back({listenFd, POLLIN, 0});
+        fds.push_back({engine.eventFd(), POLLIN, 0});
         for (const Client &c : clients)
             fds.push_back({c.fd, POLLIN, 0});
+        constexpr size_t kFirstClient = 2;
 
         if (poll(fds.data(), fds.size(), -1) < 0) {
             if (errno == EINTR)
@@ -786,10 +1055,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        // fds[i + 1] corresponds to clients[i] as they were before accept().
+        // fds[kFirstClient + i] corresponds to clients[i] as they were before accept().
         std::vector<bool> drop(clients.size(), false);
-        for (size_t i = 0; i + 1 < fds.size() && !engine.quitRequested(); ++i) {
-            if (!fds[i + 1].revents)
+        for (size_t i = 0; kFirstClient + i < fds.size() && !engine.quitRequested(); ++i) {
+            if (!fds[kFirstClient + i].revents)
                 continue;
             Client &c = clients[i];
             char buf[65536];
@@ -816,6 +1085,18 @@ int main(int argc, char *argv[])
             if (c.inbuf.size() > kMaxLine) {
                 logf("client fd %d sent an oversized line; dropping", c.fd);
                 drop[i] = true;
+            }
+        }
+
+        // Push events go to every client, including ones accepted this round.
+        // Drained after commands so a reply precedes the events it caused.
+        if (fds[1].revents & POLLIN) {
+            drop.resize(clients.size(), false);
+            for (const std::string &ev : engine.takeEvents()) {
+                for (size_t i = 0; i < clients.size(); ++i) {
+                    if (!drop[i] && !sendAll(clients[i].fd, ev))
+                        drop[i] = true;
+                }
             }
         }
 

@@ -57,6 +57,14 @@ void BridgeSocket::setRetryInterval(int ms)
     emit retryIntervalChanged();
 }
 
+void BridgeSocket::setOnEvent(const QJSValue &callback)
+{
+    if (callback.strictlyEquals(m_onEvent))
+        return;
+    m_onEvent = callback;
+    emit onEventChanged();
+}
+
 void BridgeSocket::connectToEngine()
 {
     m_wanted = true;
@@ -114,6 +122,10 @@ void BridgeSocket::onReadyRead()
         const QVariantMap reply = doc.object().toVariantMap();
         emit responseReceived(reply);
 
+        if (!reply.contains(QStringLiteral("id"))) {
+            invoke(m_onEvent, reply);
+            continue;
+        }
         bool hasId = false;
         const int id = reply.value(QStringLiteral("id")).toInt(&hasId);
         if (hasId) {

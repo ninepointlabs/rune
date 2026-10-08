@@ -11,6 +11,9 @@
 // send() assigns the request id and invokes the callback with the parsed
 // reply. If the engine is unreachable or drops the connection, pending
 // callbacks receive {ok: false, error: "..."}.
+//
+// Lines without an "id" are push events from the engine; they go to the
+// onEvent callback (bridge.onEvent = function (ev) { ... }).
 
 #include <QByteArray>
 #include <QHash>
@@ -32,6 +35,8 @@ class BridgeSocket : public QObject
     // Keep retrying (every retryInterval ms) while the engine is not up.
     Q_PROPERTY(bool autoReconnect MEMBER m_autoReconnect NOTIFY autoReconnectChanged)
     Q_PROPERTY(int retryInterval READ retryInterval WRITE setRetryInterval NOTIFY retryIntervalChanged)
+    // Called with each push event (a line with no "id").
+    Q_PROPERTY(QJSValue onEvent READ onEvent WRITE setOnEvent NOTIFY onEventChanged)
 
 public:
     explicit BridgeSocket(QObject *parent = nullptr);
@@ -44,6 +49,8 @@ public:
     QString errorString() const { return m_errorString; }
     int retryInterval() const { return m_retry.interval(); }
     void setRetryInterval(int ms);
+    QJSValue onEvent() const { return m_onEvent; }
+    void setOnEvent(const QJSValue &callback);
 
     Q_INVOKABLE void connectToEngine();
     Q_INVOKABLE void disconnectFromEngine();
@@ -56,6 +63,7 @@ signals:
     void errorStringChanged();
     void autoReconnectChanged();
     void retryIntervalChanged();
+    void onEventChanged();
     // Every reply, including ones that also went to a callback.
     void responseReceived(const QVariantMap &response);
 
@@ -73,6 +81,7 @@ private:
     QString m_errorString;
     QByteArray m_inbuf;
     QHash<int, QJSValue> m_pending;
+    QJSValue m_onEvent;
     int m_nextId = 1;
     bool m_autoReconnect = true;
     bool m_wanted = false; // connectToEngine() called and not cancelled
