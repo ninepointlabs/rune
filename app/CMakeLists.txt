@@ -8,7 +8,8 @@ qt_add_executable(rune main.cpp)
 qt_add_qml_module(rune
     URI Rune
     VERSION 1.0
-    QML_FILES Main.qml
+    QML_FILES Main.qml FileBar.qml Toolbar.qml DocumentCanvas.qml StatusBar.qml
+              ToolButton.qml ToolSeparator.qml
     SOURCES BridgeSocket.h BridgeSocket.cpp ClipboardHelper.h ClipboardHelper.cpp
 )
 

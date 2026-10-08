@@ -111,6 +111,11 @@ Window {
     title: documentName ? documentName + " — Rune" : "Rune"
     color: theme.background
 
+    // Objects the extracted UI components reach through appRoot.
+    property alias bridge: bridge
+    property alias pageTiles: pageTiles
+    property alias paintTimer: paintTimer
+
     onPageLayoutChanged: updateViewport()
 
     // One row per page: the latest tile (data URL) and whether it is stale.
@@ -360,7 +365,7 @@ Window {
 
     function flashStatus(message) {
         statusFlash = message
-        flashAnim.restart()
+        statusBar.flashAnim.restart()
     }
 
     function updateCursor(ev) {
@@ -369,8 +374,8 @@ Window {
         // fires after clicks or typing in this build), so treat any cursor
         // position update as "now visible" ourselves.
         cursorVisible = true
-        cursorOverlay.opacity = 1
-        blink.restart()
+        view.cursorOverlay.opacity = 1
+        view.blink.restart()
         if (Date.now() - lastKeyTime < 1000)
             ensureCursorVisible()
     }
@@ -710,491 +715,27 @@ Window {
             pageTiles.set(loaded[k], { tile: "", stale: false })
     }
 
-    // A toolbar button: shows `label`, highlighted while `active`, with
-    // `tip` shown below it on hover. `fixedWidth` > 0 elides the label.
-    component ToolButton: Rectangle {
-        id: button
-        property string label
-        property string tip
-        property bool active: false
-        property bool bold: false
-        property bool italic: false
-        property bool underline: false
-        property int fixedWidth: 0
-        // Usable without a document (New, Quit).
-        property bool alwaysEnabled: false
-        readonly property bool usable: alwaysEnabled || root.docId >= 0
-        signal clicked()
-        signal doubleClicked()
-
-        width: fixedWidth > 0 ? fixedWidth : Math.max(28, buttonText.implicitWidth + 14)
-        height: 28
-        radius: 4
-        color: active ? theme.accent : mouse.containsMouse ? Qt.alpha(theme.foreground, 0.1) : "transparent"
-        opacity: usable ? 1 : 0.5
-
-        Text {
-            id: buttonText
-            anchors { verticalCenter: parent.verticalCenter; left: parent.left; right: parent.right; margins: 7 }
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-            text: button.label
-            color: button.active ? theme.background : theme.foreground
-            font.pixelSize: 13
-            font.bold: button.bold
-            font.italic: button.italic
-            font.underline: button.underline
-        }
-
-        MouseArea {
-            id: mouse
-            anchors.fill: parent
-            hoverEnabled: true
-            enabled: button.usable
-            onClicked: button.clicked()
-            onDoubleClicked: button.doubleClicked()
-        }
-
-        Rectangle {
-            id: tooltip
-            visible: button.tip !== "" && mouse.containsMouse && tipDelay.elapsed
-            // Below the button, centered, kept inside the window.
-            x: {
-                const want = (button.width - width) / 2
-                const left = button.mapToItem(null, 0, 0).x
-                return Math.max(-left + 4, Math.min(want, root.width - left - width - 4))
-            }
-            y: button.height + 6
-            z: 100
-            width: tipText.implicitWidth + 12
-            height: tipText.implicitHeight + 6
-            radius: 3
-            color: theme.background
-            border.color: theme.muted
-            border.width: 1
-
-            Text {
-                id: tipText
-                anchors.centerIn: parent
-                text: button.tip
-                color: theme.foreground
-                font.pixelSize: 11
-            }
-
-            Timer {
-                id: tipDelay
-                property bool elapsed: false
-                interval: 400
-                running: mouse.containsMouse
-                onRunningChanged: if (!running) elapsed = false
-                onTriggered: elapsed = true
-            }
-        }
-    }
-
-    component ToolSeparator: Rectangle {
-        width: 1
-        height: 20
-        anchors.verticalCenter: parent.verticalCenter
-        color: theme.muted
-    }
-
-    // File actions, above the formatting toolbar.
-    Rectangle {
+    FileBar {
         id: fileBar
+        appRoot: root
         anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: 32
-        z: 3 // tooltips overlap the toolbar below
-        color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
-
-        Row {
-            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
-            spacing: 4
-
-            ToolButton {
-                label: "+ New"; tip: "New document"
-                alwaysEnabled: bridge.connected
-                onClicked: root.newDocument()
-            }
-            ToolButton {
-                label: "Open"; tip: "Open document"
-                alwaysEnabled: true
-                onClicked: root.flashStatus("File → Open not yet implemented")
-            }
-            ToolButton {
-                label: "Save"; tip: "Save (Ctrl+S)"
-                onClicked: root.save()
-            }
-        }
-
-        ToolButton {
-            anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 4 }
-            label: "Quit"; tip: "Quit Rune"
-            alwaysEnabled: true
-            onClicked: Qt.quit()
-        }
     }
 
-    Rectangle {
+    Toolbar {
         id: toolbar
+        appRoot: root
         anchors { left: parent.left; right: parent.right; top: fileBar.bottom }
-        height: 40
-        z: 2 // tooltips overlap the document view
-        color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
-
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: 1
-            color: Qt.alpha(theme.muted, 0.5)
-        }
-
-        Row {
-            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
-            spacing: 4
-
-            ToolButton {
-                label: "B"; bold: true; tip: "Bold (Ctrl+B)"
-                active: root.formattingState.Bold === true
-                onClicked: root.applyFormat(".uno:Bold")
-            }
-            ToolButton {
-                label: "I"; italic: true; tip: "Italic (Ctrl+I)"
-                active: root.formattingState.Italic === true
-                onClicked: root.applyFormat(".uno:Italic")
-            }
-            ToolButton {
-                label: "U"; underline: true; tip: "Underline (Ctrl+U)"
-                active: root.formattingState.Underline === true
-                onClicked: root.applyFormat(".uno:Underline")
-            }
-
-            ToolSeparator {}
-
-            Repeater {
-                model: [["Normal", "Normal", "Normal paragraph"], ["H1", "Heading 1", "Heading 1"],
-                        ["H2", "Heading 2", "Heading 2"], ["H3", "Heading 3", "Heading 3"]]
-                ToolButton {
-                    required property var modelData
-                    label: modelData[0]
-                    tip: modelData[2]
-                    active: root.styleActive(modelData[1])
-                    onClicked: root.applyStyle(modelData[1])
-                }
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                label: "•"; tip: "Bullet list"
-                active: root.formattingState.DefaultBullet === true
-                onClicked: root.applyFormat(".uno:DefaultBullet")
-            }
-            ToolButton {
-                label: "1."; tip: "Numbered list"
-                active: root.formattingState.DefaultNumbering === true
-                onClicked: root.applyFormat(".uno:DefaultNumbering")
-            }
-
-            ToolSeparator {}
-
-            Repeater {
-                model: [["L", "LeftPara", "Align left"], ["C", "CenterPara", "Align center"],
-                        ["R", "RightPara", "Align right"]]
-                ToolButton {
-                    required property var modelData
-                    label: modelData[0]
-                    tip: modelData[2]
-                    active: root.formattingState[modelData[1]] === true
-                    onClicked: root.applyFormat(".uno:" + modelData[1])
-                }
-            }
-
-            ToolSeparator {}
-
-            // Paragraph spacing: directional only. LOK does not apply exact
-            // point values or keep-together/widow-orphan headlessly (see
-            // engine/README.md and the `para` command's comment) — these
-            // buttons use the LO-native spacing step instead of a fixed pt.
-            ToolButton {
-                label: "¶−"; tip: "Decrease paragraph spacing"
-                onClicked: root.applyParaSpacing("decrease")
-            }
-            ToolButton {
-                label: "¶+"; tip: "Increase paragraph spacing"
-                onClicked: root.applyParaSpacing("increase")
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                fixedWidth: 130
-                label: (root.formattingState.CharFontName || "Font") + " ▾"
-                tip: "Font: click for next (" + root.fontNames.join(", ") + ")"
-                border.color: Qt.alpha(theme.foreground, 0.2)
-                border.width: 1
-                onClicked: root.cycleFont()
-            }
-
-            ToolButton {
-                label: "−"; tip: "Decrease font size"
-                onClicked: root.stepFontSize(-1)
-            }
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 40
-                horizontalAlignment: Text.AlignHCenter
-                text: isNaN(root.currentFontSize) ? "—" : root.currentFontSize + "pt"
-                color: theme.foreground
-                opacity: root.docId >= 0 ? 1 : 0.5
-                font.pixelSize: 13
-            }
-            ToolButton {
-                label: "+"; tip: "Increase font size"
-                onClicked: root.stepFontSize(1)
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                readonly property var current: root.currentColorIndex >= 0
-                    ? root.textColors[root.currentColorIndex] : ["Custom", ""]
-                label: "A"; bold: true
-                tip: "Text color: " + current[0] + " (click for next)"
-                onClicked: root.cycleColor()
-
-                // Swatch of the color at the cursor; automatic shows as the foreground.
-                Rectangle {
-                    anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
-                    width: 16; height: 3; radius: 1
-                    color: root.currentColorHex === "auto" ? theme.foreground : root.currentColorHex
-                }
-            }
-
-            ToolButton {
-                label: "🖌"
-                tip: "Format painter: click to copy formatting once, double-click to keep painting (Esc stops)"
-                active: root.paintMode
-                // A double-click arrives as clicked then doubleClicked; the
-                // first click captures, the second makes the mode sticky.
-                onClicked: root.paintMode ? root.exitPaintMode() : root.startPaintMode(false)
-                onDoubleClicked: root.startPaintMode(true)
-            }
-        }
-
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-            height: 1
-            color: theme.muted
-        }
     }
 
-    Flickable {
+    DocumentCanvas {
         id: view
+        appRoot: root
         anchors { left: parent.left; right: parent.right; top: toolbar.bottom; bottom: statusBar.top }
-        contentWidth: Math.max(width, root.maxPageTwipsW * root.twipsScale + 2 * root.pageMargin)
-        contentHeight: {
-            const last = root.pageLayout[root.pageLayout.length - 1]
-            return last ? last.y + last.h + root.pageMargin : 0
-        }
-        clip: true
-
-        onContentYChanged: root.updateViewport()
-        onHeightChanged: root.updateViewport()
-
-        focus: true
-        Keys.onPressed: function (event) {
-            if (event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
-                if (!event.isAutoRepeat)
-                    root.save()
-                event.accepted = true
-                return
-            }
-            event.accepted = root.forwardKey("input", event)
-        }
-        Keys.onReleased: function (event) { event.accepted = root.forwardKey("up", event) }
-
-        // The page column; boxes come from root.pageLayout so overlays and
-        // viewport tracking share one source of truth for page positions.
-        Repeater {
-            model: pageTiles
-
-            Item {
-                id: pageItem
-                required property int index
-                required property string tile
-                readonly property var box: root.pageLayout[index] || ({ x: 0, y: 0, w: 0, h: 0 })
-                // Decode only pages near the viewport; far ones keep just the PNG data.
-                readonly property bool near: index >= root.firstVisible - root.preloadPages
-                                             && index <= root.lastVisible + root.preloadPages
-
-                x: box.x
-                y: box.y
-                width: box.w
-                height: box.h
-
-                // Drop shadow.
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: 3
-                    anchors.topMargin: 3
-                    anchors.rightMargin: -3
-                    anchors.bottomMargin: -3
-                    color: "#000000"
-                    opacity: 0.35
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -1
-                    color: "#ffffff"
-                    border.color: theme.muted
-                    border.width: 1
-                }
-
-                Image {
-                    anchors.fill: parent
-                    source: pageItem.near ? pageItem.tile : ""
-                    asynchronous: true
-                    retainWhileLoading: true
-                    cache: false
-                    smooth: true
-                    mipmap: true
-                    fillMode: Image.PreserveAspectFit
-                    onStatusChanged: if (status === Image.Ready) root.pageShown = true
-                }
-            }
-        }
-
-        // Click places the cursor, left-drag selects (coordinates go to the
-        // engine as twips). preventStealing keeps the Flickable from turning
-        // a drag into a scroll mid-selection; wheel/touchpad scrolling is
-        // unaffected since this MouseArea has no wheel handler.
-        MouseArea {
-            id: docMouse
-            anchors.fill: parent
-            acceptedButtons: Qt.LeftButton
-            preventStealing: true
-            cursorShape: root.paintMode ? Qt.CrossCursor : Qt.IBeamCursor
-            onPressed: function (mouse) {
-                view.forceActiveFocus()
-                root.sendMouse("down", mouse.x, mouse.y)
-            }
-            onPositionChanged: function (mouse) {
-                if (pressed)
-                    root.sendMouse("move", mouse.x, mouse.y)
-            }
-            onReleased: function (mouse) {
-                root.sendMouse("up", mouse.x, mouse.y)
-                if (root.paintMode) {
-                    root.paintPending = true
-                    paintTimer.restart()
-                }
-            }
-        }
-
-        Repeater {
-            model: root.selectionRects
-            Rectangle {
-                required property var modelData // [x, y, w, h] twips
-                readonly property var box: root.twipsToView(modelData)
-                x: box.x
-                y: box.y
-                width: box.w
-                height: box.h
-                color: theme.accent
-                opacity: 0.3
-            }
-        }
-
-        Rectangle {
-            id: cursorOverlay
-            visible: root.cursorVisible && root.pageShown && root.selectionRects.length === 0
-            x: root.cursorView.x
-            y: root.cursorView.y
-            width: Math.max(root.cursorView.w, 2)
-            height: root.cursorView.h
-            color: theme.accent
-
-            Timer {
-                id: blink
-                interval: 500
-                running: cursorOverlay.visible
-                repeat: true
-                onTriggered: cursorOverlay.opacity = cursorOverlay.opacity > 0 ? 0 : 1
-            }
-        }
     }
 
-    // Centered message while there is nothing to show (or something broke).
-    Text {
-        visible: !root.pageShown || root.errorText !== ""
-        anchors.centerIn: view
-        width: parent.width * 0.8
-        wrapMode: Text.Wrap
-        horizontalAlignment: Text.AlignHCenter
-        font.pixelSize: 16
-        color: root.errorText !== "" ? theme.red : theme.foreground
-        text: root.errorText !== "" ? root.errorText
-            : !bridge.connected ? (bridge.errorString || "Connecting to engine…") + "\nRetrying…"
-            : root.loading ? "Rendering " + root.documentName + "…"
-            : ""
-    }
-
-    Rectangle {
+    StatusBar {
         id: statusBar
+        appRoot: root
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-        height: 28
-        color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
-
-        Rectangle {
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: 1
-            color: theme.accent
-        }
-
-        Text {
-            id: statusText
-            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 10
-                      right: connection.left; rightMargin: 16 }
-            color: theme.foreground
-            font.family: "monospace"
-            font.pixelSize: 12
-            elide: Text.ElideRight
-            text: root.statusFlash !== "" ? root.statusFlash
-                  : root.documentName + (root.dirty ? " ●" : "")
-                    + (root.docId >= 0 && root.pageCount > 0
-                       ? "  ·  Page " + (root.currentPage + 1) + " of " + root.pageCount : "")
-
-            // Shows the flash for 2 s, then fades back to the document name.
-            SequentialAnimation {
-                id: flashAnim
-                PropertyAction { target: statusText; property: "opacity"; value: 1 }
-                PauseAnimation { duration: 2000 }
-                NumberAnimation { target: statusText; property: "opacity"; to: 0; duration: 200 }
-                ScriptAction { script: root.statusFlash = "" }
-                NumberAnimation { target: statusText; property: "opacity"; to: 1; duration: 200 }
-            }
-        }
-
-        Row {
-            id: connection
-            anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 10 }
-            spacing: 6
-
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 8; height: 8; radius: 4
-                color: bridge.connected ? (theme.green ?? theme.accent)
-                     : bridge.errorString ? theme.red
-                     : (theme.yellow ?? theme.muted)
-            }
-            Text {
-                color: theme.foreground
-                font.family: "monospace"
-                font.pixelSize: 12
-                text: bridge.connected ? "engine connected"
-                    : bridge.errorString ? "engine offline" : "connecting…"
-            }
-        }
     }
 }
