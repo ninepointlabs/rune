@@ -72,7 +72,7 @@ Window {
             return
         switch (ev.event) {
         case "tiles_changed": renderTimer.restart(); break  // lazy: re-render full page
-        case "cursor_changed": updateCursor(ev); break
+        case "cursor_changed": updateCursor(ev); renderTimer.restart(); break  // cursor moved → user typed
         case "selection_changed": updateSelection(ev); break
         case "cursor_visible": cursorVisible = ev.visible; break
         case "size_changed": break  // could store for future use
