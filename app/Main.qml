@@ -196,6 +196,18 @@ Window {
         fetchFormatState()
     }
 
+    // Paragraph spacing step (directional only — see the toolbar comment
+    // and engine/README.md for why exact point values aren't supported).
+    function applyParaSpacing(direction) {
+        if (docId < 0)
+            return
+        markEdited()
+        bridge.send({ cmd: "para", doc_id: docId, direction: direction }, function (r) {
+            if (!r.ok)
+                console.warn("para " + direction + " failed: " + r.error)
+        })
+    }
+
     // Text color: "#RRGGBB" or "auto".
     function applyColor(hex) {
         if (docId < 0)
@@ -895,6 +907,21 @@ Window {
                     active: root.formattingState[modelData[1]] === true
                     onClicked: root.applyFormat(".uno:" + modelData[1])
                 }
+            }
+
+            ToolSeparator {}
+
+            // Paragraph spacing: directional only. LOK does not apply exact
+            // point values or keep-together/widow-orphan headlessly (see
+            // engine/README.md and the `para` command's comment) — these
+            // buttons use the LO-native spacing step instead of a fixed pt.
+            ToolButton {
+                label: "¶−"; tip: "Decrease paragraph spacing"
+                onClicked: root.applyParaSpacing("decrease")
+            }
+            ToolButton {
+                label: "¶+"; tip: "Increase paragraph spacing"
+                onClicked: root.applyParaSpacing("increase")
             }
 
             ToolSeparator {}

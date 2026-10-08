@@ -791,6 +791,8 @@ public:
             return style(req, id);
         if (cmd->s == "color")
             return color(req, id);
+        if (cmd->s == "para")
+            return para(req, id);
         if (cmd->s == "get_state")
             return getState(req, id);
         if (cmd->s == "get_char_style")
@@ -1496,6 +1498,39 @@ private:
             + jsonQuote(it->second)
             + "},\"FamilyName\":{\"type\":\"string\",\"value\":\"ParagraphStyles\"}}";
         st->doc->postUnoCommand(".uno:StyleApply", args.c_str());
+        st->dirty = true;
+        return Reply(id).ok(true).line();
+    }
+
+    // Paragraph spacing, directional only (space_before/space_after exact
+    // point values and keep-together/keep-with-next/widow-orphan are NOT
+    // implemented: LibreOfficeKit's postUnoCommand(".uno:ParagraphDialog",
+    // args) does not apply ParaTopMargin/ParaBottomMargin/ParaSplit in
+    // headless mode -- verified empirically by diffing rendered tiles
+    // before/after the call, which showed no change for any of those
+    // properties. ParagraphDialog is a dialog-driving command; without a
+    // GUI event loop behind it, LOK accepts the call (postUnoCommand never
+    // reports failure) but the properties are never actually applied. Only
+    // the simple toggle dispatch commands ParaspaceIncrease/ParaspaceDecrease
+    // were confirmed to work (visually, via tile diff). Exact paragraph
+    // dialog settings would need the full UNO API (XPropertySet on a text
+    // cursor), which is a different, heavier integration than LOK's
+    // simple command dispatch.
+    std::string para(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *dir = req.get("direction");
+        if (!dir || dir->type != Json::String)
+            return errorReply(id, "missing \"direction\" (\"increase\" or \"decrease\")");
+        if (dir->s == "increase")
+            st->doc->postUnoCommand(".uno:ParaspaceIncrease");
+        else if (dir->s == "decrease")
+            st->doc->postUnoCommand(".uno:ParaspaceDecrease");
+        else
+            return errorReply(id, "\"direction\" must be \"increase\" or \"decrease\"");
         st->dirty = true;
         return Reply(id).ok(true).line();
     }

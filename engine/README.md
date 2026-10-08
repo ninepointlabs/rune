@@ -178,6 +178,39 @@ number (R*65536 + G*256 + B, -1 = automatic).
 Values are validated before anything is applied; a bad one fails the whole
 command.
 
+### `para`
+
+Paragraph spacing, **directional only**:
+
+```json
+→ {"id": 10, "cmd": "para", "doc_id": 0, "direction": "increase"}
+← {"id": 10, "ok": true}
+```
+
+`direction` is `"increase"` or `"decrease"`, mapped to
+`.uno:ParaspaceIncrease` / `.uno:ParaspaceDecrease` — confirmed working by
+diffing rendered tiles before and after the call.
+
+**Not implemented: exact space-before/space-after point values,
+keep-with-next, keep-lines-together, widow/orphan control.** These map to
+Writer paragraph properties (`ParaTopMargin`, `ParaBottomMargin`,
+`ParaSplit`, `ParaKeepTogether`, `ParaWidows`/`ParaOrphans`) that are only
+reachable, in this LibreOffice build, through `.uno:ParagraphDialog` with a
+property-sequence argument — the same JSON-args mechanism `.uno:StyleApply`
+uses successfully for paragraph styles. Empirically, that call does **not**
+apply headlessly: `postUnoCommand(".uno:ParagraphDialog", args)` returns
+without error (LOK's dispatch never reports failure), but rendering the
+document before and after showed no visual change for any of
+`ParaTopMargin`, `ParaBottomMargin`, or `ParaSplit`, and no corresponding
+key ever appeared in the `get_state` cache. `.uno:ParagraphDialog` is a
+dialog-driving command; without a GUI event loop behind it, the properties
+are accepted but never committed.
+
+Reaching these settings for real would need the full UNO API (an
+`XPropertySet` on a text cursor, via LibreOffice's UNO bridge) rather than
+LOK's simple command dispatch — a materially heavier integration than
+`LibreOfficeKit.h` alone. Revisit if that bridge is ever added.
+
 ### Push events
 
 Lines without an `id`, sent to every client. All carry `event` and `doc_id`.

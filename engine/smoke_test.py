@@ -250,6 +250,17 @@ def main():
               "format .uno:IncrementLevel (Shift+Tab: promote list item)")
         check(a.call("close", doc_id=listdoc)["ok"], "close list doc")
 
+        # --- Paragraph spacing (directional only; see engine/README.md) ---
+        a.events.clear()
+        r = a.call("new_md", markdown="Paragraph spacing test\n")
+        spdoc = r["doc_id"]
+        check(a.call("para", doc_id=spdoc, direction="increase")["ok"], "para direction=increase")
+        check(a.call("para", doc_id=spdoc, direction="decrease")["ok"], "para direction=decrease")
+        check(not a.call("para", doc_id=spdoc)["ok"], "para without direction rejected")
+        check(not a.call("para", doc_id=spdoc, direction="sideways")["ok"], "para bad direction rejected")
+        check(not a.call("para", doc_id=999, direction="increase")["ok"], "para unknown doc rejected")
+        check(a.call("close", doc_id=spdoc)["ok"], "close spacing doc")
+
         # --- Format painter: get_char_style / apply_char_style ---
         a.events.clear()
         r = a.call("new_md", markdown="Paint source text\n")
