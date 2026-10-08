@@ -10,6 +10,7 @@ the rendered tile actually changes. Exits non-zero on failure.
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -85,7 +86,10 @@ def kinds(events):
 def main():
     tmp = tempfile.mkdtemp(prefix="rune-smoke-")
     sock_path = os.path.join(tmp, "e.sock")
-    engine = subprocess.Popen([ENGINE, "--socket-path", sock_path], stderr=subprocess.PIPE, text=True)
+    state_home = os.path.join(tmp, "state")
+    autosave_dir = os.path.join(state_home, "rune/autosave")
+    env = dict(os.environ, XDG_STATE_HOME=state_home, RUNE_AUTOSAVE_INTERVAL="1")
+    engine = subprocess.Popen([ENGINE, "--socket-path", sock_path], stderr=subprocess.PIPE, text=True, env=env)
     try:
         for _ in range(600):
             if os.path.exists(sock_path):
@@ -172,6 +176,7 @@ def main():
             print("SKIP .doc (no sample file)")
 
         # --- Markdown import/export ---
+        a.events.clear()
         md = "# Rune Title\n\nFirst **bold** paragraph.\n\nSecond *italic* paragraph.\n"
         r = a.call("new_md", markdown=md)
         check(r["ok"], "new_md")
@@ -219,10 +224,91 @@ def main():
               "ai send without user rejected")
         check(not a.call("ai", action="bogus")["ok"], "ai unknown action rejected")
 
+        # --- save / autosave (on a copy; never touch the sample) ---
+        def type_text(doc_id, text):
+            for ch in text:
+                a.call("key", doc_id=doc_id, type="input", char_code=ord(ch))
+                a.call("key", doc_id=doc_id, type="up", char_code=ord(ch))
+            time.sleep(0.5)  # let LOK apply the async key events
+
+        orig = os.path.join(tmp, "orig.docx")
+        shutil.copy(DOC, orig)
+        r = a.call("open", path=orig)
+        sdoc = r["doc_id"]
+        type_text(sdoc, "Saved")
+        mtime = os.stat(orig).st_mtime_ns
+        r = a.call("save", doc_id=sdoc)
+        check(r["ok"] and r["path"] == os.path.realpath(orig) and os.stat(orig).st_mtime_ns != mtime,
+              "save to original path writes it")
+
+        copy = os.path.join(tmp, "copy.docx")
+        r = a.call("save", doc_id=sdoc, path=copy, format="docx")
+        check(r["ok"] and r["path"] == os.path.realpath(copy) and os.path.getsize(copy) > 0,
+              "save_as returns the new path")
+        r = a.call("save", doc_id=sdoc)
+        check(r.get("path") == os.path.realpath(copy), "later save goes to the save_as path")
+        r2 = a.call("open", path=copy)
+        e = a.call("export_md", doc_id=r2["doc_id"])
+        check(r2["ok"] and "Saved" in e.get("markdown", ""), "saved file contains the typed text")
+        a.call("close", doc_id=r2["doc_id"])
+
+        odt = os.path.join(tmp, "copy.odt")
+        r = a.call("save", doc_id=sdoc, path=odt, format="odt")
+        with open(odt, "rb") as f:
+            check(r["ok"] and b"application/vnd.oasis.opendocument.text" in f.read(200),
+                  "save_as odt writes an ODF file")
+        pdf = os.path.join(tmp, "copy.pdf")
+        r = a.call("save", doc_id=sdoc, path=pdf, format="pdf")
+        with open(pdf, "rb") as f:
+            check(r["ok"] and f.read(5) == b"%PDF-", "save_as pdf writes a PDF")
+        check(a.call("save", doc_id=sdoc).get("path") == os.path.realpath(odt),
+              "pdf export does not change the save path")
+
+        check(not a.call("save", doc_id=sdoc, path=os.path.join(tmp, "nope/x.docx"))["ok"],
+              "save to nonexistent directory rejected")
+        check(not a.call("save", doc_id=sdoc, path=copy, format="xlsx")["ok"], "save unknown format rejected")
+        check(not a.call("save", doc_id=999)["ok"], "save unknown doc rejected")
+        nd = a.call("new_md", markdown="")["doc_id"]
+        check(not a.call("save", doc_id=nd)["ok"], "save of new_md doc without path rejected")
+        a.call("close", doc_id=nd)
+
+        check(a.call("autosave", doc_id=sdoc, enabled=True)["ok"], "autosave enable")
+        check(a.call("autosave", doc_id=sdoc, enabled=False)["ok"], "autosave disable")
+        check(not a.call("autosave", doc_id=sdoc)["ok"], "autosave without enabled rejected")
+        check(not a.call("autosave", doc_id=999, enabled=True)["ok"], "autosave unknown doc rejected")
+
+        auto_file = os.path.join(autosave_dir, f"{sdoc}_copy.odt")
+        a.call("autosave", doc_id=sdoc, enabled=True)
+        a.events.clear()
+        type_text(sdoc, "A")
+        check(a.wait_events(lambda ev: any(e["event"] == "autosaved" and e["doc_id"] == sdoc for e in ev), 15)
+              and os.path.exists(auto_file), "autosave fires and writes the autosave file")
+        ev = [e for e in a.events if e["event"] == "autosaved"][0]
+        check(ev["path"] == auto_file, "autosaved event carries the autosave path")
+        a.events.clear()
+        time.sleep(2.5)
+        check(not any(e["event"] == "autosaved" for e in a.events), "no autosave without new edits")
+        check(a.call("save", doc_id=sdoc)["ok"] and not os.path.exists(auto_file),
+              "save deletes the autosave file")
+
+        type_text(sdoc, "B")
+        check(a.wait_events(lambda ev: any(e["event"] == "autosaved" for e in ev), 15)
+              and os.path.exists(auto_file), "autosave written before close")
+        check(a.call("close", doc_id=sdoc)["ok"] and not os.path.exists(auto_file),
+              "close with autosave active removes the autosave file")
+
+        # Shutdown autosaves unsaved edits. Typed right before quit, so the
+        # 1 s timer is unlikely to beat it, but either way the file must exist.
+        r = a.call("open", path=orig)
+        a.call("autosave", doc_id=r["doc_id"], enabled=True)
+        type_text(r["doc_id"], "C")
+        shutdown_file = os.path.join(autosave_dir, f"{r['doc_id']}_orig.docx")
+
         check(a.call("close", doc_id=doc)["ok"], "close")
         check(a.call("quit")["ok"], "quit")
         engine.wait(timeout=30)
         check(engine.returncode == 0, "engine exited 0")
+        check(os.path.exists(shutdown_file), "engine shutdown keeps an autosave of unsaved edits")
     finally:
         if engine.poll() is None:
             engine.kill()

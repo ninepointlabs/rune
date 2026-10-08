@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -516,6 +517,77 @@ const std::map<std::string, int> kKeyNames = {
     {"Backspace", 1283}, {"Space", 1284}, {"Insert", 1285}, {"Delete", 1286},
 };
 
+// `save` formats -> LOK saveAs format strings.
+const std::map<std::string, const char *> kSaveFormats = {
+    {"docx", "docx"}, {"odt", "odt"}, {"pdf", "pdf"}, {"txt", "txt"}, {"doc", "doc"},
+};
+
+std::string baseName(const std::string &path)
+{
+    const size_t slash = path.rfind('/');
+    return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+// Absolute form of a path whose directory must exist (the file need not).
+bool resolveTargetPath(const std::string &path, std::string &out, std::string &error)
+{
+    const size_t slash = path.rfind('/');
+    const std::string dir = slash == std::string::npos ? "." : slash == 0 ? "/" : path.substr(0, slash);
+    const std::string name = baseName(path);
+    if (name.empty() || name == "." || name == "..") {
+        error = path + ": not a file path";
+        return false;
+    }
+    char *abs = realpath(dir.c_str(), nullptr);
+    if (!abs) {
+        error = dir + ": " + std::strerror(errno);
+        return false;
+    }
+    out = abs;
+    std::free(abs);
+    if (out != "/")
+        out += '/';
+    out += name;
+    return true;
+}
+
+// mkdir -p, owner-only for anything it creates.
+bool makeDirs(const std::string &dir)
+{
+    for (size_t pos = 1; pos <= dir.size(); ++pos) {
+        if (pos != dir.size() && dir[pos] != '/')
+            continue;
+        const std::string prefix = dir.substr(0, pos);
+        if (mkdir(prefix.c_str(), 0700) < 0 && errno != EEXIST)
+            return false;
+    }
+    return true;
+}
+
+// $XDG_STATE_HOME/rune/autosave, else ~/.local/state/rune/autosave.
+std::string autosaveDir()
+{
+    const char *state = std::getenv("XDG_STATE_HOME");
+    if (state && *state == '/')
+        return std::string(state) + "/rune/autosave";
+    const char *home = std::getenv("HOME");
+    return std::string(home && *home ? home : "/tmp") + "/.local/state/rune/autosave";
+}
+
+// Seconds between autosaves; RUNE_AUTOSAVE_INTERVAL overrides (for tests).
+std::chrono::milliseconds autosaveInterval()
+{
+    const char *env = std::getenv("RUNE_AUTOSAVE_INTERVAL");
+    double secs = 30;
+    if (env && *env) {
+        double v = 0;
+        auto [next, ec] = std::from_chars(env, env + std::strlen(env), v);
+        if (ec == std::errc() && *next == '\0' && v > 0)
+            secs = v;
+    }
+    return std::chrono::milliseconds(std::llround(secs * 1000));
+}
+
 // ---------------------------------------------------------------------------
 // Command dispatch.
 
@@ -523,7 +595,8 @@ constexpr long long kMaxTilePx = 8192;
 
 class Engine {
 public:
-    explicit Engine(lok::Office *office) : m_office(office)
+    explicit Engine(lok::Office *office)
+        : m_office(office), m_autosaveDir(autosaveDir()), m_autosaveInterval(autosaveInterval())
     {
         m_wakeFd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
         if (m_wakeFd < 0)
@@ -581,6 +654,10 @@ public:
             return newMd(req, id);
         if (cmd->s == "export_md")
             return exportMd(req, id);
+        if (cmd->s == "save")
+            return save(req, id);
+        if (cmd->s == "autosave")
+            return autosave(req, id);
         if (cmd->s == "ai")
             return ai(req, id);
         if (cmd->s == "quit") {
@@ -588,6 +665,43 @@ public:
             return Reply(id).ok(true).line();
         }
         return errorReply(id, "unknown cmd: " + cmd->s);
+    }
+
+    // poll() timeout until the next autosave round; -1 when none is enabled.
+    int autosaveTimeoutMs() const
+    {
+        if (!autosaveActive())
+            return -1;
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+            m_nextAutosave - std::chrono::steady_clock::now());
+        return int(std::max<long long>(0, left.count()));
+    }
+
+    // Runs an autosave round if one is due; returns push events for clients.
+    std::vector<std::string> autosaveIfDue()
+    {
+        std::vector<std::string> lines;
+        if (!autosaveActive() || std::chrono::steady_clock::now() < m_nextAutosave)
+            return lines;
+        m_nextAutosave = std::chrono::steady_clock::now() + m_autosaveInterval;
+        for (auto &[docId, st] : m_docs) {
+            if (!st.autosave || !st.dirty)
+                continue;
+            const std::string path = writeAutosave(docId, st);
+            if (!path.empty())
+                lines.push_back(Reply().str("event", "autosaved").num("doc_id", docId).str("path", path).line());
+        }
+        return lines;
+    }
+
+    // Engine shutdown: autosave every enabled document with unsaved edits.
+    // The files are kept for recovery.
+    void shutdown()
+    {
+        for (auto &[docId, st] : m_docs) {
+            if (st.autosave && st.dirty)
+                writeAutosave(docId, st);
+        }
     }
 
 private:
@@ -607,6 +721,9 @@ private:
         std::unique_ptr<CallbackCtx> ctx;
         std::string selStart, selEnd; // last TEXT_SELECTION_START/END rects
         std::vector<Rect> pages;      // page rects in twips; never empty
+        std::string path;             // absolute save target; empty for new_md
+        bool autosave = false;
+        bool dirty = false;           // edited since the last save/autosave
     };
 
     lok::Office *m_office; // never destroyed; see main()
@@ -614,6 +731,10 @@ private:
     std::map<long long, DocState> m_docs;
     long long m_nextDocId = 0;
     bool m_quit = false;
+
+    const std::string m_autosaveDir;
+    const std::chrono::milliseconds m_autosaveInterval;
+    std::chrono::steady_clock::time_point m_nextAutosave;
 
     int m_wakeFd = -1;
     std::mutex m_queueMutex; // guards m_queue; LOK calls back on its own thread
@@ -733,13 +854,114 @@ private:
         return {};
     }
 
-    lok::Document *findDoc(const Json &req)
+    DocState *findState(const Json &req, long long &docId)
     {
-        long long docId;
         if (!getInt(req, "doc_id", docId))
             return nullptr;
         auto it = m_docs.find(docId);
-        return it == m_docs.end() ? nullptr : it->second.doc.get();
+        return it == m_docs.end() ? nullptr : &it->second;
+    }
+
+    lok::Document *findDoc(const Json &req)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        return st ? st->doc.get() : nullptr;
+    }
+
+    bool autosaveActive() const
+    {
+        return std::any_of(m_docs.begin(), m_docs.end(), [](const auto &d) { return d.second.autosave; });
+    }
+
+    std::string autosavePath(long long docId, const DocState &st) const
+    {
+        const std::string name = st.path.empty() ? "untitled.docx" : baseName(st.path);
+        return m_autosaveDir + "/" + std::to_string(docId) + "_" + name;
+    }
+
+    // Writes the autosave copy (format from its extension); "" on failure.
+    std::string writeAutosave(long long docId, DocState &st)
+    {
+        if (!makeDirs(m_autosaveDir)) {
+            logf("autosave: mkdir %s: %s", m_autosaveDir.c_str(), std::strerror(errno));
+            return {};
+        }
+        const std::string path = autosavePath(docId, st);
+        if (!st.doc->saveAs(fileUrl(path).c_str(), nullptr, nullptr)) {
+            logf("autosave doc %lld to %s failed: %s", docId, path.c_str(), lokError().c_str());
+            return {};
+        }
+        st.dirty = false;
+        logf("autosaved doc %lld to %s", docId, path.c_str());
+        return path;
+    }
+
+    std::string save(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+
+        const Json *pathArg = req.get("path");
+        const Json *formatArg = req.get("format");
+        if (pathArg && (pathArg->type != Json::String || pathArg->s.empty()))
+            return errorReply(id, "invalid \"path\"");
+        if (formatArg && formatArg->type != Json::String)
+            return errorReply(id, "invalid \"format\"");
+
+        // No format: LOK picks the filter from the target's extension, which
+        // for the stored path is the format the document was opened in.
+        const char *format = nullptr;
+        const char *filterOptions = nullptr;
+        if (formatArg) {
+            auto it = kSaveFormats.find(formatArg->s);
+            if (it == kSaveFormats.end())
+                return errorReply(id, "unknown format: " + formatArg->s + " (docx, odt, pdf, txt, doc)");
+            format = it->second;
+            if (formatArg->s == "txt")
+                filterOptions = "UTF8";
+        }
+
+        std::string target;
+        if (pathArg) {
+            std::string error;
+            if (!resolveTargetPath(pathArg->s, target, error))
+                return errorReply(id, error);
+        } else if (st->path.empty()) {
+            return errorReply(id, "document has no path yet; pass \"path\"");
+        } else {
+            target = st->path;
+        }
+
+        if (!st->doc->saveAs(fileUrl(target).c_str(), format, filterOptions))
+            return errorReply(id, "saveAs " + target + " failed: " + lokError());
+        logf("saved doc %lld to %s", docId, target.c_str());
+
+        // PDF is an export: the document keeps saving to its editable path.
+        if (!(formatArg && formatArg->s == "pdf")) {
+            unlink(autosavePath(docId, *st).c_str());
+            st->path = target;
+            st->dirty = false;
+        }
+        return Reply(id).ok(true).str("path", target).line();
+    }
+
+    std::string autosave(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *enabled = req.get("enabled");
+        if (!enabled || enabled->type != Json::Bool)
+            return errorReply(id, "\"enabled\" must be true or false");
+        // The first enabled document starts the clock.
+        if (enabled->b && !autosaveActive())
+            m_nextAutosave = std::chrono::steady_clock::now() + m_autosaveInterval;
+        st->autosave = enabled->b;
+        return Reply(id).ok(true).line();
     }
 
     std::string open(const Json &req, const Json *id)
@@ -751,14 +973,14 @@ private:
         char *abs = realpath(path->s.c_str(), nullptr);
         if (!abs)
             return errorReply(id, path->s + ": " + std::strerror(errno));
-        const std::string url = fileUrl(abs);
+        const std::string absPath = abs;
         std::free(abs);
 
-        std::unique_ptr<lok::Document> doc(m_office->documentLoad(url.c_str()));
+        std::unique_ptr<lok::Document> doc(m_office->documentLoad(fileUrl(absPath).c_str()));
         if (!doc)
             return errorReply(id, "documentLoad failed: " + lokError());
         doc->initializeForRendering();
-        return addDoc(std::move(doc), id, path->s);
+        return addDoc(std::move(doc), id, absPath, absPath);
     }
 
     std::string lokError()
@@ -786,7 +1008,7 @@ private:
             if (!doc->paste("text/html", html.data(), html.size()))
                 return errorReply(id, "paste failed for text/html");
         }
-        return addDoc(std::move(doc), id, "(new markdown document)");
+        return addDoc(std::move(doc), id, "(new markdown document)", {});
     }
 
     // Plain-text export reshaped as Markdown paragraphs. Lossy: formatting
@@ -844,8 +1066,10 @@ private:
     }
 
     // Shared tail of open/new_md: takes a document already initialized for
-    // rendering, registers it and replies with its layout.
-    std::string addDoc(std::unique_ptr<lok::Document> doc, const Json *id, const std::string &what)
+    // rendering, registers it and replies with its layout. `path` is where
+    // `save` writes by default ("" if the document has none yet).
+    std::string addDoc(std::unique_ptr<lok::Document> doc, const Json *id, const std::string &what,
+                       const std::string &path)
     {
         long docW = 0, docH = 0;
         doc->getDocumentSize(&docW, &docH);
@@ -867,7 +1091,7 @@ private:
             .raw("page_rect", rectJson(pages.front()))
             .raw("page_rects", rectsJson(pages))
             .raw("doc_size", "[" + std::to_string(docW) + "," + std::to_string(docH) + "]");
-        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}, std::move(pages)};
+        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}, std::move(pages), path, false, false};
         return reply.line();
     }
 
@@ -925,9 +1149,11 @@ private:
 
     std::string key(const Json &req, const Json *id)
     {
-        lok::Document *doc = findDoc(req);
-        if (!doc)
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
             return errorReply(id, "unknown doc_id");
+        lok::Document *doc = st->doc.get();
 
         const Json *type = req.get("type");
         int lokType;
@@ -954,14 +1180,19 @@ private:
             return errorReply(id, "char_code or key_code is required");
 
         doc->postKeyEvent(lokType, int(charCode), int(keyCode));
+        // Conservative: navigation keys count too; at worst an extra autosave.
+        if (lokType == LOK_KEYEVENT_KEYINPUT)
+            st->dirty = true;
         return Reply(id).ok(true).line();
     }
 
     std::string paste(const Json &req, const Json *id)
     {
-        lok::Document *doc = findDoc(req);
-        if (!doc)
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
             return errorReply(id, "unknown doc_id");
+        lok::Document *doc = st->doc.get();
         const Json *mime = req.get("mime_type");
         const Json *data = req.get("data");
         if (!data || data->type != Json::String)
@@ -972,6 +1203,7 @@ private:
             mimeType = "text/plain;charset=utf-8";
         if (!doc->paste(mimeType.c_str(), data->s.data(), data->s.size()))
             return errorReply(id, "paste failed for " + mimeType);
+        st->dirty = true;
         return Reply(id).ok(true).line();
     }
 
@@ -984,6 +1216,9 @@ private:
         // Unregister first: LOK invokes callbacks under the SolarMutex, which
         // registerCallback also takes, so none is in flight once it returns.
         it->second.doc->registerCallback(nullptr, nullptr);
+        // An explicit close discards the recovery copy; only crashes and
+        // engine shutdown leave one behind.
+        unlink(autosavePath(docId, it->second).c_str());
         m_docs.erase(it);
         logf("closed doc %lld", docId);
         return Reply(id).ok(true).line();
@@ -1189,7 +1424,7 @@ int main(int argc, char *argv[])
             fds.push_back({c.fd, POLLIN, 0});
         constexpr size_t kFirstClient = 2;
 
-        if (poll(fds.data(), fds.size(), -1) < 0) {
+        if (poll(fds.data(), fds.size(), engine.autosaveTimeoutMs()) < 0) {
             if (errno == EINTR)
                 continue;
             logf("poll: %s", std::strerror(errno));
@@ -1239,15 +1474,19 @@ int main(int argc, char *argv[])
 
         // Push events go to every client, including ones accepted this round.
         // Drained after commands so a reply precedes the events it caused.
-        if (fds[1].revents & POLLIN) {
-            drop.resize(clients.size(), false);
-            for (const std::string &ev : engine.takeEvents()) {
+        drop.resize(clients.size(), false);
+        auto broadcast = [&](const std::vector<std::string> &events) {
+            for (const std::string &ev : events) {
                 for (size_t i = 0; i < clients.size(); ++i) {
                     if (!drop[i] && !sendAll(clients[i].fd, ev))
                         drop[i] = true;
                 }
             }
-        }
+        };
+        if (fds[1].revents & POLLIN)
+            broadcast(engine.takeEvents());
+        if (!engine.quitRequested())
+            broadcast(engine.autosaveIfDue());
 
         for (size_t i = drop.size(); i-- > 0;) {
             if (drop[i]) {
@@ -1259,6 +1498,7 @@ int main(int argc, char *argv[])
     }
 
     logf(engine.quitRequested() ? "quit requested; shutting down" : "signal received; shutting down");
+    engine.shutdown();
     for (const Client &c : clients)
         ::close(c.fd);
     ::close(listenFd);

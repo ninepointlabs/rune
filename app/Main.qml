@@ -66,6 +66,13 @@ Window {
     // Keyboard-driven cursor moves scroll the cursor into view.
     property double lastKeyTime: 0
 
+    // Edits not yet written by a save or autosave; editSeq counts edits so a
+    // save reply doesn't clear edits typed while it was in flight.
+    property bool dirty: false
+    property int editSeq: 0
+    // Brief status-bar message ("Saved"); empty shows the document name.
+    property string statusFlash: ""
+
     readonly property string documentName: documentPath.substring(documentPath.lastIndexOf("/") + 1)
 
     width: 1000
@@ -95,6 +102,8 @@ Window {
                 root.dirtyPages = {}
                 root.cursorVisible = false
                 root.selectionRects = []
+                // The reopened document is whatever is on disk.
+                root.dirty = false
             }
         }
     }
@@ -114,7 +123,29 @@ Window {
         case "selection_changed": updateSelection(ev); break
         case "cursor_visible": cursorVisible = ev.visible; break
         case "size_changed": if (ev.page_rects) setPageRects(ev.page_rects, true); break
+        case "autosaved": dirty = false; break
         }
+    }
+
+    function save() {
+        if (docId < 0)
+            return
+        const seq = editSeq
+        bridge.send({ cmd: "save", doc_id: docId }, function (r) {
+            if (!r.ok) {
+                console.warn("save failed: " + r.error)
+                flashStatus("Save failed: " + r.error)
+                return
+            }
+            if (seq === editSeq)
+                dirty = false
+            flashStatus("Saved")
+        })
+    }
+
+    function flashStatus(message) {
+        statusFlash = message
+        flashAnim.restart()
     }
 
     function updateCursor(ev) {
@@ -177,6 +208,8 @@ Window {
         [Qt.Key_Home]: "Home", [Qt.Key_End]: "End",
         [Qt.Key_PageUp]: "PageUp", [Qt.Key_PageDown]: "PageDown"
     })
+    // Named keys that change the text (the rest only navigate).
+    readonly property var editingKeys: ["Return", "Backspace", "Delete", "Tab"]
 
     // Returns false for keys we don't forward (modifiers alone, Ctrl/Alt shortcuts).
     function forwardKey(type, event) {
@@ -190,8 +223,13 @@ Window {
             cmd.char_code = event.text.codePointAt(0)
         else
             return false
-        if (type === "input")
+        if (type === "input") {
             lastKeyTime = Date.now()
+            if (cmd.char_code !== 0 || editingKeys.indexOf(cmd.key) >= 0) {
+                dirty = true
+                ++editSeq
+            }
+        }
         bridge.send(cmd, function (r) {
             if (!r.ok)
                 console.warn("key " + type + " failed: " + r.error)
@@ -237,6 +275,11 @@ Window {
             }
             docId = r.doc_id
             view.contentY = 0
+            // Autosave is always on; the engine writes recovery copies every 30 s.
+            bridge.send({ cmd: "autosave", doc_id: docId, enabled: true }, function (a) {
+                if (!a.ok)
+                    console.warn("autosave enable failed: " + a.error)
+            })
             setPageRects(r.page_rects || [r.page_rect], false)
         })
     }
@@ -352,7 +395,15 @@ Window {
         onHeightChanged: root.updateViewport()
 
         focus: true
-        Keys.onPressed: function (event) { event.accepted = root.forwardKey("input", event) }
+        Keys.onPressed: function (event) {
+            if (event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+                if (!event.isAutoRepeat)
+                    root.save()
+                event.accepted = true
+                return
+            }
+            event.accepted = root.forwardKey("input", event)
+        }
         Keys.onReleased: function (event) { event.accepted = root.forwardKey("up", event) }
 
         // The page column; boxes come from root.pageLayout so overlays and
@@ -468,15 +519,27 @@ Window {
         }
 
         Text {
+            id: statusText
             anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 10
                       right: connection.left; rightMargin: 16 }
             color: theme.foreground
             font.family: "monospace"
             font.pixelSize: 12
             elide: Text.ElideRight
-            text: root.documentName
-                  + (root.docId >= 0 && root.pageCount > 0
-                     ? "  ·  Page " + (root.currentPage + 1) + " of " + root.pageCount : "")
+            text: root.statusFlash !== "" ? root.statusFlash
+                  : root.documentName + (root.dirty ? " ●" : "")
+                    + (root.docId >= 0 && root.pageCount > 0
+                       ? "  ·  Page " + (root.currentPage + 1) + " of " + root.pageCount : "")
+
+            // Shows the flash for 2 s, then fades back to the document name.
+            SequentialAnimation {
+                id: flashAnim
+                PropertyAction { target: statusText; property: "opacity"; value: 1 }
+                PauseAnimation { duration: 2000 }
+                NumberAnimation { target: statusText; property: "opacity"; to: 0; duration: 200 }
+                ScriptAction { script: root.statusFlash = "" }
+                NumberAnimation { target: statusText; property: "opacity"; to: 1; duration: 200 }
+            }
         }
 
         Row {
