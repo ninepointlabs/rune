@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rune — The word processor that writes with you</title>
+<meta name="description" content="An AI-native word processor for Linux. Opens real .docx, .doc, .odt, .md files. Claude, ChatGPT, and Grok are built into the editing surface, not bolted on.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0908;
+    --bg-raised: #15110e;
+    --bg-raised-2: #1c1713;
+    --border: #2e2620;
+    --border-bright: #4a3a2a;
+    --ink: #e9e1d2;
+    --ink-dim: #a89a85;
+    --ink-faint: #6b5d4d;
+    --ember: #d98f4e;
+    --ember-bright: #f2b06e;
+    --blood: #7a2634;
+    --serif-display: 'Cinzel', serif;
+    --serif-body: 'Spectral', Georgia, serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif-body);
+    font-size: 18px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Faint carved-stone vignette texture across the whole page */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(217, 143, 78, 0.06), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(122, 38, 52, 0.05), transparent 60%);
+  }
+
+  a { color: var(--ember-bright); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--ember-bright); outline-offset: 3px; }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 1; }
+
+  code, .mono { font-family: var(--mono); }
+
+  /* ---------- Header ---------- */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10, 9, 8, 0.88);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; max-width: 1040px; margin: 0 auto; }
+  .wordmark { display: flex; align-items: center; gap: 10px; font-family: var(--serif-display); font-size: 20px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink); }
+  .wordmark svg { width: 22px; height: 22px; filter: drop-shadow(0 0 6px rgba(217, 143, 78, 0.65)); }
+  .nav-links { display: flex; gap: 28px; align-items: center; font-family: var(--serif-body); font-size: 15px; }
+  .nav-links a { color: var(--ink-dim); }
+  .nav-links a:hover { color: var(--ember-bright); }
+  .nav-cta {
+    border: 1px solid var(--border-bright);
+    padding: 7px 16px;
+    border-radius: 2px;
+    color: var(--ink) !important;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+  .nav-cta:hover { border-color: var(--ember); background: rgba(217, 143, 78, 0.08); text-decoration: none !important; }
+
+  @media (max-width: 640px) {
+    .nav-links { display: none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 100px 28px 90px;
+    text-align: center;
+    position: relative;
+  }
+  .hero-mark {
+    width: 84px; height: 84px;
+    margin: 0 auto 36px;
+    filter: drop-shadow(0 0 22px rgba(217, 143, 78, 0.55)) drop-shadow(0 0 50px rgba(217, 143, 78, 0.18));
+    animation: ember-pulse 4.5s ease-in-out infinite;
+  }
+  @keyframes ember-pulse {
+    0%, 100% { filter: drop-shadow(0 0 18px rgba(217, 143, 78, 0.45)) drop-shadow(0 0 40px rgba(217, 143, 78, 0.14)); }
+    50% { filter: drop-shadow(0 0 28px rgba(217, 143, 78, 0.7)) drop-shadow(0 0 60px rgba(217, 143, 78, 0.24)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-mark { animation: none; }
+  }
+
+  h1 {
+    font-family: var(--serif-display);
+    font-weight: 600;
+    font-size: clamp(32px, 5.5vw, 54px);
+    line-height: 1.15;
+    letter-spacing: 0.01em;
+    margin: 0 0 22px;
+    color: var(--ink);
+  }
+  h1 .accent { color: var(--ember-bright); }
+
+  .hero-sub {
+    font-size: 20px;
+    color: var(--ink-dim);
+    max-width: 620px;
+    margin: 0 auto 40px;
+    font-style: italic;
+  }
+
+  .hero-ctas { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    font-family: var(--serif-body);
+    font-size: 16px;
+    padding: 13px 28px;
+    border-radius: 2px;
+    display: inline-block;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--ember);
+    color: #130d08 !important;
+    font-weight: 600;
+    border-color: var(--ember);
+  }
+  .btn-primary:hover { background: var(--ember-bright); border-color: var(--ember-bright); text-decoration: none !important; }
+  .btn-ghost {
+    color: var(--ink) !important;
+    border-color: var(--border-bright);
+  }
+  .btn-ghost:hover { border-color: var(--ember); background: rgba(217, 143, 78, 0.06); text-decoration: none !important; }
+
+  /* ---------- Section rhythm ---------- */
+  section { padding: 84px 0; border-top: 1px solid var(--border); }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--ember);
+    margin-bottom: 18px;
+  }
+
+  /* ---------- Philosophy (editorial stanzas, not feature cards) ---------- */
+  .stanza { display: grid; grid-template-columns: 1fr 1.6fr; gap: 48px; margin-bottom: 72px; align-items: start; }
+  .stanza:last-child { margin-bottom: 0; }
+  .stanza h2 {
+    font-family: var(--serif-display);
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0;
+    line-height: 1.3;
+  }
+  .stanza p {
+    margin: 0;
+    color: var(--ink-dim);
+    font-size: 18px;
+  }
+  .stanza p + p { margin-top: 16px; }
+  .stanza strong { color: var(--ink); font-weight: 500; }
+
+  @media (max-width: 720px) {
+    .stanza { grid-template-columns: 1fr; gap: 16px; }
+  }
+
+  /* ---------- Architecture diagram ---------- */
+  .arch-diagram {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 20px;
+    margin: 40px 0;
+    padding: 36px 28px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .arch-box {
+    border: 1px solid var(--border-bright);
+    background: var(--bg-raised-2);
+    padding: 20px;
+    border-radius: 2px;
+  }
+  .arch-box h3 {
+    font-family: var(--serif-display);
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: var(--ember-bright);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+  .arch-box ul { margin: 0; padding-left: 18px; color: var(--ink-dim); font-size: 15px; }
+  .arch-box li { margin-bottom: 4px; }
+  .arch-link {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .arch-link .pipe { font-size: 22px; color: var(--ember); display: block; margin-bottom: 4px; }
+
+  @media (max-width: 720px) {
+    .arch-diagram { grid-template-columns: 1fr; }
+    .arch-link { transform: rotate(90deg); margin: 8px 0; }
+  }
+
+  /* ---------- Status ---------- */
+  .status-table { width: 100%; border-collapse: collapse; margin-top: 28px; font-size: 16px; }
+  .status-table th, .status-table td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  .status-table th { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); font-weight: 500; }
+  .status-table td:first-child { color: var(--ink); }
+  .status-table td:last-child { color: var(--ink-dim); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 10px; }
+  .dot-done { background: var(--ember); box-shadow: 0 0 6px rgba(217, 143, 78, 0.7); }
+  .dot-progress { background: var(--ink-faint); border: 1px solid var(--ink-dim); }
+  .dot-none { background: transparent; border: 1px solid var(--border-bright); }
+
+  .honest-note {
+    margin-top: 28px;
+    padding: 18px 22px;
+    border-left: 2px solid var(--blood);
+    background: rgba(122, 38, 52, 0.08);
+    color: var(--ink-dim);
+    font-size: 15px;
+    font-style: italic;
+  }
+
+  /* ---------- Get started ---------- */
+  .code-block {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 20px 24px;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--ink-dim);
+    line-height: 1.8;
+    overflow-x: auto;
+    margin: 24px 0;
+  }
+  .code-block .comment { color: var(--ink-faint); }
+  .code-block .prompt { color: var(--ember); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 40px 0 60px;
+    text-align: center;
+    color: var(--ink-faint);
+    font-size: 14px;
+  }
+  footer a { color: var(--ink-dim); }
+  footer .footer-mark { opacity: 0.5; width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+  footer p { margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="#" class="wordmark">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg>
+      RUNE
+    </a>
+    <nav class="nav-links">
+      <a href="#philosophy">Why</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#status">Status</a>
+      <a href="https://github.com/ninepointlabs/rune" class="nav-cta">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <svg class="hero-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <path d="M30 10 L30 90 M30 10 L72 36 L30 58 M72 36 L84 90" stroke="#d98f4e" stroke-width="6" fill="none" stroke-linecap="square"/>
+  </svg>
+  <h1>The word processor<br>that writes <span class="accent">with</span> you</h1>
+  <p class="hero-sub">Real .docx, .doc, .odt, and Markdown. Claude, ChatGPT, and Grok built into the editing surface — not a sidebar plugin bolted onto a twenty-year-old codebase.</p>
+  <div class="hero-ctas">
+    <a href="https://github.com/ninepointlabs/rune" class="btn btn-primary">View on GitHub</a>
+    <a href="#architecture" class="btn btn-ghost">How it works</a>
+  </div>
+</section>
+
+<section id="philosophy">
+  <div class="wrap">
+    <div class="section-label">Why</div>
+
+    <div class="stanza">
+      <h2>AI is not a plugin here.</h2>
+      <div>
+        <p>Every other word processor on Linux treats AI as an afterthought — a sidebar chat window stapled onto software that was finished before large language models existed. <strong>Rune starts from the opposite premise.</strong> The model is a writing primitive, on the same level as bold, italic, and paste.</p>
+        <p>Highlight a paragraph and ask Claude to tighten it. Place your cursor and have GPT draft the next section. Switch providers mid-document. This is the actual point of the project — everything else is table stakes.</p>
+      </div>
+    </div>
+
+    <div class="stanza">
+      <h2>Format fidelity without reinventing it.</h2>
+      <div>
+        <p>Parsing OOXML correctly is a problem LibreOffice has already spent two decades solving. Rune runs <strong>LibreOfficeKit headless</strong> as its document engine instead of writing a parser from scratch — so your .docx opens correctly, your tables survive, and your footnotes don't vanish.</p>
+        <p>The engineering budget goes into the editing experience and the AI integration, not into re-deriving a file format.</p>
+      </div>
+    </div>
+
+    <div class="stanza">
+      <h2>No ribbon. No clutter.</h2>
+      <div>
+        <p>Microsoft's ribbon solves "too many commands" by sorting them into tabs you have to know to click. Rune surfaces tools based on <strong>what your cursor is actually touching</strong> — select text and font controls appear; click into a table and row/column tools appear; otherwise the toolbar stays small enough to fit any window.</p>
+        <p>Built for <a href="https://github.com/basecamp/omarchy">Omarchy</a>'s keyboard-first, minimal aesthetic — not imported from Office 2007.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <div class="section-label">Architecture</div>
+    <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 12px; color: var(--ink);">Two processes, one socket</h2>
+    <p style="color: var(--ink-dim); max-width: 640px;">LibreOfficeKit isn't thread-safe and has an awkward shutdown path in current builds. Keeping it in its own process means a document engine crash never takes the editing window down with it.</p>
+
+    <div class="arch-diagram">
+      <div class="arch-box">
+        <h3>rune (Qt Quick / QML)</h3>
+        <ul>
+          <li>Toolbar + contextual strip</li>
+          <li>Document canvas</li>
+          <li>Native, no Electron</li>
+        </ul>
+      </div>
+      <div class="arch-link"><span class="pipe">⇄</span>JSON lines<br>over a Unix socket</div>
+      <div class="arch-box">
+        <h3>rune-engine (headless)</h3>
+        <ul>
+          <li>LibreOfficeKit, dlopen'd</li>
+          <li>Command dispatch, per feature</li>
+          <li>156 protocol-level tests</li>
+        </ul>
+      </div>
+    </div>
+
+    <p style="color: var(--ink-dim);">Full protocol reference and every documented limitation: <a href="https://github.com/ninepointlabs/rune/blob/main/engine/README.md">engine/README.md</a></p>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="section-label">Status</div>
+    <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 8px; color: var(--ink);">Early, and honest about it</h2>
+    <p style="color: var(--ink-dim); max-width: 640px;">Core editing works end to end. The AI integration — the actual reason this project exists — is still a provider registry waiting for real HTTP calls.</p>
+
+    <table class="status-table">
+      <tr><th>Area</th><th>State</th></tr>
+      <tr><td><span class="dot dot-done"></span>Document I/O (.docx, .doc, .odt, .txt, .md)</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Text editing — keyboard, mouse, clipboard</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Formatting, styles, tables</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Multi-page rendering, autosave</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-progress"></span>AI integration</td><td>Provider skeleton only — no requests sent yet</td></tr>
+      <tr><td><span class="dot dot-none"></span>Headers, footers, section breaks, images</td><td>Not started</td></tr>
+    </table>
+
+    <p class="honest-note">Some features we tried and couldn't make work headlessly — exact paragraph spacing, repeat-header-rows — are documented with the evidence, not hidden. See <a href="https://github.com/ninepointlabs/rune/blob/main/TODO.md">TODO.md</a> for the complete, current picture.</p>
+  </div>
+</section>
+
+<section id="get-started">
+  <div class="wrap">
+    <div class="section-label">Get it</div>
+    <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 8px; color: var(--ink);">Build it yourself</h2>
+    <p style="color: var(--ink-dim);">Arch / Omarchy, with LibreOffice and Qt 6 already in the official repos.</p>
+
+    <div class="code-block"><span class="comment"># dependencies</span>
+<span class="prompt">$</span> sudo pacman -S libreoffice-fresh libreoffice-fresh-sdk qt6-base qt6-declarative
+
+<span class="comment"># build</span>
+<span class="prompt">$</span> git clone https://github.com/ninepointlabs/rune.git
+<span class="prompt">$</span> cd rune &amp;&amp; cmake -S . -B build -G Ninja &amp;&amp; cmake --build build
+
+<span class="comment"># run</span>
+<span class="prompt">$</span> ./run.sh samples/test.docx</div>
+
+    <div class="hero-ctas" style="justify-content: flex-start; margin-top: 28px;">
+      <a href="https://github.com/ninepointlabs/rune" class="btn btn-primary">View the repo</a>
+      <a href="https://github.com/ninepointlabs/rune/blob/main/README.md" class="btn btn-ghost">Read the docs</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <svg class="footer-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="currentColor" stroke-width="7" fill="none" stroke-linecap="square"/></svg>
+      Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>.
+    </p>
+    <p><a href="https://github.com/ninepointlabs/rune">github.com/ninepointlabs/rune</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
