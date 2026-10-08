@@ -202,6 +202,38 @@ def main():
         check(not a.call("new_md")["ok"], "new_md without markdown rejected")
         check(a.call("close", doc_id=md_doc)["ok"], "close new_md doc")
 
+        # --- Formatting: format / style / get_state ---
+        fmt_path = os.path.join(tmp, "format.docx")
+        shutil.copy(DOC, fmt_path)
+        r = a.call("open", path=fmt_path)
+        fdoc = r["doc_id"]
+        time.sleep(2)  # let LOK deliver the full STATE_CHANGED batch
+        r = a.call("get_state", doc_id=fdoc)
+        check(r["ok"] and isinstance(r["state"], dict), "get_state returns a state object")
+        check(len(r["state"]) > 0, "get_state has accumulated state after open")
+
+        check(a.call("format", doc_id=fdoc, command=".uno:Bold")["ok"], "format .uno:Bold")
+        time.sleep(0.3)
+        check("Bold" in a.call("get_state", doc_id=fdoc)["state"],
+              "get_state has Bold after format command")
+        check(a.call("format", doc_id=fdoc, command=".uno:NoSuchCommand")["ok"],
+              "format with unknown .uno: command returns ok")
+        check(not a.call("format", doc_id=fdoc, command="macro:///Standard.Module1.Main")["ok"],
+              "format with non-.uno: command rejected")
+        check(not a.call("format", doc_id=fdoc)["ok"], "format without command rejected")
+
+        check(a.call("style", doc_id=fdoc, name="Text Body")["ok"], "style Text Body")
+        time.sleep(0.3)
+        check("StyleApply" in a.call("get_state", doc_id=fdoc)["state"],
+              "get_state has StyleApply after style command")
+        check(a.call("style", doc_id=fdoc, name="Heading 1")["ok"], "style Heading 1")
+        check(not a.call("style", doc_id=fdoc, name="Heading 9")["ok"], "style unknown name rejected")
+
+        check(not a.call("format", doc_id=999, command=".uno:Bold")["ok"], "format unknown doc rejected")
+        check(not a.call("style", doc_id=999, name="Heading 1")["ok"], "style unknown doc rejected")
+        check(not a.call("get_state", doc_id=999)["ok"], "get_state unknown doc rejected")
+        check(a.call("close", doc_id=fdoc)["ok"], "close formatting doc")
+
         # --- AI manager (skeleton: no network) ---
         r = a.call("ai", action="list_providers")
         check(r["ok"] and sorted(r["providers"]) == ["chatgpt", "claude", "grok"],

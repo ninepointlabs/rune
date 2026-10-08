@@ -316,6 +316,32 @@ std::string jsonScalar(const Json *v)
     }
 }
 
+// Serializes any parsed value back to JSON.
+std::string jsonDump(const Json &v)
+{
+    std::string out;
+    switch (v.type) {
+    case Json::Array:
+        out = "[";
+        for (const Json &e : v.arr) {
+            if (out.size() > 1)
+                out += ',';
+            out += jsonDump(e);
+        }
+        return out + ']';
+    case Json::Object:
+        out = "{";
+        for (const auto &[k, e] : v.obj) {
+            if (out.size() > 1)
+                out += ',';
+            out += jsonQuote(k) + ':' + jsonDump(e);
+        }
+        return out + '}';
+    default:
+        return jsonScalar(&v);
+    }
+}
+
 // Builds one reply line. The default constructor omits "id": that form is
 // for push events, which are not replies to anything.
 class Reply {
@@ -508,6 +534,50 @@ bool parseCursorRect(const std::string &s, Rect &r)
     return rect && rect->type == Json::String && parseRect(rect->s, r);
 }
 
+// A plain STATE_CHANGED value as JSON: true/false stay booleans, anything
+// else ("12", "Liberation Serif", "disabled") is a string.
+std::string stateValueJson(const std::string &v)
+{
+    return v == "true" || v == "false" ? v : jsonQuote(v);
+}
+
+// STATE_CHANGED payload -> (key without ".uno:", JSON value) pairs. Usually
+// ".uno:Bold=true", possibly several joined by ';' (split only before
+// ".uno:", so values may contain ';'), or JSON {"commandName", "state"}.
+std::vector<std::pair<std::string, std::string>> parseStateChange(const std::string &s)
+{
+    static const std::string prefix = ".uno:";
+    std::vector<std::pair<std::string, std::string>> out;
+    if (!s.empty() && s[0] == '{') {
+        Json j;
+        const Json *name = nullptr, *state = nullptr;
+        if (JsonParser(s).parse(j) && (name = j.get("commandName")) && name->type == Json::String
+            && name->s.rfind(prefix, 0) == 0 && (state = j.get("state"))) {
+            out.emplace_back(name->s.substr(prefix.size()),
+                             state->type == Json::String ? stateValueJson(state->s) : jsonDump(*state));
+        }
+        return out;
+    }
+    for (size_t pos = s.find(prefix); pos != std::string::npos;) {
+        const size_t next = s.find(";" + prefix, pos);
+        const std::string item = s.substr(pos + prefix.size(),
+                                          next == std::string::npos ? std::string::npos : next - pos - prefix.size());
+        const size_t eq = item.find('=');
+        if (eq != std::string::npos && eq > 0)
+            out.emplace_back(item.substr(0, eq), stateValueJson(item.substr(eq + 1)));
+        pos = next == std::string::npos ? next : next + 1;
+    }
+    return out;
+}
+
+// `style` names -> Writer programmatic paragraph style names for
+// .uno:StyleApply (UI names like "Body Text" are not found). STATE_CHANGED
+// reports StyleApply with UI names: "Default Paragraph Style", "Body Text".
+const std::map<std::string, const char *> kParaStyles = {
+    {"Normal", "Standard"}, {"Text Body", "Text body"},
+    {"Heading 1", "Heading 1"}, {"Heading 2", "Heading 2"}, {"Heading 3", "Heading 3"},
+};
+
 // VCL key codes (vcl/keycodes.hxx, == css::awt::Key), which is not installed
 // with the SDK. Values checked against offapi.rdb for LO 26.8.
 const std::map<std::string, int> kKeyNames = {
@@ -658,6 +728,12 @@ public:
             return save(req, id);
         if (cmd->s == "autosave")
             return autosave(req, id);
+        if (cmd->s == "format")
+            return format(req, id);
+        if (cmd->s == "style")
+            return style(req, id);
+        if (cmd->s == "get_state")
+            return getState(req, id);
         if (cmd->s == "ai")
             return ai(req, id);
         if (cmd->s == "quit") {
@@ -724,6 +800,8 @@ private:
         std::string path;             // absolute save target; empty for new_md
         bool autosave = false;
         bool dirty = false;           // edited since the last save/autosave
+        // Latest STATE_CHANGED value per command (key without ".uno:") as JSON.
+        std::map<std::string, std::string> state;
     };
 
     lok::Office *m_office; // never destroyed; see main()
@@ -752,6 +830,7 @@ private:
         case LOK_CALLBACK_TEXT_SELECTION_END:
         case LOK_CALLBACK_CURSOR_VISIBLE:
         case LOK_CALLBACK_DOCUMENT_SIZE_CHANGED:
+        case LOK_CALLBACK_STATE_CHANGED:
             break;
         default:
             return;
@@ -850,6 +929,13 @@ private:
                 .raw("page_rects", rectsJson(st.pages))
                 .line();
         }
+        case LOK_CALLBACK_STATE_CHANGED: {
+                    // Accumulate into cached state; don't push (LO fires ~140
+                    // individual callbacks per document open).
+                    for (const auto &[key, value] : parseStateChange(p.payload))
+                        st.state[key] = value;
+                    return {};
+                }
         }
         return {};
     }
@@ -1091,7 +1177,7 @@ private:
             .raw("page_rect", rectJson(pages.front()))
             .raw("page_rects", rectsJson(pages))
             .raw("doc_size", "[" + std::to_string(docW) + "," + std::to_string(docH) + "]");
-        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}, std::move(pages), path, false, false};
+        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}, std::move(pages), path, false, false, {}};
         return reply.line();
     }
 
@@ -1205,6 +1291,62 @@ private:
             return errorReply(id, "paste failed for " + mimeType);
         st->dirty = true;
         return Reply(id).ok(true).line();
+    }
+
+    // Pass-through to LOK; it runs asynchronously, so an unknown or
+    // inapplicable command still replies ok. Only .uno: commands, so a
+    // client can't dispatch macro: or script URLs.
+    std::string format(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *command = req.get("command");
+        if (!command || command->type != Json::String || command->s.rfind(".uno:", 0) != 0
+            || command->s.size() == 5)
+            return errorReply(id, "\"command\" must be a .uno: command");
+        st->doc->postUnoCommand(command->s.c_str());
+        st->dirty = true;
+        return Reply(id).ok(true).line();
+    }
+
+    // Applies a paragraph style to the paragraph(s) at the cursor.
+    std::string style(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        const Json *name = req.get("name");
+        if (!name || name->type != Json::String)
+            return errorReply(id, "missing \"name\"");
+        auto it = kParaStyles.find(name->s);
+        if (it == kParaStyles.end())
+            return errorReply(id, "unknown style: " + name->s
+                                      + " (Normal, Heading 1, Heading 2, Heading 3, Text Body)");
+        const std::string args = std::string("{\"Style\":{\"type\":\"string\",\"value\":")
+            + jsonQuote(it->second)
+            + "},\"FamilyName\":{\"type\":\"string\",\"value\":\"ParagraphStyles\"}}";
+        st->doc->postUnoCommand(".uno:StyleApply", args.c_str());
+        st->dirty = true;
+        return Reply(id).ok(true).line();
+    }
+
+    // Formatting state at the cursor, cached from STATE_CHANGED callbacks.
+    std::string getState(const Json &req, const Json *id)
+    {
+        long long docId;
+        DocState *st = findState(req, docId);
+        if (!st)
+            return errorReply(id, "unknown doc_id");
+        std::string state = "{";
+        for (const auto &[key, value] : st->state) {
+            if (state.size() > 1)
+                state += ',';
+            state += jsonQuote(key) + ':' + value;
+        }
+        return Reply(id).ok(true).raw("state", state + "}").line();
     }
 
     std::string close(const Json &req, const Json *id)
