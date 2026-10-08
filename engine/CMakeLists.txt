@@ -11,7 +11,8 @@ if(NOT EXISTS "${LO_INCLUDE_DIR}/LibreOfficeKit.hxx")
     message(FATAL_ERROR "LibreOfficeKit.hxx not found in ${LO_INCLUDE_DIR}")
 endif()
 
-add_executable(rune-engine engine.cpp ai_manager.cpp md_to_html.cpp)
+add_executable(rune-engine engine.cpp commands_document.cpp commands_editing.cpp commands_formatting.cpp
+    ai_manager.cpp md_to_html.cpp)
 target_compile_features(rune-engine PRIVATE cxx_std_17)
 target_compile_options(rune-engine PRIVATE -Wall -Wextra)
 target_include_directories(rune-engine PRIVATE "${LO_INCLUDE_DIR}")
