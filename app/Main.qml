@@ -73,6 +73,9 @@ Window {
     // Brief status-bar message ("Saved"); empty shows the document name.
     property string statusFlash: ""
 
+    // Formatting at the cursor from get_state: {Bold: true, StyleApply: "Heading 1", ...}.
+    property var formattingState: ({})
+
     readonly property string documentName: documentPath.substring(documentPath.lastIndexOf("/") + 1)
 
     width: 1000
@@ -102,6 +105,7 @@ Window {
                 root.dirtyPages = {}
                 root.cursorVisible = false
                 root.selectionRects = []
+                root.formattingState = {}
                 // The reopened document is whatever is on disk.
                 root.dirty = false
             }
@@ -119,8 +123,8 @@ Window {
         switch (ev.event) {
         case "tiles_changed": markDirty(ev.y, ev.height); break
         // Typing moves the cursor; re-render the page it is on.
-        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); break
-        case "selection_changed": updateSelection(ev); break
+        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); fetchFormatState(); break
+        case "selection_changed": updateSelection(ev); fetchFormatState(); break
         case "cursor_visible": cursorVisible = ev.visible; break
         case "size_changed": if (ev.page_rects) setPageRects(ev.page_rects, true); break
         case "autosaved": dirty = false; break
@@ -141,6 +145,69 @@ Window {
                 dirty = false
             flashStatus("Saved")
         })
+    }
+
+    // Character/paragraph formatting via a .uno: command (".uno:Bold", ...).
+    function applyFormat(command) {
+        if (docId < 0)
+            return
+        markEdited()
+        bridge.send({ cmd: "format", doc_id: docId, command: command }, function (r) {
+            if (!r.ok)
+                console.warn("format " + command + " failed: " + r.error)
+        })
+        fetchFormatState()
+    }
+
+    // Paragraph style by engine name ("Normal", "Heading 1", ...).
+    function applyStyle(name) {
+        if (docId < 0)
+            return
+        markEdited()
+        bridge.send({ cmd: "style", doc_id: docId, name: name }, function (r) {
+            if (!r.ok)
+                console.warn("style " + name + " failed: " + r.error)
+        })
+        fetchFormatState()
+    }
+
+    function markEdited() {
+        dirty = true
+        ++editSeq
+    }
+
+    // Queries the formatting state once cursor moves and edits settle.
+    function fetchFormatState() {
+        if (docId >= 0)
+            formatStateTimer.restart()
+    }
+
+    Timer {
+        id: formatStateTimer
+        interval: 150
+        onTriggered: {
+            const doc = root.docId
+            if (doc < 0)
+                return
+            bridge.send({ cmd: "get_state", doc_id: doc }, function (r) {
+                if (doc !== root.docId)
+                    return
+                if (r.ok)
+                    root.formattingState = r.state
+                else
+                    console.warn("get_state failed: " + r.error)
+            })
+        }
+    }
+
+    // Engine `style` names -> StyleApply values reported for them.
+    readonly property var styleStateNames: ({
+        "Normal": ["Default Paragraph Style", "Standard"],
+        "Heading 1": ["Heading 1"], "Heading 2": ["Heading 2"], "Heading 3": ["Heading 3"]
+    })
+
+    function styleActive(name) {
+        return styleStateNames[name].indexOf(formattingState.StyleApply) >= 0
     }
 
     function flashStatus(message) {
@@ -211,9 +278,22 @@ Window {
     // Named keys that change the text (the rest only navigate).
     readonly property var editingKeys: ["Return", "Backspace", "Delete", "Tab"]
 
-    // Returns false for keys we don't forward (modifiers alone, Ctrl/Alt shortcuts).
+    // Ctrl+key formatting shortcuts.
+    readonly property var formatShortcuts: ({
+        [Qt.Key_B]: ".uno:Bold", [Qt.Key_I]: ".uno:Italic", [Qt.Key_U]: ".uno:Underline"
+    })
+
+    // Returns false for keys we don't forward (modifiers alone, other Ctrl/Alt shortcuts).
     function forwardKey(type, event) {
-        if (docId < 0 || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))
+        if (docId < 0)
+            return false
+        const mods = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier | Qt.ShiftModifier)
+        if (mods === Qt.ControlModifier && formatShortcuts[event.key] !== undefined) {
+            if (type === "input" && !event.isAutoRepeat)
+                applyFormat(formatShortcuts[event.key])
+            return true
+        }
+        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
             return false
         const cmd = { cmd: "key", doc_id: docId, type: type, char_code: 0, key_code: 0 }
         const name = specialKeys[event.key]
@@ -225,10 +305,8 @@ Window {
             return false
         if (type === "input") {
             lastKeyTime = Date.now()
-            if (cmd.char_code !== 0 || editingKeys.indexOf(cmd.key) >= 0) {
-                dirty = true
-                ++editSeq
-            }
+            if (cmd.char_code !== 0 || editingKeys.indexOf(cmd.key) >= 0)
+                markEdited()
         }
         bridge.send(cmd, function (r) {
             if (!r.ok)
@@ -281,6 +359,7 @@ Window {
                     console.warn("autosave enable failed: " + a.error)
             })
             setPageRects(r.page_rects || [r.page_rect], false)
+            fetchFormatState()
         })
     }
 
@@ -381,9 +460,123 @@ Window {
             pageTiles.set(loaded[k], { tile: "", stale: false })
     }
 
+    // A toolbar button: shows `label`, highlighted while `active`.
+    component ToolButton: Rectangle {
+        id: button
+        property string label
+        property bool active: false
+        property bool bold: false
+        property bool italic: false
+        property bool underline: false
+        signal clicked()
+
+        width: Math.max(28, buttonText.implicitWidth + 14)
+        height: 28
+        radius: 4
+        color: active ? theme.accent : mouse.containsMouse ? Qt.alpha(theme.foreground, 0.1) : "transparent"
+        opacity: root.docId >= 0 ? 1 : 0.5
+
+        Text {
+            id: buttonText
+            anchors.centerIn: parent
+            text: button.label
+            color: button.active ? theme.background : theme.foreground
+            font.pixelSize: 13
+            font.bold: button.bold
+            font.italic: button.italic
+            font.underline: button.underline
+        }
+
+        MouseArea {
+            id: mouse
+            anchors.fill: parent
+            hoverEnabled: true
+            enabled: root.docId >= 0
+            onClicked: button.clicked()
+        }
+    }
+
+    component ToolSeparator: Rectangle {
+        width: 1
+        height: 20
+        anchors.verticalCenter: parent.verticalCenter
+        color: theme.muted
+    }
+
+    Rectangle {
+        id: toolbar
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: 40
+        color: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
+
+        Row {
+            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
+            spacing: 4
+
+            ToolButton {
+                label: "B"; bold: true
+                active: root.formattingState.Bold === true
+                onClicked: root.applyFormat(".uno:Bold")
+            }
+            ToolButton {
+                label: "I"; italic: true
+                active: root.formattingState.Italic === true
+                onClicked: root.applyFormat(".uno:Italic")
+            }
+            ToolButton {
+                label: "U"; underline: true
+                active: root.formattingState.Underline === true
+                onClicked: root.applyFormat(".uno:Underline")
+            }
+
+            ToolSeparator {}
+
+            Repeater {
+                model: [["Normal", "Normal"], ["H1", "Heading 1"], ["H2", "Heading 2"], ["H3", "Heading 3"]]
+                ToolButton {
+                    required property var modelData
+                    label: modelData[0]
+                    active: root.styleActive(modelData[1])
+                    onClicked: root.applyStyle(modelData[1])
+                }
+            }
+
+            ToolSeparator {}
+
+            ToolButton {
+                label: "•"
+                active: root.formattingState.DefaultBullet === true
+                onClicked: root.applyFormat(".uno:DefaultBullet")
+            }
+            ToolButton {
+                label: "1."
+                active: root.formattingState.DefaultNumbering === true
+                onClicked: root.applyFormat(".uno:DefaultNumbering")
+            }
+
+            ToolSeparator {}
+
+            Repeater {
+                model: [["L", "LeftPara"], ["C", "CenterPara"], ["R", "RightPara"]]
+                ToolButton {
+                    required property var modelData
+                    label: modelData[0]
+                    active: root.formattingState[modelData[1]] === true
+                    onClicked: root.applyFormat(".uno:" + modelData[1])
+                }
+            }
+        }
+
+        Rectangle {
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: 1
+            color: theme.muted
+        }
+    }
+
     Flickable {
         id: view
-        anchors { fill: parent; bottomMargin: statusBar.height }
+        anchors { left: parent.left; right: parent.right; top: toolbar.bottom; bottom: statusBar.top }
         contentWidth: Math.max(width, root.maxPageTwipsW * root.twipsScale + 2 * root.pageMargin)
         contentHeight: {
             const last = root.pageLayout[root.pageLayout.length - 1]
