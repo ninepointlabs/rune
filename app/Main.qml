@@ -11,30 +11,60 @@ Window {
 
     // Pixels per CSS pixel for rendered tiles; the Image downscales to fit.
     readonly property real renderScale: 1.5
+    // Pages rendered beyond each edge of the viewport.
+    readonly property int preloadPages: 3
+    // Most page tiles kept in memory; the farthest from view are dropped.
+    readonly property int maxBufferedPages: 50
+    readonly property int pageGap: 16
+    readonly property int pageMargin: 32
 
     property int docId: -1
-    property int pageCount: 0
-    property var pageRect: []
-    property string tileSource: ""
+    // Every page [x, y, w, h] in twips, document coordinates.
+    property var pageRects: []
+    readonly property int pageCount: pageRects.length
     property string errorText: ""
     property bool loading: false
     // Set once the first render lands; re-renders keep the old image up.
     property bool pageShown: false
-    property bool renderInFlight: false
-    property bool renderQueued: false
 
-    // Twips (document coords) -> pixels on the displayed page.
-    readonly property real twipsScale: pageRect.length === 4 && pageRect[2] > 0
-                                       ? page.width / pageRect[2] : 0
+    // Tile render queue: one request in flight, page indices waiting.
+    property bool renderInFlight: false
+    property int renderingPage: -1
+    property bool renderingDirtied: false
+    property var renderQueue: []
+    // Pages invalidated since renderTimer last fired (index -> true).
+    property var dirtyPages: ({})
+
+    // Viewport, as page indices (updated on scroll/resize).
+    property int firstVisible: 0
+    property int lastVisible: 0
+    property int currentPage: 0
+
+    // Twips (document coords) -> view pixels. Every page shares one scale,
+    // sized so the widest page fits the window.
+    readonly property real maxPageTwipsW: pageRects.reduce((m, r) => Math.max(m, r[2]), 0)
+    readonly property real twipsScale: maxPageTwipsW > 0
+        ? Math.min(maxPageTwipsW / 15, view.width - 2 * pageMargin) / maxPageTwipsW : 0
+    // Page boxes in Flickable content coordinates: [{x, y, w, h}, ...].
+    readonly property var pageLayout: {
+        const out = []
+        let y = pageMargin
+        for (const r of pageRects) {
+            const w = r[2] * twipsScale, h = r[3] * twipsScale
+            out.push({ x: (view.contentWidth - w) / 2, y: y, w: w, h: h })
+            y += h + pageGap
+        }
+        return out
+    }
+
     // Cursor and selection as last reported by the engine, in twips
     // [x, y, w, h]; the overlays convert so they follow window resizes.
     property var cursorTwips: [0, 0, 0, 0]
     property var selectionRects: []
-    readonly property real cursorX: (cursorTwips[0] - (pageRect[0] || 0)) * twipsScale
-    readonly property real cursorY: (cursorTwips[1] - (pageRect[1] || 0)) * twipsScale
-    readonly property real cursorW: cursorTwips[2] * twipsScale
-    readonly property real cursorH: cursorTwips[3] * twipsScale
+    readonly property var cursorView: twipsToView(cursorTwips)
     property bool cursorVisible: false
+    // Keyboard-driven cursor moves scroll the cursor into view.
+    property double lastKeyTime: 0
 
     readonly property string documentName: documentPath.substring(documentPath.lastIndexOf("/") + 1)
 
@@ -43,6 +73,11 @@ Window {
     visible: true
     title: documentName ? documentName + " — Rune" : "Rune"
     color: theme.background
+
+    onPageLayoutChanged: updateViewport()
+
+    // One row per page: the latest tile (data URL) and whether it is stale.
+    ListModel { id: pageTiles }
 
     BridgeSocket {
         id: bridge
@@ -55,7 +90,9 @@ Window {
                 root.docId = -1
                 root.loading = false
                 root.renderInFlight = false
-                root.renderQueued = false
+                root.renderingPage = -1
+                root.renderQueue = []
+                root.dirtyPages = {}
                 root.cursorVisible = false
                 root.selectionRects = []
             }
@@ -71,11 +108,12 @@ Window {
         if (ev.doc_id !== docId)
             return
         switch (ev.event) {
-        case "tiles_changed": renderTimer.restart(); break  // lazy: re-render full page
-        case "cursor_changed": updateCursor(ev); renderTimer.restart(); break  // cursor moved → user typed
+        case "tiles_changed": markDirty(ev.y, ev.height); break
+        // Typing moves the cursor; re-render the page it is on.
+        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); break
         case "selection_changed": updateSelection(ev); break
         case "cursor_visible": cursorVisible = ev.visible; break
-        case "size_changed": break  // could store for future use
+        case "size_changed": if (ev.page_rects) setPageRects(ev.page_rects, true); break
         }
     }
 
@@ -83,10 +121,52 @@ Window {
         cursorTwips = [ev.x, ev.y, ev.width, ev.height]
         cursorOverlay.opacity = 1
         blink.restart()
+        if (Date.now() - lastKeyTime < 1000)
+            ensureCursorVisible()
     }
 
     function updateSelection(ev) {
         selectionRects = ev.rects || []
+    }
+
+    function ensureCursorVisible() {
+        const c = cursorView
+        const pad = 24
+        if (c.y < view.contentY + pad)
+            view.contentY = Math.max(0, c.y - pad)
+        else if (c.y + c.h > view.contentY + view.height - pad)
+            view.contentY = Math.max(0, Math.min(view.contentHeight - view.height,
+                                                 c.y + c.h - view.height + pad))
+    }
+
+    // Index of the page holding twips y; gaps belong to the page above.
+    function pageIndexForTwipsY(ty) {
+        let i = 0
+        while (i + 1 < pageRects.length && pageRects[i + 1][1] <= ty)
+            ++i
+        return i
+    }
+
+    // Index of the page at content y (view pixels); gaps belong to the page above.
+    function pageIndexForViewY(vy) {
+        let i = 0
+        while (i + 1 < pageLayout.length && pageLayout[i + 1].y <= vy)
+            ++i
+        return i
+    }
+
+    // [x, y, w, h] twips -> {x, y, w, h} in Flickable content coordinates.
+    function twipsToView(r) {
+        if (pageRects.length === 0 || pageLayout.length !== pageRects.length)
+            return { x: 0, y: 0, w: 0, h: 0 }
+        const i = pageIndexForTwipsY(r[1])
+        const p = pageRects[i], box = pageLayout[i]
+        return {
+            x: box.x + (r[0] - p[0]) * twipsScale,
+            y: box.y + (r[1] - p[1]) * twipsScale,
+            w: r[2] * twipsScale,
+            h: r[3] * twipsScale
+        }
     }
 
     // Engine key names (VCL codes resolved engine-side).
@@ -110,6 +190,8 @@ Window {
             cmd.char_code = event.text.codePointAt(0)
         else
             return false
+        if (type === "input")
+            lastKeyTime = Date.now()
         bridge.send(cmd, function (r) {
             if (!r.ok)
                 console.warn("key " + type + " failed: " + r.error)
@@ -117,11 +199,31 @@ Window {
         return true
     }
 
-    // Coalesces bursts of tiles_changed into one render, one at a time.
+    // Coalesces bursts of invalidations into one round of page renders.
     Timer {
         id: renderTimer
         interval: 30
-        onTriggered: root.requestFirstPage()
+        onTriggered: {
+            for (const key in root.dirtyPages) {
+                const i = Number(key)
+                if (i === root.renderingPage)
+                    root.renderingDirtied = true
+                else if (i < pageTiles.count && pageTiles.get(i).tile !== "")
+                    pageTiles.setProperty(i, "stale", true)
+            }
+            root.dirtyPages = {}
+            root.requestVisibleTiles()
+        }
+    }
+
+    // Marks pages overlapping the twips band [y, y + h) for re-render.
+    function markDirty(y, h) {
+        for (let i = 0; i < pageRects.length; ++i) {
+            const p = pageRects[i]
+            if (y < p[1] + p[3] && y + h > p[1])
+                dirtyPages[i] = true
+        }
+        renderTimer.restart()
     }
 
     function openDocument() {
@@ -134,82 +236,186 @@ Window {
                 return
             }
             docId = r.doc_id
-            pageCount = r.pages
-            pageRect = r.page_rect
-            requestFirstPage()
+            view.contentY = 0
+            setPageRects(r.page_rects || [r.page_rect], false)
         })
     }
 
-    function requestFirstPage() {
-        if (renderInFlight) {
-            renderQueued = true
-            return
+    // Adopts a new page list; with invalidate, every kept tile is marked stale.
+    function setPageRects(rects, invalidate) {
+        while (pageTiles.count > rects.length)
+            pageTiles.remove(pageTiles.count - 1)
+        for (let i = 0; i < pageTiles.count; ++i) {
+            if (invalidate && pageTiles.get(i).tile !== "")
+                pageTiles.setProperty(i, "stale", true)
         }
+        while (pageTiles.count < rects.length)
+            pageTiles.append({ tile: "", stale: false })
+        pageRects = rects
+        updateViewport()
+    }
+
+    // Recomputes which pages are on screen and loads tiles around them.
+    function updateViewport() {
+        if (pageLayout.length === 0)
+            return
+        firstVisible = pageIndexForViewY(view.contentY)
+        lastVisible = pageIndexForViewY(view.contentY + view.height)
+        currentPage = pageIndexForViewY(view.contentY + view.height / 2)
+        requestVisibleTiles()
+    }
+
+    function requestVisibleTiles() {
+        requestPageTiles(firstVisible - preloadPages, lastVisible + preloadPages)
+    }
+
+    // Queues tiles for pages [startPage, endPage] that are missing or stale.
+    function requestPageTiles(startPage, endPage) {
+        if (docId < 0)
+            return
+        const start = Math.max(0, startPage), end = Math.min(pageTiles.count - 1, endPage)
+        for (let i = start; i <= end; ++i) {
+            const row = pageTiles.get(i)
+            if ((row.tile === "" || row.stale) && i !== renderingPage && renderQueue.indexOf(i) < 0)
+                renderQueue.push(i)
+        }
+        pumpRender()
+    }
+
+    // Sends the next wanted tile request, nearest the current page first.
+    // Pages scrolled out of range since being queued are skipped.
+    function pumpRender() {
+        if (renderInFlight)
+            return
+        const lo = firstVisible - preloadPages, hi = lastVisible + preloadPages
+        renderQueue = renderQueue.filter(i => i >= lo && i <= hi && i < pageTiles.count)
+        if (renderQueue.length === 0)
+            return
+        renderQueue.sort((a, b) => Math.abs(a - currentPage) - Math.abs(b - currentPage))
+        const index = renderQueue.shift()
+        const p = pageRects[index]
+        const doc = docId
         renderInFlight = true
+        renderingPage = index
+        renderingDirtied = false
         bridge.send({
-            cmd: "tile", doc_id: docId, part: 0,
-            x: pageRect[0], y: pageRect[1], width: pageRect[2], height: pageRect[3],
+            cmd: "tile", doc_id: doc, part: 0,
+            x: p[0], y: p[1], width: p[2], height: p[3],
             // 1440 twips/inch, 96 px/inch -> 15 twips per CSS pixel.
-            px_width: Math.round(pageRect[2] / 15 * renderScale)
+            px_width: Math.round(p[2] / 15 * renderScale)
         }, function (r) {
-            loading = false
             renderInFlight = false
+            renderingPage = -1
+            if (doc !== docId)
+                return // engine restarted or document reopened
+            loading = false
             if (!r.ok) {
                 errorText = "Render failed: " + r.error
                 return
             }
-            tileSource = "data:image/png;base64," + r.tile
-            if (renderQueued) {
-                renderQueued = false
-                requestFirstPage()
+            if (index < pageTiles.count) {
+                pageTiles.setProperty(index, "tile", "data:image/png;base64," + r.tile)
+                pageTiles.setProperty(index, "stale", renderingDirtied)
+                if (renderingDirtied)
+                    renderQueue.push(index)
+                evictTiles()
             }
+            pumpRender()
         })
+    }
+
+    // Keeps at most maxBufferedPages tiles, dropping those farthest from view.
+    function evictTiles() {
+        const loaded = []
+        for (let i = 0; i < pageTiles.count; ++i) {
+            if (pageTiles.get(i).tile !== "")
+                loaded.push(i)
+        }
+        if (loaded.length <= maxBufferedPages)
+            return
+        loaded.sort((a, b) => Math.abs(b - currentPage) - Math.abs(a - currentPage))
+        for (let k = 0; k < loaded.length - maxBufferedPages; ++k)
+            pageTiles.set(loaded[k], { tile: "", stale: false })
     }
 
     Flickable {
         id: view
         anchors { fill: parent; bottomMargin: statusBar.height }
-        contentWidth: Math.max(width, page.width + 64)
-        contentHeight: page.height + 64
+        contentWidth: Math.max(width, root.maxPageTwipsW * root.twipsScale + 2 * root.pageMargin)
+        contentHeight: {
+            const last = root.pageLayout[root.pageLayout.length - 1]
+            return last ? last.y + last.h + root.pageMargin : 0
+        }
         clip: true
+
+        onContentYChanged: root.updateViewport()
+        onHeightChanged: root.updateViewport()
 
         focus: true
         Keys.onPressed: function (event) { event.accepted = root.forwardKey("input", event) }
         Keys.onReleased: function (event) { event.accepted = root.forwardKey("up", event) }
 
-        Rectangle {
-            anchors.fill: page
-            anchors.margins: -1
-            visible: root.pageShown
-            color: "transparent"
-            border.color: theme.muted
-            border.width: 1
-        }
+        // The page column; boxes come from root.pageLayout so overlays and
+        // viewport tracking share one source of truth for page positions.
+        Repeater {
+            model: pageTiles
 
-        Image {
-            id: page
-            x: (view.contentWidth - width) / 2
-            y: 32
-            source: root.tileSource
-            asynchronous: true
-            retainWhileLoading: true
-            cache: false
-            smooth: true
-            mipmap: true
-            fillMode: Image.PreserveAspectFit
-            width: Math.min(sourceSize.width, view.width - 64)
-            height: sourceSize.width > 0 ? width * sourceSize.height / sourceSize.width : 0
-            onStatusChanged: if (status === Image.Ready) root.pageShown = true
+            Item {
+                id: pageItem
+                required property int index
+                required property string tile
+                readonly property var box: root.pageLayout[index] || ({ x: 0, y: 0, w: 0, h: 0 })
+                // Decode only pages near the viewport; far ones keep just the PNG data.
+                readonly property bool near: index >= root.firstVisible - root.preloadPages
+                                             && index <= root.lastVisible + root.preloadPages
+
+                x: box.x
+                y: box.y
+                width: box.w
+                height: box.h
+
+                // Drop shadow.
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.leftMargin: 3
+                    anchors.topMargin: 3
+                    anchors.rightMargin: -3
+                    anchors.bottomMargin: -3
+                    color: "#000000"
+                    opacity: 0.35
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    anchors.margins: -1
+                    color: "#ffffff"
+                    border.color: theme.muted
+                    border.width: 1
+                }
+
+                Image {
+                    anchors.fill: parent
+                    source: pageItem.near ? pageItem.tile : ""
+                    asynchronous: true
+                    retainWhileLoading: true
+                    cache: false
+                    smooth: true
+                    mipmap: true
+                    fillMode: Image.PreserveAspectFit
+                    onStatusChanged: if (status === Image.Ready) root.pageShown = true
+                }
+            }
         }
 
         Repeater {
             model: root.selectionRects
             Rectangle {
                 required property var modelData // [x, y, w, h] twips
-                x: page.x + (modelData[0] - root.pageRect[0]) * root.twipsScale
-                y: page.y + (modelData[1] - root.pageRect[1]) * root.twipsScale
-                width: modelData[2] * root.twipsScale
-                height: modelData[3] * root.twipsScale
+                readonly property var box: root.twipsToView(modelData)
+                x: box.x
+                y: box.y
+                width: box.w
+                height: box.h
                 color: theme.accent
                 opacity: 0.3
             }
@@ -218,10 +424,10 @@ Window {
         Rectangle {
             id: cursorOverlay
             visible: root.cursorVisible && root.pageShown && root.selectionRects.length === 0
-            x: page.x + root.cursorX
-            y: page.y + root.cursorY
-            width: Math.max(root.cursorW, 2)
-            height: root.cursorH
+            x: root.cursorView.x
+            y: root.cursorView.y
+            width: Math.max(root.cursorView.w, 2)
+            height: root.cursorView.h
             color: theme.accent
 
             Timer {
@@ -269,7 +475,8 @@ Window {
             font.pixelSize: 12
             elide: Text.ElideRight
             text: root.documentName
-                  + (root.docId >= 0 ? "  ·  Page 1 of " + root.pageCount : "")
+                  + (root.docId >= 0 && root.pageCount > 0
+                     ? "  ·  Page " + (root.currentPage + 1) + " of " + root.pageCount : "")
         }
 
         Row {

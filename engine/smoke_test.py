@@ -97,6 +97,8 @@ def main():
         r = a.call("open", path=DOC)
         check(r["ok"], "open")
         doc, page = r["doc_id"], r["page_rect"]
+        check(len(r["page_rects"]) == r["pages"] and r["page_rects"][0] == page,
+              "open returns page_rects matching pages/page_rect")
 
         def tile():
             t = a.call("tile", doc_id=doc, x=page[0], y=page[1], width=page[2], height=page[3], px_width=600)
@@ -142,6 +144,9 @@ def main():
         a.events.clear()
         check(a.call("paste", doc_id=doc, mime_type="text/plain", data="pasted text\n" * 80)["ok"], "paste")
         check(a.wait_events(lambda ev: "size_changed" in kinds(ev)), "long paste pushes size_changed")
+        sizes = [e for e in a.events if e["event"] == "size_changed"]
+        check(sizes and len(sizes[-1]["page_rects"]) == sizes[-1]["pages"] > 1,
+              "size_changed carries the new page_rects")
 
         check(not a.call("key", doc_id=doc, type="down", char_code=65)["ok"], "bad key type rejected")
         check(not a.call("key", doc_id=999, type="input", char_code=65)["ok"], "unknown doc rejected")

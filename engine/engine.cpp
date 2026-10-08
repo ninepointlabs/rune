@@ -597,6 +597,7 @@ private:
         std::unique_ptr<lok::Document> doc;
         std::unique_ptr<CallbackCtx> ctx;
         std::string selStart, selEnd; // last TEXT_SELECTION_START/END rects
+        std::vector<Rect> pages;      // page rects in twips; never empty
     };
 
     lok::Office *m_office; // never destroyed; see main()
@@ -636,6 +637,18 @@ private:
     }
 
     // One queued callback -> one push-event line ("" to drop it).
+    // Page rects in twips. Non-Writer documents report none; use the whole
+    // part as a single page so callers always get at least one rect.
+    static std::vector<Rect> pageRects(lok::Document *doc, long docW, long docH)
+    {
+        char *rectStr = doc->getPartPageRectangles();
+        std::vector<Rect> pages = parseRects(rectStr);
+        std::free(rectStr);
+        if (pages.empty())
+            pages.push_back(Rect{0, 0, docW, docH});
+        return pages;
+    }
+
     std::string formatEvent(const Pending &p)
     {
         auto it = m_docs.find(p.docId);
@@ -692,10 +705,18 @@ private:
             long w = 0, h = 0;
             if (std::sscanf(p.payload.c_str(), " %ld , %ld", &w, &h) != 2)
                 st.doc->getDocumentSize(&w, &h);
+            // Pages come and go as the document grows or shrinks; keep the
+            // whole document "visible" so LOK reports cursor/tiles everywhere.
+            st.pages = pageRects(st.doc.get(), w, h);
+            long curW = 0, curH = 0;
+            st.doc->getDocumentSize(&curW, &curH);
+            st.doc->setClientVisibleArea(0, 0, int(std::max(w, curW)), int(std::max(h, curH)));
             return Reply()
                 .str("event", "size_changed")
                 .num("doc_id", p.docId)
                 .raw("doc_size", "[" + std::to_string(w) + "," + std::to_string(h) + "]")
+                .num("pages", static_cast<long long>(st.pages.size()))
+                .raw("page_rects", rectsJson(st.pages))
                 .line();
         }
         }
@@ -735,29 +756,26 @@ private:
 
         long docW = 0, docH = 0;
         doc->getDocumentSize(&docW, &docH);
-        char *rectStr = doc->getPartPageRectangles();
-        std::vector<Rect> pages = parseRects(rectStr);
-        std::free(rectStr);
-        // Non-Writer documents report no page rects; use the whole part.
-        const Rect first = pages.empty() ? Rect{0, 0, docW, docH} : pages.front();
+        std::vector<Rect> pages = pageRects(doc.get(), docW, docH);
         const int parts = doc->getParts();
 
         const long long docId = m_nextDocId++;
         auto ctx = std::make_unique<CallbackCtx>(CallbackCtx{this, docId});
         doc->registerCallback(&Engine::onLokCallback, ctx.get());
         doc->setClientVisibleArea(0, 0, int(docW), int(docH));
-        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}};
         logf("opened doc %lld: %s (%d part(s), %zu page(s))", docId, path->s.c_str(), parts,
              pages.size());
 
-        return Reply(id)
-            .ok(true)
+        Reply reply(id);
+        reply.ok(true)
             .num("doc_id", docId)
             .num("parts", parts)
-            .num("pages", pages.empty() ? 1 : static_cast<long long>(pages.size()))
-            .raw("page_rect", rectJson(first))
-            .raw("doc_size", "[" + std::to_string(docW) + "," + std::to_string(docH) + "]")
-            .line();
+            .num("pages", static_cast<long long>(pages.size()))
+            .raw("page_rect", rectJson(pages.front()))
+            .raw("page_rects", rectsJson(pages))
+            .raw("doc_size", "[" + std::to_string(docW) + "," + std::to_string(docH) + "]");
+        m_docs[docId] = DocState{std::move(doc), std::move(ctx), {}, {}, std::move(pages)};
+        return reply.line();
     }
 
     std::string tile(const Json &req, const Json *id)

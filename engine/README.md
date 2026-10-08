@@ -51,7 +51,8 @@ Coordinates are in **twips** (1/1440 inch; 15 twips = 1 CSS pixel at 96 DPI).
 ```json
 → {"id": 2, "cmd": "open", "path": "/path/to/doc.docx"}
 ← {"id": 2, "ok": true, "doc_id": 0, "parts": 1, "pages": 1,
-   "page_rect": [284, 284, 11906, 16838], "doc_size": [12474, 17406]}
+   "page_rect": [284, 284, 11906, 16838], "page_rects": [[284, 284, 11906, 16838]],
+   "doc_size": [12474, 17406]}
 ```
 
 | field       | meaning |
@@ -60,6 +61,7 @@ Coordinates are in **twips** (1/1440 inch; 15 twips = 1 CSS pixel at 96 DPI).
 | `parts`     | LOK parts (1 for Writer; sheets for Calc; slides for Impress). |
 | `pages`     | Page count (Writer). 1 for document types without page rects. |
 | `page_rect` | First page `[x, y, w, h]` in twips, in document coordinates (Writer pages sit inside a margin, so `x`/`y` are usually non-zero). Falls back to `[0, 0, doc_w, doc_h]`. |
+| `page_rects`| Every page `[x, y, w, h]` in twips, top to bottom; `page_rects[0] == page_rect`. Always at least one entry. |
 | `doc_size`  | Whole document `[w, h]` in twips. |
 
 `path` may be relative to the engine's working directory; it is resolved with
@@ -82,6 +84,18 @@ Coordinates are in **twips** (1/1440 inch; 15 twips = 1 CSS pixel at 96 DPI).
 
 `tile` is a base64-encoded RGBA PNG (straight alpha). In QML it can be used
 directly as `"data:image/png;base64," + tile`.
+
+### Push events
+
+Lines without an `id`, sent to every client. All carry `event` and `doc_id`.
+
+| event               | fields |
+|---------------------|--------|
+| `tiles_changed`     | `x`, `y`, `width`, `height`: invalidated area in twips. |
+| `cursor_changed`    | `x`, `y`, `width`, `height`: caret rect in twips. |
+| `cursor_visible`    | `visible`. |
+| `selection_changed` | `rects` (empty = cleared); `start`/`end` handle rects when non-empty. |
+| `size_changed`      | `doc_size`, plus `pages` and `page_rects` re-read after the layout change. |
 
 ### `close`
 
