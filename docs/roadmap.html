@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roadmap — Rune</title>
+<meta name="description" content="The full, honest roadmap for Rune: what's built, what's not started, and the headless LibreOfficeKit limitations we found and documented.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0908;
+    --bg-raised: #15110e;
+    --bg-raised-2: #1c1713;
+    --border: #2e2620;
+    --border-bright: #4a3a2a;
+    --ink: #e9e1d2;
+    --ink-dim: #a89a85;
+    --ink-faint: #6b5d4d;
+    --ember: #d98f4e;
+    --ember-bright: #f2b06e;
+    --blood: #7a2634;
+    --serif-display: 'Cinzel', serif;
+    --serif-body: 'Spectral', Georgia, serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--serif-body);
+    font-size: 18px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(217, 143, 78, 0.06), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(122, 38, 52, 0.05), transparent 60%);
+  }
+
+  a { color: var(--ember-bright); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--ember-bright); outline-offset: 3px; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 28px; position: relative; z-index: 1; }
+  code, .mono { font-family: var(--mono); }
+
+  /* ---------- Header (shared with index) ---------- */
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(10, 9, 8, 0.88);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; max-width: 1040px; margin: 0 auto; }
+  .wordmark { display: flex; align-items: center; gap: 10px; font-family: var(--serif-display); font-size: 20px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink); }
+  .wordmark svg { width: 22px; height: 22px; filter: drop-shadow(0 0 6px rgba(217, 143, 78, 0.65)); }
+  .nav-links { display: flex; gap: 28px; align-items: center; font-family: var(--serif-body); font-size: 15px; }
+  .nav-links a { color: var(--ink-dim); }
+  .nav-links a.current, .nav-links a:hover { color: var(--ember-bright); }
+  .nav-cta { border: 1px solid var(--border-bright); padding: 7px 16px; border-radius: 2px; color: var(--ink) !important; font-size: 14px; }
+  .nav-cta:hover { border-color: var(--ember); background: rgba(217, 143, 78, 0.08); text-decoration: none !important; }
+  @media (max-width: 640px) { .nav-links { display: none; } }
+
+  /* ---------- Page header ---------- */
+  .page-hero { padding: 64px 28px 48px; text-align: center; border-bottom: 1px solid var(--border); }
+  .section-label { font-family: var(--mono); font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ember); margin-bottom: 14px; }
+  .page-hero h1 { font-family: var(--serif-display); font-weight: 600; font-size: clamp(28px, 5vw, 42px); margin: 0 0 16px; color: var(--ink); }
+  .page-hero p { color: var(--ink-dim); max-width: 560px; margin: 0 auto; font-style: italic; font-size: 17px; }
+
+  /* ---------- Content sections ---------- */
+  main { padding: 64px 0 100px; }
+  .roadmap-section { margin-bottom: 64px; }
+  .roadmap-section h2 {
+    font-family: var(--serif-display); font-size: 24px; font-weight: 600;
+    color: var(--ink); margin: 0 0 8px; display: flex; align-items: center; gap: 12px;
+  }
+  .roadmap-section > p.lede { color: var(--ink-dim); margin: 0 0 28px; max-width: 620px; }
+
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .dot-done { background: var(--ember); box-shadow: 0 0 6px rgba(217, 143, 78, 0.7); }
+  .dot-progress { background: var(--ink-faint); border: 1px solid var(--ink-dim); }
+  .dot-none { background: transparent; border: 1px solid var(--border-bright); }
+
+  /* Checklist items */
+  ul.checklist { list-style: none; margin: 0; padding: 0; }
+  ul.checklist li {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+    color: var(--ink-dim); font-size: 16px; line-height: 1.5;
+  }
+  ul.checklist li:last-child { border-bottom: none; }
+  ul.checklist li .dot { margin-top: 7px; }
+  ul.checklist li strong { color: var(--ink); font-weight: 500; }
+  ul.checklist li code { background: var(--bg-raised-2); padding: 1px 6px; border-radius: 2px; font-size: 14px; color: var(--ember-bright); }
+
+  /* Feature audit table */
+  .audit-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .audit-table th, .audit-table td { text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .audit-table th { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); font-weight: 500; }
+  .audit-table td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
+  .audit-table td:last-child { color: var(--ink-dim); }
+  .audit-table tr:last-child td { border-bottom: none; }
+
+  /* Architecture note box */
+  .note-box {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--ember);
+    border-radius: 0 3px 3px 0;
+    padding: 18px 22px;
+    color: var(--ink-dim);
+    font-size: 15px;
+    margin-bottom: 14px;
+  }
+  .note-box:last-child { margin-bottom: 0; }
+  .note-box code { background: var(--bg-raised-2); padding: 1px 6px; border-radius: 2px; font-size: 13px; color: var(--ember-bright); font-family: var(--mono); }
+
+  .legend { display: flex; gap: 24px; flex-wrap: wrap; margin: 0 0 40px; font-size: 14px; color: var(--ink-faint); font-family: var(--mono); }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+
+  footer { border-top: 1px solid var(--border); padding: 40px 0 60px; text-align: center; color: var(--ink-faint); font-size: 14px; }
+  footer a { color: var(--ink-dim); }
+  footer .footer-mark { opacity: 0.5; width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav">
+    <a href="index.html" class="wordmark">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg>
+      RUNE
+    </a>
+    <nav class="nav-links">
+      <a href="index.html#philosophy">Why</a>
+      <a href="index.html#architecture">Architecture</a>
+      <a href="roadmap.html" class="current">Roadmap</a>
+      <a href="https://github.com/ninepointlabs/rune" class="nav-cta">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-hero">
+  <div class="section-label">Roadmap</div>
+  <h1>Every feature, plainly stated</h1>
+  <p>What's built, what isn't, and the two things we tried and genuinely couldn't make work headlessly — with the evidence, not a guess.</p>
+</div>
+
+<main class="wrap">
+
+  <div class="legend">
+    <span><span class="dot dot-done"></span> Done</span>
+    <span><span class="dot dot-progress"></span> In progress</span>
+    <span><span class="dot dot-none"></span> Not started</span>
+  </div>
+
+  <section class="roadmap-section">
+    <h2><span class="dot dot-done"></span> Done</h2>
+    <ul class="checklist">
+      <li><span class="dot dot-done"></span><div>Document I/O: open/save <strong><code>.docx</code>, <code>.doc</code>, <code>.odt</code>, <code>.txt</code>, <code>.md</code></strong>; markdown import/export; autosave</div></li>
+      <li><span class="dot dot-done"></span><div>Multi-page scrolling with viewport-aware tile loading</div></li>
+      <li><span class="dot dot-done"></span><div>Full text editing: keyboard, mouse (click-to-cursor, drag-select), copy/cut/paste</div></li>
+      <li><span class="dot dot-done"></span><div>Formatting: Bold/Italic/Underline, paragraph styles (Normal, H1&ndash;H3), bullet/numbered lists with promote/demote, alignment, font/size, text color, clear formatting</div></li>
+      <li><span class="dot dot-done"></span><div>Format Painter</div></li>
+      <li><span class="dot dot-done"></span><div>Tables: insert, AutoFit, insert/delete row, insert/delete column</div></li>
+      <li><span class="dot dot-done"></span><div>Paragraph spacing (directional increase/decrease &mdash; exact point values not achievable headlessly, see below)</div></li>
+      <li><span class="dot dot-done"></span><div>Layered toolbar UX: slim persistent bar + contextual strip that follows the cursor, instead of a Word-style ribbon</div></li>
+      <li><span class="dot dot-progress"></span><div>AI provider skeleton (Claude/ChatGPT/Grok registry, token storage) &mdash; <strong>no real HTTP calls yet</strong></div></li>
+    </ul>
+  </section>
+
+  <section class="roadmap-section">
+    <h2><span class="dot dot-none"></span> Not started — Word feature audit</h2>
+    <p class="lede">Measured against Microsoft Word's ten most-reached-for features. Three of these need entirely new document object types (tables were the first; images and headers/footers are next).</p>
+    <table class="audit-table">
+      <tr><th>Feature</th><th>Notes</th></tr>
+      <tr><td>Section breaks</td><td>Mixed page orientation, independent headers/margins per section, restart page numbering</td></tr>
+      <tr><td>Headers &amp; footers</td><td>Including "different first page," "different odd/even," "link to previous"</td></tr>
+      <tr><td>Tab stops &amp; leader lines</td><td>Needs a ruler widget &mdash; most UI-heavy item on this list</td></tr>
+      <tr><td>Text wrap on images</td><td>No image insertion at all yet &mdash; this blocks wrap modes too</td></tr>
+      <tr><td>Table of Contents / outline nav</td><td>Builds on existing paragraph styles; needs <code>.uno:InsertMultiIndex</code> or similar, untested</td></tr>
+      <tr><td>Repeat header rows (tables)</td><td>Tried 3 UNO command names, none worked headlessly &mdash; see below</td></tr>
+      <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Same limitation as above &mdash; see below</td></tr>
+    </table>
+  </section>
+
+  <section class="roadmap-section">
+    <h2><span class="dot dot-progress"></span> AI integration — the actual differentiator</h2>
+    <p class="lede">Everything else on this page is table stakes. This is the reason the project exists.</p>
+    <ul class="checklist">
+      <li><span class="dot dot-none"></span><div>Real OAuth flows for Claude, ChatGPT, Grok (the skeleton only stores a raw token today)</div></li>
+      <li><span class="dot dot-none"></span><div>Streaming HTTP responses into the document or a sidebar</div></li>
+      <li><span class="dot dot-none"></span><div>Three interaction modes per the original architecture plan: inline edit, sidebar chat, draft generation</div></li>
+      <li><span class="dot dot-none"></span><div>Right-side dock UI &mdash; deferred from the toolbar redesign; will reuse the same dock mechanism for AI chat and a future "inspector" panel</div></li>
+    </ul>
+  </section>
+
+  <section class="roadmap-section">
+    <h2><span class="dot dot-none"></span> Housekeeping &amp; known rough edges</h2>
+    <ul class="checklist">
+      <li><span class="dot dot-none"></span><div>File &rarr; Open has no file picker yet (stub message only)</div></li>
+      <li><span class="dot dot-none"></span><div>Save As has no path picker (only plain Save to the already-open path)</div></li>
+      <li><span class="dot dot-none"></span><div>Command palette (Ctrl+K) &mdash; planned as part of the toolbar redesign but not yet built; rare actions (insert table with a custom size, PDF export) should live here instead of permanent toolbar space</div></li>
+      <li><span class="dot dot-none"></span><div>No undo/redo UI (the engine likely supports <code>.uno:Undo</code>/<code>.uno:Redo</code> already via the generic <code>format</code> command &mdash; needs toolbar/shortcut wiring and testing)</div></li>
+      <li><span class="dot dot-none"></span><div>No find/replace</div></li>
+      <li><span class="dot dot-none"></span><div>No spell check</div></li>
+      <li><span class="dot dot-none"></span><div><code>.doc</code>/<code>.odt</code> round-trip fidelity not stress-tested on complex real-world documents, only the generated sample</div></li>
+    </ul>
+  </section>
+
+  <section class="roadmap-section">
+    <h2>Architecture notes for contributors</h2>
+    <div class="note-box">Engine (<code>engine/</code>) is a headless LibreOfficeKit daemon behind a JSON-lines Unix socket. Split into feature-scoped files: <code>commands_document.cpp</code>, <code>commands_editing.cpp</code>, <code>commands_formatting.cpp</code>, <code>commands_tables.cpp</code>. See <code>engine/engine_internal.h</code> for the shared <code>Engine</code> class declaration.</div>
+    <div class="note-box">Frontend (<code>app/</code>) is Qt Quick/QML, also feature-scoped: <code>Toolbar.qml</code>, <code>ContextualBar.qml</code>, <code>FileBar.qml</code>, <code>StatusBar.qml</code>, <code>DocumentCanvas.qml</code> composed by <code>Main.qml</code>.</div>
+    <div class="note-box"><code>engine/smoke_test.py</code> is the test suite (156 checks) &mdash; run it after any engine change. It starts a private engine instance, drives the full JSON protocol, and diffs rendered tiles to confirm visual changes actually happened, not just that a command returned <code>ok</code>.</div>
+    <div class="note-box"><strong style="color: var(--ink);">Before adding a UNO command that isn't already used elsewhere, verify it actually works headlessly by diffing a rendered tile before and after.</strong> <code>postUnoCommand()</code> never reports failure even for commands LOK silently ignores. Several "should work" commands &mdash; exact paragraph spacing, repeat header rows &mdash; turned out to be dead ends this way. Don't assume the UNO API shape; test it.</div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <svg class="footer-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="currentColor" stroke-width="7" fill="none" stroke-linecap="square"/></svg>
+      Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>.
+    </p>
+    <p><a href="https://github.com/ninepointlabs/rune">github.com/ninepointlabs/rune</a> &middot; <a href="index.html">Back to Rune</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
