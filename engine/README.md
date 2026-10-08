@@ -211,6 +211,45 @@ Reaching these settings for real would need the full UNO API (an
 LOK's simple command dispatch — a materially heavier integration than
 `LibreOfficeKit.h` alone. Revisit if that bridge is ever added.
 
+### `table`
+
+Table insert, AutoFit and row operations, selected by `action`:
+
+```json
+→ {"id": 11, "cmd": "table", "doc_id": 0, "action": "insert", "rows": 3, "columns": 4}
+← {"id": 11, "ok": true}
+→ {"id": 12, "cmd": "table", "doc_id": 0, "action": "autofit"}
+← {"id": 12, "ok": true}
+```
+
+| `action` | Effect |
+|---|---|
+| `insert` | `.uno:InsertTable` at the cursor; `rows` and `columns` are required integers, 1–50 each. The cursor ends up in the first cell. |
+| `autofit` | `.uno:SelectTable` then `.uno:SetOptimalColumnWidth` — the second alone is a no-op, it only acts on selected cells. Leaves the whole table selected. |
+| `insert_row` | `.uno:InsertRowsAfter`: a row below the cursor's row. |
+| `delete_row` | `.uno:DeleteRows`: deletes the cursor's row. |
+
+All four were confirmed by diffing rendered tiles before and after the
+call. `autofit`, `insert_row` and `delete_row` fail with `"cursor is not
+inside a table"` unless the cursor is in a table cell, judged from the
+cached `StateTableCell` state (`"Table1:A1"` inside a cell, `""` outside
+one — `get_state` returns it too, which is how clients tell whether the
+cursor is in a table). Like every command here, the state is updated
+asynchronously, so call these after the cursor's STATE_CHANGED has arrived.
+
+Inside a table, Tab / Shift+Tab sent as plain `key` events
+(`"key": "Tab"`, `key_code` 0x1000 for Shift) move to the next / previous
+cell, and Tab in the last cell appends a row — Writer's native behavior.
+
+**Not implemented: repeat header rows.** `.uno:SetRowRepeatHeading`,
+`.uno:TableRepeatHeading` and `.uno:SetRepeatHeadline` were each tried via
+`postUnoCommand`; none produced a visual change, any new key in the
+`get_state` cache, or any other confirmed effect. Repeating heading rows is
+the text table's `RepeatHeadline` / `HeaderRowCount` property, which —
+like the exact spacing values under [`para`](#para) — is only reachable
+through the full UNO API (an `XPropertySet` on the `XTextTable`), not
+LOK's command dispatch. Revisit if that bridge is ever added.
+
 ### Push events
 
 Lines without an `id`, sent to every client. All carry `event` and `doc_id`.

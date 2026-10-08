@@ -70,6 +70,13 @@ Window {
     // save reply doesn't clear edits typed while it was in flight.
     property bool dirty: false
     property int editSeq: 0
+    // True from markEdited() until the next cursor_changed consumes it: a
+    // pure navigation click/arrow-key move touches nothing on the page, so
+    // re-rendering the tile for it is wasted work (~150ms on a page with a
+    // table) and was the dominant cause of visible click-to-react lag.
+    // Genuine content changes that LOK reports via its own tiles_changed
+    // event are unaffected -- this flag only gates the cursor_changed path.
+    property bool pendingRender: false
     // Brief status-bar message ("Saved"); empty shows the document name.
     property string statusFlash: ""
 
@@ -96,6 +103,8 @@ Window {
     readonly property var textColors: [["Automatic", "auto"], ["Black", "#000000"], ["Red", "#cc0000"],
                                        ["Blue", "#0066cc"], ["Green", "#009933"]]
     readonly property real currentFontSize: parseFloat(formattingState.FontHeight)
+    // StateTableCell is "Table1:A1" inside a table cell and "" outside one.
+    readonly property bool inTable: !!formattingState.StateTableCell
     // Text color at the cursor as "#rrggbb", or "auto" (state reports -1).
     readonly property string currentColorHex: {
         const c = Number(formattingState.Color)
@@ -156,8 +165,18 @@ Window {
             return
         switch (ev.event) {
         case "tiles_changed": markDirty(ev.y, ev.height); break
-        // Typing moves the cursor; re-render the page it is on.
-        case "cursor_changed": updateCursor(ev); markDirty(ev.y, ev.height); fetchFormatState(); settlePaint(); break
+        // Typing/formatting moves the cursor too, but a pure navigation
+        // click/arrow move doesn't touch the page -- only re-render when an
+        // edit actually requested it (see pendingRender).
+        case "cursor_changed":
+            updateCursor(ev)
+            if (pendingRender) {
+                pendingRender = false
+                markDirty(ev.y, ev.height)
+            }
+            fetchFormatState()
+            settlePaint()
+            break
         case "selection_changed": updateSelection(ev); fetchFormatState(); settlePaint(); break
         case "cursor_visible": cursorVisible = ev.visible; break
         case "size_changed": if (ev.page_rects) setPageRects(ev.page_rects, true); break
@@ -197,6 +216,8 @@ Window {
         bridge.send(cmd, function (r) {
             if (!r.ok)
                 console.warn("format " + command + " failed: " + r.error)
+            else
+                forceRefresh()
         })
         fetchFormatState()
     }
@@ -210,7 +231,29 @@ Window {
         bridge.send({ cmd: "para", doc_id: docId, direction: direction }, function (r) {
             if (!r.ok)
                 console.warn("para " + direction + " failed: " + r.error)
+            else
+                forceRefresh()
         })
+    }
+
+    // Table operations: "insert" (with rows/columns), "autofit",
+    // "insert_row", "delete_row". The last three need the cursor in a table.
+    function applyTable(action, rows, columns) {
+        if (docId < 0)
+            return
+        markEdited()
+        const cmd = { cmd: "table", doc_id: docId, action: action }
+        if (action === "insert") {
+            cmd.rows = rows
+            cmd.columns = columns
+        }
+        bridge.send(cmd, function (r) {
+            if (!r.ok)
+                flashStatus("Table " + action + " failed: " + r.error)
+            else
+                forceRefresh()
+        })
+        fetchFormatState()
     }
 
     // Text color: "#RRGGBB" or "auto".
@@ -221,6 +264,8 @@ Window {
         bridge.send({ cmd: "color", doc_id: docId, hex: hex }, function (r) {
             if (!r.ok)
                 console.warn("color " + hex + " failed: " + r.error)
+            else
+                forceRefresh()
         })
         fetchFormatState()
     }
@@ -269,24 +314,40 @@ Window {
         bridge.send({ cmd: "style", doc_id: docId, name: name }, function (r) {
             if (!r.ok)
                 console.warn("style " + name + " failed: " + r.error)
+            else
+                forceRefresh()
         })
         fetchFormatState()
     }
 
     function markEdited() {
         dirty = true
+        pendingRender = true
         ++editSeq
     }
 
     // Queries the formatting state once cursor moves and edits settle.
+    // Two passes: a fast one for snappy toolbar feedback, and a slower
+    // settle pass to correct it. Confirmed directly against the engine:
+    // STATE_CHANGED for toggle slots (Bold, Italic, ...) can take
+    // 300-400ms to actually land after a cursor move, well after the fast
+    // pass's query -- so the fast pass can read a stale value left over
+    // from the PREVIOUS cursor position. Previously there was no second
+    // check, so the correct value only appeared once some later click
+    // triggered a fresh fetch, which looked like "needs two clicks."
     function fetchFormatState() {
-        if (docId >= 0)
-            formatStateTimer.restart()
+        if (docId < 0)
+            return
+        formatStateTimer.restart()
+        formatStateSettleTimer.restart()
     }
 
     Timer {
         id: formatStateTimer
-        interval: 150
+        // The engine itself answers in under 1ms; this only needs to
+        // coalesce a burst of rapid events (fast typing), not add latency
+        // to a single discrete click.
+        interval: 60
         onTriggered: {
             const doc = root.docId
             if (doc < 0)
@@ -298,6 +359,25 @@ Window {
                     root.formattingState = r.state
                 else
                     console.warn("get_state failed: " + r.error)
+            })
+        }
+    }
+
+    // Re-checks after STATE_CHANGED has had time to actually land (see the
+    // comment on fetchFormatState). A no-op if the fast pass already had
+    // the right answer; a silent correction if it didn't.
+    Timer {
+        id: formatStateSettleTimer
+        interval: 400
+        onTriggered: {
+            const doc = root.docId
+            if (doc < 0)
+                return
+            bridge.send({ cmd: "get_state", doc_id: doc }, function (r) {
+                if (doc !== root.docId)
+                    return
+                if (r.ok)
+                    root.formattingState = r.state
             })
         }
     }
@@ -346,6 +426,8 @@ Window {
             bridge.send({ cmd: "apply_char_style", doc_id: root.docId, style: root.paintedStyle }, function (r) {
                 if (!r.ok)
                     console.warn("apply_char_style failed: " + r.error)
+                else
+                    root.forceRefresh()
             })
             root.fetchFormatState()
             if (!root.paintModeSticky)
@@ -516,15 +598,26 @@ Window {
             }
             return true
         }
-        // Tab/Shift+Tab always change list level (Writer's DecrementLevel nests
+        // Tab/Shift+Tab change list level (Writer's DecrementLevel nests
         // deeper, IncrementLevel un-nests), even outside a list: we can't tell
         // from here whether the cursor is in one, so Tab never inserts a literal
         // tab character. A future shortcut could insert one explicitly.
+        // Inside a table Tab goes to Writer instead, which moves to the next
+        // (Shift: previous) cell and adds a row from the last cell.
         // Qt reports Shift+Tab as Key_Backtab.
         if ((mods & ~Qt.ShiftModifier) === 0 && (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)) {
-            if (type === "input") {
-                const promote = event.key === Qt.Key_Backtab || mods === Qt.ShiftModifier
-                applyFormat(promote ? ".uno:IncrementLevel" : ".uno:DecrementLevel")
+            const back = event.key === Qt.Key_Backtab || mods === Qt.ShiftModifier
+            if (inTable) {
+                // Sent explicitly: "\t" is not printable, so the generic path drops it.
+                if (type === "input")
+                    markEdited()
+                bridge.send({ cmd: "key", doc_id: docId, type: type, key: "Tab",
+                              key_code: back ? 0x1000 : 0 }, function (r) { // 0x1000: VCL KEY_SHIFT
+                    if (!r.ok)
+                        console.warn("key " + type + " failed: " + r.error)
+                })
+            } else if (type === "input") {
+                applyFormat(back ? ".uno:IncrementLevel" : ".uno:DecrementLevel")
             }
             return true
         }
@@ -538,9 +631,15 @@ Window {
         }
         const cmd = { cmd: "key", doc_id: docId, type: type, char_code: 0, key_code: 0 }
         const name = specialKeys[event.key]
-        if (name !== undefined)
+        if (name !== undefined) {
             cmd.key = name
-        else if (event.text.length > 0 && event.text.charCodeAt(0) >= 0x20)
+            // VCL's shift modifier bit (0x1000) extends selection on navigation
+            // keys (arrows, Home/End, PageUp/Down) — Shift+letter already
+            // produces the right character via event.text, so this only
+            // matters for named keys, not char_code.
+            if (event.modifiers & Qt.ShiftModifier)
+                cmd.key_code = 0x1000
+        } else if (event.text.length > 0 && event.text.charCodeAt(0) >= 0x20)
             cmd.char_code = event.text.codePointAt(0)
         else
             return false
@@ -578,6 +677,24 @@ Window {
         for (let i = 0; i < pageRects.length; ++i) {
             const p = pageRects[i]
             if (y < p[1] + p[3] && y + h > p[1])
+                dirtyPages[i] = true
+        }
+        renderTimer.restart()
+    }
+
+    // Marks every visible page dirty and re-renders it. Formatting/table
+    // commands (.uno:Bold, table row insert, style apply, ...) do NOT
+    // reliably produce a tiles_changed or cursor_changed push event in this
+    // LibreOffice build -- confirmed directly against the engine: toggling
+    // Bold, inserting a table row, etc. return their reply with zero
+    // follow-up events. Previously the page only refreshed if the user
+    // happened to move the cursor afterward, which looked like "nothing
+    // happened" or a long delay until some unrelated click finally
+    // triggered it. Call this from every formatting command's success
+    // callback instead of relying on a push event that may never come.
+    function forceRefresh() {
+        for (let i = firstVisible; i <= lastVisible; ++i) {
+            if (i >= 0 && i < pageRects.length)
                 dirtyPages[i] = true
         }
         renderTimer.restart()
@@ -727,10 +844,16 @@ Window {
         anchors { left: parent.left; right: parent.right; top: fileBar.bottom }
     }
 
+    ContextualBar {
+        id: contextualBar
+        appRoot: root
+        anchors { left: parent.left; right: parent.right; top: toolbar.bottom }
+    }
+
     DocumentCanvas {
         id: view
         appRoot: root
-        anchors { left: parent.left; right: parent.right; top: toolbar.bottom; bottom: statusBar.top }
+        anchors { left: parent.left; right: parent.right; top: contextualBar.bottom; bottom: statusBar.top }
     }
 
     StatusBar {

@@ -377,6 +377,9 @@ private:
     std::string getCharStyle(const Json &req, const Json *id);
     static bool parseStateColor(const std::string &json, long long &out);
     std::string applyCharStyle(const Json &req, const Json *id);
+
+    // commands_tables.cpp: table insert, AutoFit, row operations.
+    std::string table(const Json &req, const Json *id);
 };
 
 } // namespace rune

@@ -18,6 +18,75 @@ Rectangle {
         anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
         spacing: 4
 
+        // Paragraph style dropdown; the popup reuses ToolButton's tooltip
+        // pattern (a z:100 Rectangle below the control) rather than a ComboBox.
+        ToolButton {
+            id: styleButton
+            appRoot: toolbarRoot.appRoot
+            property bool open: false
+            readonly property var styles: ["Normal", "Heading 1", "Heading 2", "Heading 3"]
+            readonly property string current: styles.find(n => appRoot.styleActive(n)) || "Normal"
+            fixedWidth: 110
+            label: current + " ▾"
+            tip: open ? "" : "Paragraph style"
+            active: open
+            border.color: Qt.alpha(appRoot.theme.foreground, 0.2)
+            border.width: 1
+            onClicked: open = !open
+            onUsableChanged: if (!usable) open = false
+
+            Rectangle {
+                id: stylePopup
+                visible: styleButton.open
+                y: styleButton.height + 4
+                z: 100
+                width: styleButton.width
+                height: styleList.implicitHeight + 8
+                radius: 3
+                color: styleButton.appRoot.theme.background
+                border.color: styleButton.appRoot.theme.muted
+                border.width: 1
+
+                Column {
+                    id: styleList
+                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: 4 }
+
+                    Repeater {
+                        model: styleButton.styles
+                        Rectangle {
+                            id: styleItem
+                            required property string modelData
+                            readonly property bool current: styleButton.current === modelData
+                            width: styleList.width
+                            height: 24
+                            radius: 3
+                            color: current ? styleButton.appRoot.theme.accent
+                                 : itemMouse.containsMouse ? Qt.alpha(styleButton.appRoot.theme.foreground, 0.1) : "transparent"
+
+                            Text {
+                                anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 7 }
+                                text: styleItem.modelData
+                                color: styleItem.current ? styleButton.appRoot.theme.background : styleButton.appRoot.theme.foreground
+                                font.pixelSize: 13
+                            }
+
+                            MouseArea {
+                                id: itemMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: {
+                                    styleButton.open = false
+                                    styleButton.appRoot.applyStyle(styleItem.modelData)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ToolSeparator { appRoot: toolbarRoot.appRoot }
+
         ToolButton {
             appRoot: toolbarRoot.appRoot
             label: "B"; bold: true; tip: "Bold (Ctrl+B)"
@@ -35,21 +104,6 @@ Rectangle {
             label: "U"; underline: true; tip: "Underline (Ctrl+U)"
             active: appRoot.formattingState.Underline === true
             onClicked: appRoot.applyFormat(".uno:Underline")
-        }
-
-        ToolSeparator { appRoot: toolbarRoot.appRoot }
-
-        Repeater {
-            model: [["Normal", "Normal", "Normal paragraph"], ["H1", "Heading 1", "Heading 1"],
-                    ["H2", "Heading 2", "Heading 2"], ["H3", "Heading 3", "Heading 3"]]
-            ToolButton {
-                required property var modelData
-                appRoot: toolbarRoot.appRoot
-                label: modelData[0]
-                tip: modelData[2]
-                active: appRoot.styleActive(modelData[1])
-                onClicked: appRoot.applyStyle(modelData[1])
-            }
         }
 
         ToolSeparator { appRoot: toolbarRoot.appRoot }
@@ -80,86 +134,6 @@ Rectangle {
                 active: appRoot.formattingState[modelData[1]] === true
                 onClicked: appRoot.applyFormat(".uno:" + modelData[1])
             }
-        }
-
-        ToolSeparator { appRoot: toolbarRoot.appRoot }
-
-        // Paragraph spacing: directional only. LOK does not apply exact
-        // point values or keep-together/widow-orphan headlessly (see
-        // engine/README.md and the `para` command's comment) — these
-        // buttons use the LO-native spacing step instead of a fixed pt.
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            label: "¶−"; tip: "Decrease paragraph spacing"
-            onClicked: appRoot.applyParaSpacing("decrease")
-        }
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            label: "¶+"; tip: "Increase paragraph spacing"
-            onClicked: appRoot.applyParaSpacing("increase")
-        }
-
-        ToolSeparator { appRoot: toolbarRoot.appRoot }
-
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            fixedWidth: 130
-            label: (appRoot.formattingState.CharFontName || "Font") + " ▾"
-            tip: "Font: click for next (" + appRoot.fontNames.join(", ") + ")"
-            border.color: Qt.alpha(appRoot.theme.foreground, 0.2)
-            border.width: 1
-            onClicked: appRoot.cycleFont()
-        }
-
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            label: "−"; tip: "Decrease font size"
-            onClicked: appRoot.stepFontSize(-1)
-        }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: 40
-            horizontalAlignment: Text.AlignHCenter
-            text: isNaN(toolbarRoot.appRoot.currentFontSize) ? "—" : toolbarRoot.appRoot.currentFontSize + "pt"
-            color: toolbarRoot.appRoot.theme.foreground
-            opacity: toolbarRoot.appRoot.docId >= 0 ? 1 : 0.5
-            font.pixelSize: 13
-        }
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            label: "+"; tip: "Increase font size"
-            onClicked: appRoot.stepFontSize(1)
-        }
-
-        ToolSeparator { appRoot: toolbarRoot.appRoot }
-
-        ToolButton {
-            id: colorButton
-            appRoot: toolbarRoot.appRoot
-            readonly property var current: appRoot.currentColorIndex >= 0
-                ? appRoot.textColors[appRoot.currentColorIndex] : ["Custom", ""]
-            label: "A"; bold: true
-            tip: "Text color: " + current[0] + " (click for next)"
-            onClicked: appRoot.cycleColor()
-
-            // Swatch of the color at the cursor; automatic shows as the foreground.
-            Rectangle {
-                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
-                width: 16; height: 3; radius: 1
-                color: colorButton.appRoot.currentColorHex === "auto" ? colorButton.appRoot.theme.foreground
-                                                                      : colorButton.appRoot.currentColorHex
-            }
-        }
-
-        ToolButton {
-            appRoot: toolbarRoot.appRoot
-            label: "🖌"
-            tip: "Format painter: click to copy formatting once, double-click to keep painting (Esc stops)"
-            active: appRoot.paintMode
-            // A double-click arrives as clicked then doubleClicked; the
-            // first click captures, the second makes the mode sticky.
-            onClicked: appRoot.paintMode ? appRoot.exitPaintMode() : appRoot.startPaintMode(false)
-            onDoubleClicked: appRoot.startPaintMode(true)
         }
     }
 

@@ -14,7 +14,9 @@ Rectangle {
     property int fixedWidth: 0
     // Usable without a document (New, Quit).
     property bool alwaysEnabled: false
-    readonly property bool usable: alwaysEnabled || appRoot.docId >= 0
+    // Extra condition on top of an open document (e.g. cursor in a table).
+    property bool available: true
+    readonly property bool usable: alwaysEnabled || (appRoot.docId >= 0 && available)
     signal clicked()
     signal doubleClicked()
 

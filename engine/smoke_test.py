@@ -367,6 +367,73 @@ def main():
         check(not a.call("copy", doc_id=999)["ok"], "copy unknown doc rejected")
         check(a.call("close", doc_id=cdoc)["ok"], "close clipboard doc")
 
+        # --- Tables (repeat header rows unsupported; see engine/README.md) ---
+        a.events.clear()
+        r = a.call("new_md", markdown="Table test\n")
+        tbdoc, tbpage = r["doc_id"], r["page_rect"]
+        time.sleep(1)
+
+        def tb_tile():
+            return a.call("tile", doc_id=tbdoc, x=tbpage[0], y=tbpage[1],
+                          width=tbpage[2], height=tbpage[3], px_width=600)["tile"]
+
+        check(not a.call("get_state", doc_id=tbdoc)["state"].get("StateTableCell"),
+              "StateTableCell empty outside a table")
+        r = a.call("table", doc_id=tbdoc, action="autofit")
+        check(not r["ok"] and "not inside a table" in r.get("error", ""),
+              f"table autofit outside a table rejected: {r.get('error')!r}")
+        check(not a.call("table", doc_id=tbdoc, action="insert_row")["ok"],
+              "table insert_row outside a table rejected")
+        check(not a.call("table", doc_id=tbdoc, action="insert", rows=0, columns=3)["ok"],
+              "table insert rows=0 rejected")
+        check(not a.call("table", doc_id=tbdoc, action="insert", rows=51, columns=3)["ok"],
+              "table insert rows=51 rejected")
+        check(not a.call("table", doc_id=tbdoc, action="insert", rows=3, columns=51)["ok"],
+              "table insert columns=51 rejected")
+        check(not a.call("table", doc_id=tbdoc, action="insert", rows=3)["ok"],
+              "table insert without columns rejected")
+        check(a.call("table", doc_id=tbdoc, action="insert", rows=3, columns=4)["ok"],
+              "table insert rows=3 columns=4")
+        time.sleep(1)
+        cell = a.call("get_state", doc_id=tbdoc)["state"].get("StateTableCell")
+        check(bool(cell), f"get_state StateTableCell non-empty after insert: {cell!r}")
+        for ch in "a much longer cell value":
+            a.call("key", doc_id=tbdoc, type="input", char_code=ord(ch))
+            a.call("key", doc_id=tbdoc, type="up", char_code=ord(ch))
+        time.sleep(0.5)
+        before = tb_tile()
+        check(a.call("table", doc_id=tbdoc, action="autofit")["ok"], "table autofit inside a table")
+        time.sleep(0.5)
+        check(tb_tile() != before, "table autofit changes the tile")
+        # AutoFit leaves the whole table selected; put the cursor back in a cell.
+        a.call("key", doc_id=tbdoc, type="input", key="Left")
+        a.call("key", doc_id=tbdoc, type="up", key="Left")
+        time.sleep(0.5)
+        before = tb_tile()
+        check(a.call("table", doc_id=tbdoc, action="insert_row")["ok"], "table insert_row inside a table")
+        time.sleep(0.5)
+        after = tb_tile()
+        check(after != before, "table insert_row changes the tile")
+        check(a.call("table", doc_id=tbdoc, action="delete_row")["ok"], "table delete_row inside a table")
+        time.sleep(0.5)
+        check(tb_tile() != after, "table delete_row changes the tile")
+
+        before = tb_tile()
+        check(a.call("table", doc_id=tbdoc, action="insert_column")["ok"], "table insert_column inside a table")
+        time.sleep(0.5)
+        after = tb_tile()
+        check(after != before, "table insert_column changes the tile")
+        check(a.call("table", doc_id=tbdoc, action="delete_column")["ok"], "table delete_column inside a table")
+        time.sleep(0.5)
+        check(tb_tile() != after, "table delete_column changes the tile")
+
+        check(not a.call("table", doc_id=tbdoc, action="repeat_header")["ok"], "table unknown action rejected")
+        check(not a.call("table", doc_id=tbdoc)["ok"], "table without action rejected")
+        for act in ("insert", "autofit", "insert_row", "delete_row", "insert_column", "delete_column"):
+            check(not a.call("table", doc_id=999, action=act, rows=3, columns=3)["ok"],
+                  f"table {act} unknown doc rejected")
+        check(a.call("close", doc_id=tbdoc)["ok"], "close table doc")
+
         # --- AI manager (skeleton: no network) ---
         r = a.call("ai", action="list_providers")
         check(r["ok"] and sorted(r["providers"]) == ["chatgpt", "claude", "grok"],

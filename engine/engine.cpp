@@ -334,6 +334,8 @@ std::string Engine::handle(const std::string &line)
         return getCharStyle(req, id);
     if (cmd->s == "apply_char_style")
         return applyCharStyle(req, id);
+    if (cmd->s == "table")
+        return table(req, id);
     if (cmd->s == "ai")
         return ai(req, id);
     if (cmd->s == "quit") {
