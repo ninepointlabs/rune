@@ -17,6 +17,9 @@
 #include <QTextTable>
 #include <QTextStream>
 
+#include <quazip.h>
+#include <quazipfile.h>
+
 #include <memory>
 
 namespace {
@@ -31,6 +34,12 @@ const QString kStage3ListTablePath = QStringLiteral("/tmp/rune-native-stage3-lis
 const QString kStage3ListTableRawPath = QStringLiteral("/tmp/rune-native-stage3-list-table-unsanitized.odt");
 const QString kStage3TablePath = QStringLiteral("/tmp/rune-native-stage3-table.odt");
 const QString kStage3TabPath = QStringLiteral("/tmp/rune-native-stage3-tab.odt");
+const QString kStage4RoundTripPath = QStringLiteral("/tmp/rune-native-stage4-roundtrip.odt");
+const QString kStage4ExternalDir = QStringLiteral("/tmp/rune-native-stage4-external");
+const QString kStage4MissingPath = QStringLiteral("/tmp/rune-native-stage4-does-not-exist.odt");
+const QString kStage4NotZipPath = QStringLiteral("/tmp/rune-native-stage4-not-a-zip.odt");
+const QString kStage4NoContentPath = QStringLiteral("/tmp/rune-native-stage4-no-content.odt");
+const QString kStage4BadXmlPath = QStringLiteral("/tmp/rune-native-stage4-bad-xml.odt");
 
 class Checker
 {
@@ -184,6 +193,62 @@ void logConversion(const QString &odtPath, const QString &html)
                         << countOf(html, QStringLiteral("td")) << " <td>, "
                         << countOf(html, QStringLiteral("li")) << " <li>; text: \"" << textOf(html) << "\""
                         << Qt::endl;
+}
+
+// Converts the HTML file `htmlPath` to .odt with a real headless LibreOffice
+// into `outDir`; returns the .odt path ("" on failure).
+QString sofficeHtmlToOdt(const QString &htmlPath, const QString &outDir)
+{
+    QDir().mkpath(outDir);
+    const QString odtPath = outDir + '/' + QFileInfo(htmlPath).completeBaseName() + QStringLiteral(".odt");
+    QFile::remove(odtPath);
+    QProcess soffice;
+    soffice.start(QStringLiteral("soffice"),
+                  {QStringLiteral("-env:UserInstallation=file:///tmp/rune-native-lo-profile"),
+                   QStringLiteral("--headless"), QStringLiteral("--convert-to"), QStringLiteral("odt:writer8"),
+                   QStringLiteral("--outdir"), outDir, htmlPath});
+    if (!soffice.waitForFinished(120000) || soffice.exitCode() != 0)
+        return {};
+    return QFileInfo::exists(odtPath) ? odtPath : QString();
+}
+
+// A zip holding one file `name` with `data`.
+bool writeZip(const QString &path, const QString &name, const QByteArray &data)
+{
+    QFile::remove(path);
+    QuaZip zip(path);
+    if (!zip.open(QuaZip::mdCreate))
+        return false;
+    QuaZipFile file(&zip);
+    if (!file.open(QIODevice::WriteOnly, QuaZipNewInfo(name)))
+        return false;
+    const bool ok = file.write(data) == data.size();
+    file.close();
+    zip.close();
+    return ok && zip.getZipError() == UNZ_OK;
+}
+
+// Block texts as a readable list, for the log.
+QString blocksOf(QTextDocument *doc)
+{
+    QStringList blocks;
+    for (QTextBlock block = doc->begin(); block.isValid(); block = block.next())
+        blocks << '"' + block.text().replace('\t', QLatin1String("\\t")) + '"';
+    return blocks.join(QLatin1String(", "));
+}
+
+// Where `word` starts in the plain text, as a document position.
+int positionOf(QTextDocument *doc, const QString &word)
+{
+    return doc->toPlainText().indexOf(word);
+}
+
+QTextBlock blockWithText(QTextDocument *doc, const QString &text)
+{
+    for (QTextBlock block = doc->begin(); block.isValid(); block = block.next())
+        if (block.text() == text)
+            return block;
+    return {};
 }
 
 } // namespace
@@ -531,6 +596,132 @@ bool runAutoTest(QQuickWindow *window)
     typeText(window, QStringLiteral("y"));
     t.check(doc->toPlainText() == QStringLiteral("x\ty"),
             QStringLiteral("Tab in plain text still inserts a tab: \"%1\"").arg(doc->toPlainText()));
+
+    // --- Stage 4a: reading ODF ---
+
+    // Round trip: write with the UI, read back into a fresh controller.
+    // Tab and the double space go through <text:tab>/<text:s>; for the
+    // leading spaces Qt's writer also puts a newline and indent inside the
+    // span before the <text:s>, which the reader must drop.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("Title"));
+    pressReturn(window);
+    typeText(window, QStringLiteral("Hello bold italic under"));
+    pressTab(window);
+    typeText(window, QStringLiteral("two  spaces"));
+    pressReturn(window);
+    typeText(window, QStringLiteral("  indented"));
+    const auto select = [&](const QString &word) {
+        const int start = positionOf(doc, word);
+        QMetaObject::invokeMethod(editor, "select", Q_ARG(int, start), Q_ARG(int, int(start + word.size())));
+    };
+    select(QStringLiteral("Title"));
+    controller->toggleBold();
+    select(QStringLiteral("bold"));
+    controller->toggleBold();
+    select(QStringLiteral("italic"));
+    controller->toggleItalic();
+    select(QStringLiteral("under"));
+    controller->toggleUnderline();
+    const QString written = doc->toPlainText();
+    t.check(controller->saveToOdf(kStage4RoundTripPath), "saveToOdf(" + kStage4RoundTripPath + ") [round trip]");
+
+    DocumentController reader;
+    QTextDocument *rdoc = reader.textDocument();
+    int pathSignals = 0;
+    QObject::connect(&reader, &DocumentController::currentPathChanged, [&] { ++pathSignals; });
+    const bool opened = reader.openOdf(kStage4RoundTripPath);
+    t.check(opened, "openOdf(" + kStage4RoundTripPath + ") on a fresh controller");
+    QTextStream(stdout) << "  read back blocks: " << blocksOf(rdoc) << Qt::endl;
+    t.check(rdoc->toPlainText() == written,
+            QStringLiteral("round trip: plain text matches what was written (%1 blocks)").arg(rdoc->blockCount()));
+    const auto formatOfWord = [](QTextDocument *d, const QString &word) {
+        const int start = positionOf(d, word);
+        return start < 0 ? QStringLiteral("missing") : formatOf(d, start, int(start + word.size()));
+    };
+    const QString titleFmt = formatOfWord(rdoc, QStringLiteral("Title"));
+    const QString helloFmt = formatOfWord(rdoc, QStringLiteral("Hello"));
+    const QString boldFmt = formatOfWord(rdoc, QStringLiteral("bold"));
+    const QString italicFmt = formatOfWord(rdoc, QStringLiteral("italic"));
+    const QString underFmt = formatOfWord(rdoc, QStringLiteral("under"));
+    const QString spacesFmt = formatOfWord(rdoc, QStringLiteral("two  spaces"));
+    QTextStream(stdout) << "  read back formats: Title=" << titleFmt << " Hello=" << helloFmt << " bold=" << boldFmt
+                        << " italic=" << italicFmt << " under=" << underFmt << " \"two  spaces\"=" << spacesFmt
+                        << Qt::endl;
+    t.check(titleFmt == "B" && boldFmt == "B" && italicFmt == "I" && underFmt == "U",
+            "round trip: Title/bold/italic/under read back as B/B/I/U");
+    t.check(helloFmt.isEmpty() && spacesFmt.isEmpty(),
+            "round trip: unformatted text reads back plain");
+    t.check(!reader.isDirty() && reader.currentPath() == kStage4RoundTripPath && pathSignals == 1,
+            "round trip: clean, currentPath set, currentPathChanged emitted once");
+
+    // Same file through the window's controller, so the TextEdit shows it.
+    controller->newDocument();
+    t.check(controller->openOdf(kStage4RoundTripPath) && doc->toPlainText() == written
+                && qmlDoc->textDocument() == doc && !controller->isDirty(),
+            "openOdf() on the window's controller: TextEdit shows the read document, clean");
+    t.check(!doc->isUndoAvailable(), "opening leaves no undo history (can't undo back to the old document)");
+
+    // A file this code did not write: HTML fixture -> .odt by LibreOffice.
+    QDir().mkpath(kStage4ExternalDir);
+    const QString fixturePath = kStage4ExternalDir + QStringLiteral("/fixture.html");
+    {
+        QFile fixture(fixturePath);
+        t.check(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate), "wrote HTML fixture " + fixturePath);
+        fixture.write("<html><body><h1>External Heading</h1>"
+                      "<p>Plain <b>bold</b> <i>italic</i> <u>under</u> end.</p>"
+                      "<h2>Second level</h2>"
+                      "<ul><li>Item one</li><li>Item two</li></ul>"
+                      "<p>Last paragraph.</p></body></html>");
+    }
+    const QString externalPath = sofficeHtmlToOdt(fixturePath, kStage4ExternalDir + QStringLiteral("/out"));
+    t.check(!externalPath.isEmpty(), "soffice converted the HTML fixture to " + externalPath);
+    DocumentController external;
+    QTextDocument *edoc = external.textDocument();
+    t.check(external.openOdf(externalPath), "openOdf() of the LibreOffice-written file");
+    QTextStream(stdout) << "  external blocks: " << blocksOf(edoc) << Qt::endl;
+    const QString expectedExternal = QStringLiteral(
+        "External Heading\nPlain bold italic under end.\nSecond level\nItem one\nItem two\nLast paragraph.");
+    t.check(edoc->toPlainText() == expectedExternal, "external: plain text, paragraph per block, in order");
+    const QString extBold = formatOfWord(edoc, QStringLiteral("bold"));
+    const QString extItalic = formatOfWord(edoc, QStringLiteral("italic"));
+    const QString extUnder = formatOfWord(edoc, QStringLiteral("under"));
+    const QString extPlain = formatOfWord(edoc, QStringLiteral("Plain"));
+    QTextStream(stdout) << "  external formats: Plain=" << extPlain << " bold=" << extBold << " italic=" << extItalic
+                        << " under=" << extUnder << Qt::endl;
+    t.check(extBold == "B" && extItalic == "I" && extUnder == "U" && extPlain.isEmpty(),
+            "external: LibreOffice's T1/T2/T3 span styles read as B/I/U");
+    const QTextBlock second = blockWithText(edoc, QStringLiteral("Second level"));
+    t.check(second.isValid() && second.blockFormat().headingLevel() == 2
+                && formatOf(edoc, second.position(), second.position() + second.length() - 1) == "B",
+            QStringLiteral("external: <text:h text:outline-level=\"2\"> read as a bold heading, level %1")
+                .arg(second.isValid() ? second.blockFormat().headingLevel() : -1));
+
+    // Failures leave the open document alone.
+    controller->setSelection(0, 0, 0);
+    const auto unchanged = [&] {
+        return doc->toPlainText() == written && controller->currentPath() == kStage4RoundTripPath
+            && !controller->isDirty();
+    };
+    t.check(!controller->openOdf(kStage4MissingPath) && unchanged(),
+            "openOdf(non-existent path) returns false, document and path unchanged");
+    {
+        QFile notZip(kStage4NotZipPath);
+        t.check(notZip.open(QIODevice::WriteOnly | QIODevice::Truncate)
+                    && notZip.write("This is plain text with an .odt extension.\n") > 0,
+                "wrote " + kStage4NotZipPath);
+    }
+    t.check(!controller->openOdf(kStage4NotZipPath) && unchanged(),
+            "openOdf(plain text named .odt) returns false, document unchanged");
+    t.check(writeZip(kStage4NoContentPath, QStringLiteral("hello.txt"), "hi")
+                && !controller->openOdf(kStage4NoContentPath) && unchanged(),
+            "openOdf(zip without content.xml) returns false, document unchanged");
+    t.check(writeZip(kStage4BadXmlPath, QStringLiteral("content.xml"),
+                     "<office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\">"
+                     "<office:body><office:text><p>truncated")
+                && !controller->openOdf(kStage4BadXmlPath) && unchanged(),
+            "openOdf(zip with truncated content.xml) returns false, document unchanged");
 
     QTextStream(stdout) << (t.ok() ? "PASS" : "FAIL") << Qt::endl;
     return t.ok();

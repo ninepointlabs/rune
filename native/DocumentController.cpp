@@ -1,5 +1,7 @@
 #include "DocumentController.h"
 
+#include "OdfReader.h"
+
 #include <QBuffer>
 #include <QDebug>
 #include <QFileInfo>
@@ -82,6 +84,31 @@ bool DocumentController::saveToOdf(const QString &path)
         m_currentPath = absolute;
         emit currentPathChanged();
     }
+    return true;
+}
+
+bool DocumentController::openOdf(const QString &path)
+{
+    QString error;
+    bool read = false;
+    {
+        // Not typing: keep a pending format from being applied to the load.
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        read = OdfReader::readInto(m_document, path, &error);
+    }
+    if (!read) {
+        qWarning().noquote() << "DocumentController: cannot open" << error;
+        return false;
+    }
+
+    m_document->setModified(false);
+    clearPending();
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    if (m_currentPath != absolute) {
+        m_currentPath = absolute;
+        emit currentPathChanged();
+    }
+    emit formatChanged();
     return true;
 }
 

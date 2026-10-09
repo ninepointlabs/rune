@@ -13,6 +13,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 6.7: QQuickTextDocument::setTextDocument(), which DocumentController relies on.
 find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick)
+# Unzipping .odt files for OdfReader.
+find_package(QuaZip-Qt6 REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.7)
 
@@ -21,7 +23,7 @@ qt_add_qml_module(rune_native
     URI RuneNative
     VERSION 1.0
     QML_FILES Main.qml ToolButton.qml
-    SOURCES DocumentController.h DocumentController.cpp
+    SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp
 )
 
-target_link_libraries(rune_native PRIVATE Qt6::Gui Qt6::Quick)
+target_link_libraries(rune_native PRIVATE Qt6::Gui Qt6::Quick QuaZip::QuaZip)

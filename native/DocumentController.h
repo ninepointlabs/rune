@@ -60,6 +60,9 @@ public:
 
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool saveToOdf(const QString &path);
+    // Replaces the document with the .odt at `path` (see OdfReader for what
+    // is read). On failure the current document is left as it was.
+    Q_INVOKABLE bool openOdf(const QString &path);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
