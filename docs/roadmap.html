@@ -173,6 +173,8 @@
     <ul class="checklist">
       <li><span class="dot dot-done"></span><div>Document I/O: <strong><code>.odt</code></strong> native read/write; <strong><code>.docx</code>/<code>.doc</code></strong> via an async <code>soffice</code> batch-conversion bridge &mdash; verified against real-world files, not just our own writer's output</div></li>
       <li><span class="dot dot-done"></span><div>Full text editing: keyboard, mouse, clipboard &mdash; native <code>TextEdit</code> behavior, not custom-built</div></li>
+      <li><span class="dot dot-done"></span><div>File Open / Save / Save As / New with native file dialogs, and a Save / Discard / Cancel prompt before unsaved changes are lost (New, Open, or closing the window)</div></li>
+      <li><span class="dot dot-done"></span><div>Undo/redo (toolbar, Ctrl+Z / Ctrl+Shift+Z) &mdash; every formatting, list and table operation is exactly one step, tested per operation</div></li>
       <li><span class="dot dot-done"></span><div>Formatting: Bold/Italic/Underline, paragraph styles with named/inherited style resolution on import (<code>styles.xml</code> parent-style-name chains), bullet/numbered lists with promote/demote nesting, alignment, font family/size, text color</div></li>
       <li><span class="dot dot-done"></span><div>Tables: insert, insert/delete row, insert/delete column, Tab/Shift+Tab cell navigation</div></li>
       <li><span class="dot dot-done"></span><div>A save-time sanitizer working around a real Qt ODF-writer bug (see below) &mdash; verified with a direct A/B test, not an assumption</div></li>
@@ -201,8 +203,7 @@
       <tr><td>Tab stops &amp; leader lines</td><td>Needs a ruler widget</td></tr>
       <tr><td>Table of Contents / outline nav</td><td>Builds on existing paragraph styles</td></tr>
       <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Was a documented dead end in the old LibreOfficeKit engine; not yet investigated against <code>QTextBlockFormat</code> directly &mdash; may actually be achievable now that we're not routing through <code>.uno:</code> commands. Worth a fresh look.</td></tr>
-      <tr><td>Find/replace, spell check, undo/redo UI</td><td><code>QTextDocument</code> has undo/redo natively; needs toolbar wiring. The others aren't built.</td></tr>
-      <tr><td>File Open / Save As dialogs</td><td><code>openFile()</code>/<code>saveFile()</code> exist and work; no file picker UI yet</td></tr>
+      <tr><td>Find/replace, spell check</td><td>Not built.</td></tr>
     </table>
   </section>
 
@@ -221,7 +222,7 @@
     <h2>Architecture notes for contributors</h2>
     <div class="note-box">The current app (<code>native/</code>) is a single process built on <code>QTextDocument</code> — no sockets, no protocol, no IPC. <code>DocumentController</code> is the QML-facing editing API; <code>OdfReader</code>/<code>DocxBridge</code> are plain C++ (not QML-exposed) handling ODF import and the .docx conversion bridge respectively.</div>
     <div class="note-box">An earlier two-process LibreOfficeKit design (<code>legacy-lok/</code>) is kept for reference, not actively developed. See <code>legacy-lok/README.md</code> and the main README's architecture section for why it was replaced.</div>
-    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 158 checks covering formatting, tables, lists, and save/load round-trips verified via real <code>soffice</code> conversion, not just a successful-looking return value.</div>
+    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 204 checks covering formatting, tables, lists, undo/redo, the file Open/Save flow, and save/load round-trips verified via real <code>soffice</code> conversion, not just a successful-looking return value.</div>
     <div class="note-box"><strong style="color: var(--ink);">Verify Qt/ODF API behavior against real files before relying on it.</strong> This project has twice found real, silent-failure bugs this way &mdash; Qt's own ODF writer mangling list-then-table structure (confirmed with <code>xmllint</code> plus a direct A/B <code>soffice</code> conversion test), and earlier, the old LOK engine's <code>.uno:</code> commands that returned <code>ok</code> while silently doing nothing (confirmed by diffing rendered tiles). Don't assume an API's documented behavior is what actually happens on disk &mdash; test it.</div>
   </section>
 

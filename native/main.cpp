@@ -5,11 +5,11 @@
 //                PASS/FAIL, exit (0 = pass)
 
 #include "AutoTest.h"
-#include "DocumentController.h"
 
 #include <QCommandLineParser>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
@@ -83,11 +83,10 @@ int main(int argc, char *argv[])
     auto *window = engine.rootObjects().isEmpty()
         ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
 
-    if (!options.documentPath.isEmpty() && window) {
-        auto *controller = window->findChild<DocumentController *>(QStringLiteral("controller"));
-        if (controller)
-            controller->openFile(options.documentPath);
-    }
+    // Same path as File → Open, so the status bar reports progress and errors.
+    if (!options.documentPath.isEmpty() && window)
+        QMetaObject::invokeMethod(window, "openPath",
+                                  Q_ARG(QVariant, QFileInfo(options.documentPath).absoluteFilePath()));
 
     if (options.autoTest) {
         if (!window)

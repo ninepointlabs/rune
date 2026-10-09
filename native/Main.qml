@@ -1,4 +1,6 @@
+import QtCore
 import QtQuick
+import QtQuick.Dialogs
 import QtQuick.Window
 import Rune
 
@@ -7,13 +9,18 @@ Window {
 
     required property var theme
 
-    // Stage 1 has no save dialog; Ctrl+S always writes here.
-    readonly property string savePath: "/tmp/rune-native-test.odt"
     readonly property color barColor: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
     readonly property string documentName: controller.currentPath !== ""
         ? controller.currentPath.substring(controller.currentPath.lastIndexOf("/") + 1) : "Untitled"
     // Brief status-bar message ("Saved"); empty shows the document name.
     property string statusFlash: ""
+    // Status-bar text while controller.busy ("Opening…" / "Saving…").
+    property string busyText: ""
+    // Runs once the user has saved or discarded unsaved changes; see
+    // whenSafeToDiscard().
+    property var pendingAction: null
+    // Set once the user has agreed to lose unsaved changes on close.
+    property bool closeConfirmed: false
 
     // Fixed presets the toolbar cycles/steps through.
     readonly property var fontNames: ["Sans", "Serif", "Monospace"]
@@ -70,10 +77,111 @@ Window {
         controller.setSelection(editor.cursorPosition, editor.selectionStart, editor.selectionEnd)
     }
 
-    // Asynchronous: the result arrives in onFileSaved below.
+    // File flow. Every open/save is asynchronous: results arrive in
+    // onFileOpened / onFileSaved below. Saving writes .odt or .docx only, so
+    // a document opened from a .doc (or not yet saved) goes through Save As.
+
+    function suffixOf(path) {
+        const name = path.substring(path.lastIndexOf("/") + 1)
+        const dot = name.lastIndexOf(".")
+        return dot > 0 ? name.substring(dot + 1).toLowerCase() : ""
+    }
+
+    function isSavable(path) {
+        const suffix = suffixOf(path)
+        return suffix === "odt" || suffix === "docx"
+    }
+
+    function folderOf(path) {
+        return pathToUrl(path.substring(0, path.lastIndexOf("/")))
+    }
+
+    // Dialogs speak file:// URLs; the controller takes local paths.
+    function urlToPath(url) {
+        return decodeURIComponent(url.toString().replace(/^file:\/\//, ""))
+    }
+
+    function pathToUrl(path) {
+        return "file://" + path.split("/").map(encodeURIComponent).join("/")
+    }
+
+    // Runs `action` now if nothing would be lost, else asks first: Save
+    // runs it after a successful save, Discard runs it at once, Cancel
+    // drops it.
+    function whenSafeToDiscard(action) {
+        if (controller.busy) return
+        if (!controller.dirty) {
+            action()
+            return
+        }
+        pendingAction = action
+        discardDialog.open()
+    }
+
+    function resolveDiscard(choice) {
+        const action = pendingAction
+        if (choice === "save") {
+            save() // pendingAction runs from onFileSaved, or is dropped if Save As is cancelled
+            return
+        }
+        pendingAction = null
+        if (choice === "discard" && action)
+            action()
+    }
+
+    function requestNew() {
+        whenSafeToDiscard(() => {
+            controller.newDocument()
+            syncSelection()
+        })
+    }
+
+    function requestOpen() {
+        whenSafeToDiscard(() => {
+            if (controller.currentPath !== "")
+                openDialog.currentFolder = folderOf(controller.currentPath)
+            openDialog.open()
+        })
+    }
+
+    function openPath(path) {
+        if (controller.busy) return
+        busyText = "Opening…"
+        controller.openFile(path)
+    }
+
     function save() {
         if (controller.busy) return
-        controller.saveFile(savePath)
+        if (isSavable(controller.currentPath))
+            saveTo(controller.currentPath)
+        else
+            saveAs()
+    }
+
+    function saveAs() {
+        if (controller.busy) return
+        const current = controller.currentPath
+        if (current !== "") {
+            // Suggest the current name, as .odt unless it already saves as .docx.
+            const base = current.substring(0, current.length - suffixOf(current).length - 1)
+            const docx = suffixOf(current) === "docx"
+            saveDialog.selectedNameFilter.index = docx ? 1 : 0
+            saveDialog.currentFolder = folderOf(current)
+            saveDialog.selectedFile = pathToUrl(base + (docx ? ".docx" : ".odt"))
+        }
+        saveDialog.open()
+    }
+
+    // A name typed without a usable extension gets the chosen filter's.
+    function acceptSave(path) {
+        if (!isSavable(path))
+            path += "." + saveDialog.selectedNameFilter.extensions[0]
+        saveTo(path)
+    }
+
+    function saveTo(path) {
+        busyText = "Saving…"
+        controller.saveFile(path)
     }
 
     width: 1000
@@ -81,6 +189,16 @@ Window {
     visible: true
     color: theme.background
     title: documentName + (controller.dirty ? " ●" : "") + " — Rune"
+
+    onClosing: close => {
+        if (closeConfirmed || !controller.dirty)
+            return
+        close.accepted = false
+        whenSafeToDiscard(() => {
+            closeConfirmed = true
+            root.close()
+        })
+    }
 
     // Installs the controller's document into the TextEdit; see
     // DocumentController.h for why this isn't a binding.
@@ -102,10 +220,62 @@ Window {
         function onFileSaved(success, path, error) {
             root.statusFlash = success ? "Saved " + path : "Save failed: " + error
             flashTimer.restart()
+            const action = root.pendingAction
+            root.pendingAction = null
+            if (success && action)
+                action()
+        }
+        function onFileOpened(success, path, error) {
+            root.statusFlash = success ? "Opened " + path : "Open failed: " + error
+            flashTimer.restart()
+            if (success)
+                root.syncSelection()
         }
     }
 
+    FileDialog {
+        id: openDialog
+        objectName: "openDialog"
+        title: "Open"
+        fileMode: FileDialog.OpenFile
+        currentFolder: StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
+        nameFilters: ["Documents (*.odt *.docx *.doc)", "OpenDocument Text (*.odt)",
+                      "Word Document (*.docx *.doc)", "All files (*)"]
+        onAccepted: root.openPath(root.urlToPath(selectedFile))
+    }
+
+    FileDialog {
+        id: saveDialog
+        objectName: "saveDialog"
+        title: "Save As"
+        fileMode: FileDialog.SaveFile
+        currentFolder: StandardPaths.writableLocation(StandardPaths.DocumentsLocation)
+        // Order matters: saveAs() and acceptSave() index into these.
+        nameFilters: ["OpenDocument Text (*.odt)", "Word Document (*.docx)"]
+        defaultSuffix: selectedNameFilter.extensions[0]
+        onAccepted: root.acceptSave(root.urlToPath(selectedFile))
+        onRejected: root.pendingAction = null
+    }
+
+    MessageDialog {
+        id: discardDialog
+        objectName: "discardDialog"
+        title: "Unsaved changes"
+        text: "Save changes to " + root.documentName + "?"
+        informativeText: "Your changes will be lost if you don't save them."
+        buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
+        onButtonClicked: (button, role) => root.resolveDiscard(
+            button === MessageDialog.Save ? "save" : button === MessageDialog.Discard ? "discard" : "cancel")
+    }
+
+    Shortcut { sequence: StandardKey.New; onActivated: root.requestNew() }
+    Shortcut { sequence: StandardKey.Open; onActivated: root.requestOpen() }
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
+    Shortcut { sequence: StandardKey.SaveAs; onActivated: root.saveAs() }
+    // While the editor has focus it takes these keys itself (see its
+    // Keys.onPressed); these cover focus anywhere else in the window.
+    Shortcut { sequence: StandardKey.Undo; onActivated: controller.undo() }
+    Shortcut { sequence: StandardKey.Redo; onActivated: controller.redo() }
     Shortcut { sequence: StandardKey.Bold; onActivated: controller.toggleBold() }
     Shortcut { sequence: StandardKey.Italic; onActivated: controller.toggleItalic() }
     Shortcut { sequence: StandardKey.Underline; onActivated: controller.toggleUnderline() }
@@ -127,6 +297,40 @@ Window {
         Row {
             anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
             spacing: 4
+
+            ToolButton {
+                objectName: "openButton"
+                appRoot: root
+                label: "Open"; tip: "Open (Ctrl+O)"
+                available: !controller.busy
+                onClicked: root.requestOpen()
+            }
+            ToolButton {
+                objectName: "saveButton"
+                appRoot: root
+                label: "Save"; tip: "Save (Ctrl+S) · Save As (Ctrl+Shift+S)"
+                available: !controller.busy
+                onClicked: root.save()
+            }
+
+            ToolSeparator {}
+
+            ToolButton {
+                objectName: "undoButton"
+                appRoot: root
+                label: "↶"; tip: "Undo (Ctrl+Z)"
+                available: controller.canUndo && !controller.busy
+                onClicked: controller.undo()
+            }
+            ToolButton {
+                objectName: "redoButton"
+                appRoot: root
+                label: "↷"; tip: "Redo (Ctrl+Shift+Z)"
+                available: controller.canRedo && !controller.busy
+                onClicked: controller.redo()
+            }
+
+            ToolSeparator {}
 
             ToolButton {
                 objectName: "boldButton"
@@ -300,6 +504,9 @@ Window {
             height: Math.max(implicitHeight, flick.height)
             padding: 48
             focus: true
+            // A .docx open replaces the document when it finishes; edits
+            // made meanwhile would be lost (see DocumentController::openFile).
+            readOnly: controller.busy
             selectByMouse: true
             persistentSelection: true
             textFormat: TextEdit.RichText
@@ -313,6 +520,25 @@ Window {
             onSelectionStartChanged: root.syncSelection()
             onSelectionEndChanged: root.syncSelection()
             onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
+
+            // Undo/redo go through the controller rather than the TextEdit's
+            // built-in handling, which knows nothing of pending formats or
+            // the toolbar. Printable text typed with a pending format (e.g.
+            // Bold toggled with nothing selected) is inserted by the
+            // controller, so it is one undo step; see typeWithPendingFormat().
+            Keys.onPressed: event => {
+                if (event.matches(StandardKey.Undo))
+                    controller.undo()
+                else if (event.matches(StandardKey.Redo))
+                    controller.redo()
+                else if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+                         && event.text.length > 0 && event.text >= " " && event.text !== "\x7f"
+                         && controller.typeWithPendingFormat(event.text))
+                    ; // inserted
+                else
+                    return
+                event.accepted = true
+            }
 
             // Tab / Shift+Tab move between table cells, or else nest list
             // items; elsewhere Tab is left to the TextEdit, which inserts a
@@ -355,7 +581,7 @@ Window {
             font.family: "monospace"
             font.pixelSize: 12
             elide: Text.ElideRight
-            text: controller.busy ? "Saving…"
+            text: controller.busy ? root.busyText
                   : root.statusFlash !== "" ? root.statusFlash
                   : root.documentName + (controller.dirty ? " ●" : "")
         }

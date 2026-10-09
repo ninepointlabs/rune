@@ -50,6 +50,8 @@ class DocumentController : public QObject
     Q_PROPERTY(QString currentPath READ currentPath NOTIFY currentPathChanged)
     // A .docx open/save is converting in the background.
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
+    Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
+    Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -62,6 +64,8 @@ public:
     bool isDirty() const { return m_document->isModified(); }
     QString currentPath() const { return m_currentPath; }
     bool isBusy() const { return m_busy; }
+    bool canUndo() const { return m_document->isUndoAvailable(); }
+    bool canRedo() const { return m_document->isRedoAvailable(); }
 
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool saveToOdf(const QString &path);
@@ -91,6 +95,22 @@ public:
     // included; the UI shouldn't allow editing while busy.
     Q_INVOKABLE void openFile(const QString &path);
     Q_INVOKABLE void saveFile(const QString &path);
+
+    // One step of the document's history: typing, a formatting change, a
+    // list or table edit. Opening a file or newDocument() clears the
+    // history. Moves the cursor to the change (cursorPositionRequested())
+    // and drops any pending format. The TextEdit's own Ctrl+Z bypasses
+    // this, so the UI routes its undo keys here.
+    Q_INVOKABLE void undo();
+    Q_INVOKABLE void redo();
+
+    // Typing with a pending format armed (see the class comment): inserts
+    // `text` at the cursor in that format and returns true, else inserts
+    // nothing and returns false, for the TextEdit to handle the key itself.
+    // Formatting text already inserted would be a second undo step after
+    // the typing; this way it is one. (Input-method commits, which aren't
+    // key presses, still get the pending format applied after insertion.)
+    Q_INVOKABLE bool typeWithPendingFormat(const QString &text);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
@@ -160,6 +180,8 @@ signals:
     void dirtyChanged();
     void currentPathChanged();
     void busyChanged();
+    void canUndoChanged();
+    void canRedoChanged();
     // Completion of openFile() / saveFile(): `path` as passed, `error` ""
     // on success.
     void fileOpened(bool success, const QString &path, const QString &error);
@@ -182,6 +204,8 @@ private:
     QTextCharFormat currentCharFormat() const;
     void clearPending();
     void onContentsChange(int position, int removed, int added);
+    // Emits dirtyChanged() when isDirty() differs from what was last reported.
+    void updateDirty();
 
     static ListKind listKind(const QTextList *list);
     QList<QTextBlock> selectedBlocks() const;
@@ -190,11 +214,12 @@ private:
     void changeListLevel(int delta);
 
     void editTable(bool rows, bool insert);
+    void stepHistory(bool undo);
 
     // After openOdf()/saveToOdf() of a temporary .odt ran with signals
     // blocked: point currentPath at the real file and emit what changed
-    // since `oldPath`/`wasDirty`.
-    void finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty);
+    // since `oldPath` (and the dirty state, via updateDirty()).
+    void finishConvertedIo(const QString &path, const QString &oldPath);
 
     // Result of a background soffice run.
     struct Conversion
@@ -213,6 +238,8 @@ private:
     QPointer<QQuickTextDocument> m_qmlDocument;
     QString m_currentPath;
     bool m_busy = false;
+    // isDirty() as last reported by dirtyChanged(); see updateDirty().
+    bool m_dirty = false;
     // Bumped on every document edit, so a background .docx save can tell
     // whether what it wrote is still what's in the document.
     quint64 m_contentRevision = 0;

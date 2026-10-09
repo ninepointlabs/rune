@@ -10,6 +10,8 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QProcess>
 #include <QQuickItem>
@@ -21,10 +23,12 @@
 #include <QTextTable>
 #include <QTextStream>
 #include <QTimer>
+#include <QtTest/QTest>
 
 #include <quazip.h>
 #include <quazipfile.h>
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 
@@ -59,6 +63,10 @@ const QString kStage5CorruptPath = QStringLiteral("/tmp/rune-native-stage5-corru
 const QString kStage5UnwritablePath = QStringLiteral("/tmp/rune-native-stage5-no-such-dir/out.docx");
 const QString kAsyncOdtPath = QStringLiteral("/tmp/rune-native-async.odt");
 const QString kAsyncEditDocxPath = QStringLiteral("/tmp/rune-native-async-edited.docx");
+const QString kUndoPath = QStringLiteral("/tmp/rune-native-undo.odt");
+const QString kDialogBasePath = QStringLiteral("/tmp/rune-native-dialog");
+const QString kDialogOdtPath = kDialogBasePath + QStringLiteral(".odt");
+const QString kDialogDocxPath = QStringLiteral("/tmp/rune-native-dialog.docx");
 const QString kSampleDocx = QStringLiteral(RUNE_SAMPLES_DIR "/test.docx");
 const QString kSampleDoc = QStringLiteral(RUNE_SAMPLES_DIR "/test.doc");
 
@@ -133,6 +141,15 @@ void pressKey(QQuickWindow *window, int key, Qt::KeyboardModifiers modifiers, co
     QKeyEvent release(QEvent::KeyRelease, key, modifiers, text);
     QCoreApplication::sendEvent(window, &press);
     QCoreApplication::sendEvent(window, &release);
+}
+
+// A key press + release through the platform input path, as a real
+// keyboard delivers it: unlike sendEvent(), this goes through Qt's shortcut
+// handling (ShortcutOverride, then Shortcut items) before the focus item.
+void pressSystemKey(QQuickWindow *window, Qt::Key key, Qt::KeyboardModifiers modifiers)
+{
+    QTest::keyClick(window, key, modifiers);
+    QCoreApplication::processEvents();
 }
 
 // Real Return key, which TextEdit turns into a new paragraph block.
@@ -413,6 +430,27 @@ QStringList zipEntries(const QString &path)
 {
     QuaZip zip(path);
     return zip.open(QuaZip::mdUnzip) ? zip.getFileNameList() : QStringList();
+}
+
+// Calls a Main.qml root function, as the dialogs and shortcuts do.
+void callRoot(QQuickWindow *window, const char *function, const QVariant &arg = {})
+{
+    if (arg.isValid())
+        QMetaObject::invokeMethod(window, function, Q_ARG(QVariant, arg));
+    else
+        QMetaObject::invokeMethod(window, function);
+}
+
+bool dialogVisible(QQuickWindow *window, const QString &name)
+{
+    QObject *dialog = window->findChild<QObject *>(name);
+    return dialog && dialog->property("visible").toBool();
+}
+
+void closeDialog(QQuickWindow *window, const QString &name)
+{
+    if (QObject *dialog = window->findChild<QObject *>(name))
+        QMetaObject::invokeMethod(dialog, "close");
 }
 
 } // namespace
@@ -1444,6 +1482,300 @@ bool runAutoTest(QQuickWindow *window)
     const QStringList tempDirsAfter = bridgeTempDirs();
     t.check(tempDirsAfter == tempDirsBefore,
             "no DocxBridge temp directories left behind: " + tempDirsAfter.join(QLatin1String(", ")));
+
+    // Undo / redo. Every controller operation must be exactly one undo
+    // step: one undo() restores the document as it was, one redo()
+    // reapplies it.
+    {
+        auto *undoButton = window->findChild<QQuickItem *>(QStringLiteral("undoButton"));
+        auto *redoButton = window->findChild<QQuickItem *>(QStringLiteral("redoButton"));
+        const auto available = [](QQuickItem *button) { return button && button->property("available").toBool(); };
+        const auto select = [&](int start, int end) {
+            QMetaObject::invokeMethod(editor, "select", Q_ARG(int, start), Q_ARG(int, end));
+        };
+        const auto oneStep = [&](const QString &what, const std::function<void()> &op) {
+            const QString before = doc->toHtml();
+            op();
+            const QString after = doc->toHtml();
+            controller->undo();
+            const bool restored = doc->toHtml() == before;
+            controller->redo();
+            const bool reapplied = doc->toHtml() == after;
+            t.check(after != before && restored && reapplied,
+                    QStringLiteral("one undo step: %1 (changed %2, undo restores %3, redo reapplies %4)")
+                        .arg(what).arg(after != before).arg(restored).arg(reapplied));
+        };
+
+        controller->newDocument();
+        editor->forceActiveFocus();
+        t.check(!controller->canUndo() && !controller->canRedo() && !available(undoButton) && !available(redoButton),
+                "new document: nothing to undo or redo, both buttons unavailable");
+
+        typeText(window, QStringLiteral("One"));
+        pressReturn(window);
+        typeText(window, QStringLiteral("Two"));
+        pressReturn(window);
+        typeText(window, QStringLiteral("Three"));
+        t.check(controller->canUndo() && available(undoButton) && !available(redoButton),
+                "after typing: Undo available, Redo not");
+
+        // Undo/redo move the cursor (collapsing any selection), so each
+        // operation selects what it acts on.
+        oneStep(QStringLiteral("bold on a selection"), [&] { select(0, 3); controller->toggleBold(); });
+        controller->undo();
+        t.check(formatOf(doc, 0, 3).isEmpty() && !boldButton->property("active").toBool()
+                    && controller->canRedo() && available(redoButton),
+                "undoing bold: text plain again, toolbar Bold off, Redo available");
+        controller->redo();
+        t.check(formatOf(doc, 0, 3) == QStringLiteral("B"), "redo reapplies bold");
+
+        const auto selectAll = [&] { select(0, doc->characterCount() - 1); };
+        oneStep(QStringLiteral("alignment over three paragraphs"), [&] { selectAll(); controller->setAlignment(Qt::AlignHCenter); });
+        oneStep(QStringLiteral("text color"), [&] { selectAll(); controller->setTextColor(QStringLiteral("#cc0000")); });
+        oneStep(QStringLiteral("text color back to automatic"), [&] { selectAll(); controller->setTextColor(QStringLiteral("auto")); });
+        oneStep(QStringLiteral("bullet list over three paragraphs"), [&] { selectAll(); controller->toggleBulletList(); });
+        oneStep(QStringLiteral("nesting a list item"), [&] { select(4, 7); controller->demoteListItem(); });
+        oneStep(QStringLiteral("un-nesting it"), [&] { select(4, 7); controller->promoteListItem(); });
+        oneStep(QStringLiteral("removing the list"), [&] { selectAll(); controller->toggleBulletList(); });
+
+        const auto inLastCell = [&] {
+            QTextTable *table = nullptr;
+            for (auto it = doc->rootFrame()->begin(); !it.atEnd() && !table; ++it)
+                table = qobject_cast<QTextTable *>(it.currentFrame());
+            if (!table)
+                return;
+            const int last = table->cellAt(table->rows() - 1, table->columns() - 1).firstCursorPosition().position();
+            select(last, last);
+        };
+        const int end = doc->characterCount() - 1;
+        oneStep(QStringLiteral("inserting a table"), [&] { select(end, end); controller->insertTable(2, 2); });
+        oneStep(QStringLiteral("inserting a table row"), [&] { inLastCell(); controller->insertTableRow(); });
+        oneStep(QStringLiteral("deleting a table column"), [&] { inLastCell(); controller->deleteTableColumn(); });
+        oneStep(QStringLiteral("Tab off the last cell (appends a row)"), [&] { inLastCell(); controller->nextTableCell(); });
+
+        // A pending format is applied to the typed text in a second edit;
+        // undoing the typing must take it in the same step.
+        controller->newDocument();
+        typeText(window, QStringLiteral("Plain "));
+        controller->toggleBold();
+        const QString beforePending = doc->toHtml();
+        typeText(window, QStringLiteral("b"));
+        const bool pendingApplied = formatOf(doc, 6, 7) == QStringLiteral("B");
+        controller->undo();
+        t.check(pendingApplied && doc->toHtml() == beforePending,
+                QStringLiteral("one undo removes a character typed with a pending bold, format and all (applied %1, text now \"%2\")")
+                    .arg(pendingApplied).arg(doc->toPlainText()));
+        controller->redo();
+        t.check(doc->toPlainText() == QStringLiteral("Plain b") && formatOf(doc, 6, 7) == QStringLiteral("B"),
+                "... and one redo brings it back bold");
+        typeText(window, QStringLiteral("c"));
+        const bool continued = doc->toPlainText() == QStringLiteral("Plain bc") && formatOf(doc, 6, 8) == QStringLiteral("B");
+        controller->undo();
+        t.check(continued && doc->toHtml() == beforePending,
+                "typing on in bold extends the same step: one undo removes \"bc\"");
+        controller->redo();
+
+        // Input-method commits aren't key presses: the pending format is
+        // still applied, after insertion (a second undo step there). Qt
+        // reports such a commit as its whole paragraph replaced.
+        controller->newDocument();
+        typeText(window, QStringLiteral("Plain "));
+        controller->toggleBold();
+        QInputMethodEvent commit;
+        commit.setCommitString(QStringLiteral("q"));
+        QCoreApplication::sendEvent(editor, &commit);
+        t.check(doc->toPlainText() == QStringLiteral("Plain q") && formatOf(doc, 6, 7) == QStringLiteral("B"),
+                "an input-method commit with a pending bold is bold: \"" + doc->toPlainText() + "\" " + formatOf(doc, 6, 7));
+
+        // Undo back to the saved state is clean again, title included.
+        const IoRun saveRun = saveAndWait(controller, kUndoPath);
+        typeText(window, QStringLiteral("x"));
+        const bool dirtyAfterEdit = controller->isDirty();
+        controller->undo();
+        t.check(saveRun.success && dirtyAfterEdit && !controller->isDirty()
+                    && !window->property("title").toString().contains(QChar(0x25CF)),
+                "undoing back to the last save leaves the document clean (title too)" + errorNote(saveRun));
+        controller->redo();
+        t.check(controller->isDirty(), "redoing past the save makes it dirty again");
+
+        // History doesn't survive New or Open: undo mustn't unbuild a load.
+        controller->newDocument();
+        t.check(!controller->canUndo() && !controller->canRedo() && !available(undoButton) && !available(redoButton),
+                QStringLiteral("New clears the history and both buttons (canUndo %1, canRedo %2, buttons %3/%4)")
+                    .arg(controller->canUndo()).arg(controller->canRedo())
+                    .arg(available(undoButton)).arg(available(redoButton)));
+        typeText(window, QStringLiteral("y"));
+        const IoRun reopen = openAndWait(controller, kUndoPath);
+        t.check(reopen.success && !controller->canUndo() && !controller->canRedo() && !available(undoButton),
+                "opening a file clears the history" + errorNote(reopen));
+
+        // Real Ctrl+Z / Ctrl+Shift+Z through the platform input path: one
+        // step per press, whether the editor or something else has focus.
+        controller->newDocument();
+        editor->forceActiveFocus();
+        typeText(window, QStringLiteral("abc"));
+        select(0, 3);
+        controller->toggleItalic();
+        pressSystemKey(window, Qt::Key_Z, Qt::ControlModifier);
+        const bool keyUndo = doc->toPlainText() == QStringLiteral("abc") && formatOf(doc, 0, 3).isEmpty();
+        pressSystemKey(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+        t.check(keyUndo && formatOf(doc, 0, 3) == QStringLiteral("I"),
+                "Ctrl+Z / Ctrl+Shift+Z in the editor undo and redo exactly one step");
+        window->contentItem()->forceActiveFocus();
+        pressSystemKey(window, Qt::Key_Z, Qt::ControlModifier);
+        const bool unfocusedUndo = formatOf(doc, 0, 3).isEmpty() && doc->toPlainText() == QStringLiteral("abc");
+        pressSystemKey(window, Qt::Key_Z, Qt::ControlModifier | Qt::ShiftModifier);
+        t.check(unfocusedUndo && formatOf(doc, 0, 3) == QStringLiteral("I"),
+                "... and with focus outside the editor (window shortcuts)");
+        editor->forceActiveFocus();
+
+        // Busy: a .docx open is about to replace the document; undo waits.
+        const QString beforeBusy = doc->toHtml();
+        bool undoneWhileBusy = true;
+        const IoRun busyOpen = runIo(controller, &DocumentController::fileOpened, [&] {
+            controller->openFile(kSampleDocx);
+            controller->undo();
+            undoneWhileBusy = doc->toHtml() != beforeBusy;
+        });
+        t.check(busyOpen.success && busyOpen.busyAfterCall && !undoneWhileBusy,
+                "undo does nothing while a .docx open converts" + errorNote(busyOpen));
+    }
+
+    // File flow in Main.qml: Open/Save As dialogs, Save to the current
+    // path, the unsaved-changes guard on New/Open/close. The dialogs
+    // themselves can't be driven headlessly, so the checks call what their
+    // accepted/button handlers call (acceptSave, openPath, resolveDiscard).
+    {
+        const QStringList dialogs{QStringLiteral("openDialog"), QStringLiteral("saveDialog"),
+                                  QStringLiteral("discardDialog")};
+        t.check(std::all_of(dialogs.begin(), dialogs.end(),
+                            [&](const QString &n) { return window->findChild<QObject *>(n) != nullptr; }),
+                "found openDialog, saveDialog and discardDialog");
+        const auto anyDialog = [&] {
+            return std::any_of(dialogs.begin(), dialogs.end(), [&](const QString &n) { return dialogVisible(window, n); });
+        };
+        const auto waitSaved = [&](const std::function<void()> &start) {
+            return runIo(controller, &DocumentController::fileSaved, start);
+        };
+        // What QML sees: the title binding only re-reads `dirty` on dirtyChanged().
+        const auto titleDirty = [&] { return window->property("title").toString().contains(QChar(0x25CF)); };
+
+        // QTextDocument::clear() resets the modified flag without emitting
+        // modificationChanged(); New must still clear the title's marker.
+        controller->newDocument();
+        typeText(window, QStringLiteral("x"));
+        const bool markedAfterTyping = titleDirty();
+        controller->newDocument();
+        t.check(markedAfterTyping && !titleDirty(),
+                "title marks unsaved changes, and New clears the mark: \"" + window->property("title").toString() + "\"");
+
+        controller->newDocument();
+        doc->setPlainText(QStringLiteral("Dialog text"));
+        doc->setModified(true);
+        callRoot(window, "save");
+        t.check(dialogVisible(window, QStringLiteral("saveDialog")) && !controller->isBusy(),
+                "save() on an untitled document opens Save As instead of writing anywhere");
+        closeDialog(window, QStringLiteral("saveDialog"));
+
+        QFile::remove(kDialogOdtPath);
+        const IoRun asRun = waitSaved([&] { callRoot(window, "acceptSave", kDialogBasePath); });
+        t.check(asRun.success && QFileInfo::exists(kDialogOdtPath) && controller->currentPath() == kDialogOdtPath
+                    && !controller->isDirty(),
+                "Save As with no extension writes .odt (the first filter) and becomes the current path"
+                    + errorNote(asRun));
+
+        QTextCursor(doc).insertText(QStringLiteral("More "));
+        const QDateTime before = QFileInfo(kDialogOdtPath).lastModified();
+        const IoRun quick = waitSaved([&] { callRoot(window, "save"); });
+        t.check(quick.success && !anyDialog() && quick.path == kDialogOdtPath && !controller->isDirty()
+                    && QFileInfo(kDialogOdtPath).lastModified() >= before,
+                "save() with a current .odt writes it directly, no dialog" + errorNote(quick));
+
+        QFile::remove(kDialogDocxPath);
+        const IoRun docxRun = waitSaved([&] { callRoot(window, "acceptSave", kDialogDocxPath); });
+        t.check(docxRun.success && controller->currentPath() == kDialogDocxPath && !controller->isDirty(),
+                "Save As .docx goes through the bridge and becomes the current path" + errorNote(docxRun));
+
+        // The unsaved-changes guard.
+        QTextCursor(doc).insertText(QStringLiteral("Unsaved "));
+        callRoot(window, "requestOpen");
+        t.check(dialogVisible(window, QStringLiteral("discardDialog")) && !dialogVisible(window, QStringLiteral("openDialog")),
+                "Open with unsaved changes asks first");
+        closeDialog(window, QStringLiteral("discardDialog"));
+        callRoot(window, "resolveDiscard", QStringLiteral("cancel"));
+        t.check(!anyDialog() && controller->isDirty() && doc->toPlainText().startsWith(QStringLiteral("Unsaved")),
+                "Cancel keeps the document and opens nothing");
+
+        callRoot(window, "requestNew");
+        closeDialog(window, QStringLiteral("discardDialog"));
+        callRoot(window, "resolveDiscard", QStringLiteral("discard"));
+        t.check(doc->isEmpty() && !controller->isDirty() && !titleDirty() && controller->currentPath().isEmpty(),
+                "New → Discard: empty, clean (title too), untitled");
+
+        doc->setPlainText(QStringLiteral("Save then new"));
+        doc->setModified(true);
+        callRoot(window, "requestNew");
+        closeDialog(window, QStringLiteral("discardDialog"));
+        callRoot(window, "resolveDiscard", QStringLiteral("save"));
+        t.check(dialogVisible(window, QStringLiteral("saveDialog")) && !doc->isEmpty(),
+                "New → Save on an untitled document goes through Save As first");
+        QFile::remove(kDialogOdtPath);
+        const IoRun thenNew = waitSaved([&] { callRoot(window, "acceptSave", kDialogOdtPath); });
+        closeDialog(window, QStringLiteral("saveDialog"));
+        t.check(thenNew.success && doc->isEmpty() && controller->currentPath().isEmpty(),
+                "... and the new document follows the successful save" + errorNote(thenNew));
+
+        doc->setPlainText(QStringLiteral("Dropped"));
+        doc->setModified(true);
+        callRoot(window, "requestNew");
+        callRoot(window, "resolveDiscard", QStringLiteral("save"));
+        closeDialog(window, QStringLiteral("saveDialog"));
+        QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("saveDialog")), "reject");
+        t.check(window->property("pendingAction").isNull() && doc->toPlainText() == QStringLiteral("Dropped"),
+                "cancelling that Save As drops the pending New");
+
+        // Open: .odt directly, .doc via the bridge, then Save must not try
+        // to write a .doc.
+        controller->newDocument();
+        const IoRun openOdt = runIo(controller, &DocumentController::fileOpened,
+                                    [&] { callRoot(window, "openPath", kDialogOdtPath); });
+        t.check(openOdt.success && doc->toPlainText() == QStringLiteral("Save then new")
+                    && controller->currentPath() == kDialogOdtPath && !titleDirty(),
+                "openPath() opens the .odt Save As wrote" + errorNote(openOdt));
+        bool readOnlyWhileBusy = false;
+        const IoRun openDoc = runIo(controller, &DocumentController::fileOpened, [&] {
+            callRoot(window, "openPath", kSampleDoc);
+            readOnlyWhileBusy = editor->property("readOnly").toBool();
+        });
+        t.check(openDoc.success && openDoc.busyAfterCall && !titleDirty()
+                    && controller->currentPath() == QFileInfo(kSampleDoc).absoluteFilePath(),
+                "openPath() opens a .doc through the bridge" + errorNote(openDoc));
+        t.check(readOnlyWhileBusy && !editor->property("readOnly").toBool(),
+                "editor is read-only while the conversion runs, editable once it finishes");
+        callRoot(window, "save");
+        t.check(dialogVisible(window, QStringLiteral("saveDialog")) && !controller->isBusy(),
+                "save() on a .doc opens Save As (.doc can't be written)");
+        const QString suggested = window->findChild<QObject *>(QStringLiteral("saveDialog"))
+                                      ->property("selectedFile").toUrl().toLocalFile();
+        t.check(suggested == QFileInfo(kSampleDoc).absolutePath() + QStringLiteral("/test.odt"),
+                "... suggesting the same name as .odt beside it: " + suggested);
+        closeDialog(window, QStringLiteral("saveDialog"));
+
+        // Close with unsaved changes is refused until the user decides.
+        // Keep the app alive if the guard fails, so the run still reports.
+        const bool quitOnClose = QGuiApplication::quitOnLastWindowClosed();
+        QGuiApplication::setQuitOnLastWindowClosed(false);
+        QTextCursor(doc).insertText(QStringLiteral("x"));
+        window->close();
+        QCoreApplication::processEvents();
+        t.check(window->isVisible() && dialogVisible(window, QStringLiteral("discardDialog")),
+                "closing with unsaved changes asks first and keeps the window open");
+        closeDialog(window, QStringLiteral("discardDialog"));
+        callRoot(window, "resolveDiscard", QStringLiteral("cancel"));
+        t.check(window->isVisible() && controller->isDirty(), "Cancel keeps the window and the edits");
+        QGuiApplication::setQuitOnLastWindowClosed(quitOnClose);
+        controller->newDocument();
+    }
 
     QTextStream(stdout) << (t.ok() ? "PASS" : "FAIL") << Qt::endl;
     return t.ok();

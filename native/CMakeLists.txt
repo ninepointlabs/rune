@@ -15,7 +15,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 6.7: QQuickTextDocument::setTextDocument(), which DocumentController relies on.
-find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick Concurrent)
+# Test: QTest::keyClick() for --auto-test's real-keyboard shortcut checks.
+find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick Concurrent Test)
 # Unzipping .odt files for OdfReader. (DocxBridge needs `soffice` at run time
 # only, found in PATH.)
 find_package(QuaZip-Qt6 REQUIRED)
@@ -31,7 +32,7 @@ qt_add_qml_module(rune
             DocxBridge.h DocxBridge.cpp
 )
 
-target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent QuaZip::QuaZip)
+target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Test QuaZip::QuaZip)
 
 # --auto-test opens samples/test.docx from the repo.
 target_compile_definitions(rune PRIVATE RUNE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../samples")

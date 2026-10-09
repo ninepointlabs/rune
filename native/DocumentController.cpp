@@ -26,7 +26,13 @@
 DocumentController::DocumentController(QObject *parent)
     : QObject(parent), m_document(new QTextDocument(this))
 {
-    connect(m_document, &QTextDocument::modificationChanged, this, &DocumentController::dirtyChanged);
+    // Not wired straight to dirtyChanged(): QTextDocument::clear() resets
+    // the modified flag without emitting modificationChanged(), so loads
+    // and newDocument() also call updateDirty(). (It drops the undo history
+    // just as silently; newDocument() covers that too.)
+    connect(m_document, &QTextDocument::modificationChanged, this, &DocumentController::updateDirty);
+    connect(m_document, &QTextDocument::undoAvailable, this, &DocumentController::canUndoChanged);
+    connect(m_document, &QTextDocument::redoAvailable, this, &DocumentController::canRedoChanged);
     connect(m_document, &QTextDocument::contentsChange, this, &DocumentController::onContentsChange);
     connect(m_document, &QTextDocument::contentsChanged, this, [this] { ++m_contentRevision; });
 }
@@ -44,6 +50,16 @@ DocumentController::~DocumentController()
         m_document->setParent(m_qmlDocument);
 }
 
+void DocumentController::updateDirty()
+{
+    // While blocked, m_dirty keeps what QML last saw; the caller updates
+    // it once unblocked (finishConvertedIo()).
+    if (signalsBlocked() || m_document->isModified() == m_dirty)
+        return;
+    m_dirty = !m_dirty;
+    emit dirtyChanged();
+}
+
 void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
 {
     if (m_qmlDocument == qmlDocument)
@@ -59,6 +75,10 @@ void DocumentController::newDocument()
 {
     m_document->clear();
     m_document->setModified(false);
+    updateDirty();
+    // clear() also drops the undo history without emitting undoAvailable().
+    emit canUndoChanged();
+    emit canRedoChanged();
     clearPending();
     if (!m_currentPath.isEmpty()) {
         m_currentPath.clear();
@@ -114,6 +134,7 @@ bool DocumentController::openOdf(const QString &path)
     }
 
     m_document->setModified(false);
+    updateDirty();
     clearPending();
     const QString absolute = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != absolute) {
@@ -205,7 +226,6 @@ void DocumentController::finishOpen(const QString &path, const Conversion &resul
     }
     // Captured now, not at openFile(): the state the open replaces.
     const QString oldPath = m_currentPath;
-    const bool wasDirty = isDirty();
     bool opened = false;
     {
         const QSignalBlocker blocker(this);
@@ -213,7 +233,7 @@ void DocumentController::finishOpen(const QString &path, const Conversion &resul
     }
     DocxBridge::removeConvertedOdt(result.odt);
     if (opened) {
-        finishConvertedIo(path, oldPath, wasDirty);
+        finishConvertedIo(path, oldPath);
         emit formatChanged();
     } // else openOdf() changed nothing and has said why
     setBusy(false);
@@ -277,25 +297,23 @@ void DocumentController::saveFile(const QString &path)
             qWarning().noquote() << "DocumentController: cannot save" << path << "-" << result.error;
         } else {
             const QString oldPath = m_currentPath;
-            const bool wasDirty = isDirty();
             if (m_contentRevision == revision) {
                 const QSignalBlocker blocker(this);
                 m_document->setModified(false);
             } // else edited since the snapshot: still dirty
-            finishConvertedIo(path, oldPath, wasDirty);
+            finishConvertedIo(path, oldPath);
         }
         setBusy(false);
         emit fileSaved(result.error.isEmpty(), path, result.error);
     });
 }
 
-void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty)
+void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath)
 {
     m_currentPath = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != oldPath)
         emit currentPathChanged();
-    if (isDirty() != wasDirty)
-        emit dirtyChanged();
+    updateDirty();
 }
 
 // --- ODF export sanitizing -------------------------------------------------
@@ -370,6 +388,27 @@ void DocumentController::setSelection(int cursorPosition, int selectionStart, in
     m_selectionEnd = selectionEnd;
     if (m_pendingPosition >= 0 && (selectionStart != selectionEnd || cursorPosition != m_pendingPosition))
         clearPending();
+    emit formatChanged();
+}
+
+void DocumentController::undo() { stepHistory(true); }
+void DocumentController::redo() { stepHistory(false); }
+
+void DocumentController::stepHistory(bool undo)
+{
+    if (m_busy || !(undo ? canUndo() : canRedo()))
+        return;
+    QTextCursor cursor = selectionCursor();
+    {
+        // Not typing: keep a pending format from being applied to restored text.
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        if (undo)
+            m_document->undo(&cursor);
+        else
+            m_document->redo(&cursor);
+    }
+    clearPending();
+    emit cursorPositionRequested(cursor.position());
     emit formatChanged();
 }
 
@@ -539,18 +578,43 @@ QTextCharFormat DocumentController::currentCharFormat() const
     return format;
 }
 
+bool DocumentController::typeWithPendingFormat(const QString &text)
+{
+    if (m_busy || text.isEmpty() || m_pendingPosition < 0 || m_pendingPosition != m_cursorPosition
+        || m_selectionStart != m_selectionEnd)
+        return false;
+    QTextCursor cursor = selectionCursor();
+    QTextCharFormat format = cursor.charFormat();
+    format.merge(m_pendingFormat);
+    if (m_pendingClearForeground)
+        format.clearForeground();
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        cursor.insertText(text, format);
+    }
+    clearPending();
+    emit cursorPositionRequested(cursor.position());
+    emit formatChanged();
+    return true;
+}
+
 void DocumentController::onContentsChange(int position, int removed, int added)
 {
-    Q_UNUSED(removed);
-    if (m_selfEdit || m_pendingPosition < 0 || added <= 0 || position != m_pendingPosition)
+    // Text inserted at the pending position. An input-method commit reports
+    // its whole paragraph as replaced (e.g. 0, 7, 8 for one character typed
+    // at 6), so take the net growth, and require the range to cover it.
+    const int inserted = added - removed;
+    if (m_selfEdit || m_pendingPosition < 0 || inserted <= 0 || position > m_pendingPosition
+        || position + added < m_pendingPosition + inserted)
         return;
+    const int start = m_pendingPosition, end = m_pendingPosition + inserted;
     QTextCursor cursor(m_document);
-    cursor.setPosition(position);
-    cursor.setPosition(position + added, QTextCursor::KeepAnchor);
+    cursor.setPosition(start);
+    cursor.setPosition(end, QTextCursor::KeepAnchor);
     m_selfEdit = true;
     cursor.mergeCharFormat(m_pendingFormat);
     if (m_pendingClearForeground)
-        clearForegroundIn(m_document, position, position + added);
+        clearForegroundIn(m_document, start, end);
     m_selfEdit = false;
     clearPending();
 }
