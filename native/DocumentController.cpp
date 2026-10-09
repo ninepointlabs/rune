@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QFileInfo>
 #include <QList>
+#include <QScopedValueRollback>
 #include <QSaveFile>
 #include <QTextBlock>
 #include <QTextDocumentWriter>
@@ -44,8 +45,7 @@ void DocumentController::newDocument()
 {
     m_document->clear();
     m_document->setModified(false);
-    m_pendingPosition = -1;
-    m_pendingFormat = QTextCharFormat();
+    clearPending();
     if (!m_currentPath.isEmpty()) {
         m_currentPath.clear();
         emit currentPathChanged();
@@ -152,11 +152,16 @@ void DocumentController::setSelection(int cursorPosition, int selectionStart, in
     m_cursorPosition = cursorPosition;
     m_selectionStart = selectionStart;
     m_selectionEnd = selectionEnd;
-    if (m_pendingPosition >= 0 && (selectionStart != selectionEnd || cursorPosition != m_pendingPosition)) {
-        m_pendingPosition = -1;
-        m_pendingFormat = QTextCharFormat();
-    }
+    if (m_pendingPosition >= 0 && (selectionStart != selectionEnd || cursorPosition != m_pendingPosition))
+        clearPending();
     emit formatChanged();
+}
+
+void DocumentController::clearPending()
+{
+    m_pendingPosition = -1;
+    m_pendingFormat = QTextCharFormat();
+    m_pendingClearForeground = false;
 }
 
 bool DocumentController::hasAttr(const QTextCharFormat &f, Attr attr)
@@ -227,10 +232,50 @@ bool DocumentController::attrState(Attr attr) const
 
 void DocumentController::toggle(Attr attr)
 {
-    const bool on = !attrState(attr);
     QTextCharFormat change;
-    setAttr(change, attr, on);
+    setAttr(change, attr, !attrState(attr));
+    applyCharFormat(change);
+}
 
+namespace {
+
+// Removes any explicit text color from [start, end). mergeCharFormat() can't
+// do this: a format with the property cleared merges as "no change", and an
+// invalid QBrush is stored as a real property that the ODF writer exports
+// as fo:color="#000000". So rewrite each fragment's format without it.
+void clearForegroundIn(QTextDocument *doc, int start, int end)
+{
+    struct Range { int start, end; QTextCharFormat format; };
+    QList<Range> ranges;
+    for (QTextBlock block = doc->findBlock(start); block.isValid() && block.position() < end;
+         block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            const int from = std::max(start, fragment.position());
+            const int to = std::min(end, fragment.position() + fragment.length());
+            if (from < to && fragment.charFormat().hasProperty(QTextFormat::ForegroundBrush))
+                ranges.append({from, to, fragment.charFormat()});
+        }
+    }
+    // Collected first: setCharFormat() splits and merges fragments.
+    QTextCursor cursor(doc);
+    cursor.beginEditBlock();
+    for (Range &range : ranges) {
+        range.format.clearForeground();
+        cursor.setPosition(range.start);
+        cursor.setPosition(range.end, QTextCursor::KeepAnchor);
+        cursor.setCharFormat(range.format);
+    }
+    cursor.endEditBlock();
+}
+
+} // namespace
+
+// Applies `change` (or, with `clearForeground`, removes the text color) to
+// the selection; with none, to the word around the cursor or, outside a
+// word, to the next text typed at the cursor.
+void DocumentController::applyCharFormat(const QTextCharFormat &change, bool clearForeground)
+{
     QTextCursor cursor = selectionCursor();
     if (!cursor.hasSelection()) {
         // Strictly inside a word: format the whole word, as word processors do.
@@ -242,28 +287,56 @@ void DocumentController::toggle(Attr attr)
         } else {
             // Nothing to format yet: arm it for the next insertion here.
             m_pendingFormat.merge(change);
+            if (clearForeground) {
+                m_pendingFormat.clearForeground();
+                m_pendingClearForeground = true;
+            } else if (change.hasProperty(QTextFormat::ForegroundBrush)) {
+                m_pendingClearForeground = false;
+            }
             m_pendingPosition = position;
             emit formatChanged();
             return;
         }
     }
-    cursor.mergeCharFormat(change);
+    if (clearForeground)
+        clearForegroundIn(m_document, cursor.selectionStart(), cursor.selectionEnd());
+    else
+        cursor.mergeCharFormat(change);
     emit formatChanged();
+}
+
+// The format the queries report: the first selected character's, or what
+// typing at the collapsed cursor would produce (pending format included).
+QTextCharFormat DocumentController::currentCharFormat() const
+{
+    QTextCursor cursor = selectionCursor();
+    if (cursor.hasSelection()) {
+        cursor.setPosition(cursor.selectionStart() + 1);
+        return cursor.charFormat();
+    }
+    QTextCharFormat format = cursor.charFormat();
+    if (m_pendingPosition == cursor.position()) {
+        format.merge(m_pendingFormat);
+        if (m_pendingClearForeground)
+            format.clearForeground();
+    }
+    return format;
 }
 
 void DocumentController::onContentsChange(int position, int removed, int added)
 {
     Q_UNUSED(removed);
-    if (m_applyingPending || m_pendingPosition < 0 || added <= 0 || position != m_pendingPosition)
+    if (m_selfEdit || m_pendingPosition < 0 || added <= 0 || position != m_pendingPosition)
         return;
     QTextCursor cursor(m_document);
     cursor.setPosition(position);
     cursor.setPosition(position + added, QTextCursor::KeepAnchor);
-    m_applyingPending = true;
+    m_selfEdit = true;
     cursor.mergeCharFormat(m_pendingFormat);
-    m_applyingPending = false;
-    m_pendingPosition = -1;
-    m_pendingFormat = QTextCharFormat();
+    if (m_pendingClearForeground)
+        clearForegroundIn(m_document, position, position + added);
+    m_selfEdit = false;
+    clearPending();
 }
 
 void DocumentController::toggleBold() { toggle(Attr::Bold); }
@@ -272,3 +345,258 @@ void DocumentController::toggleUnderline() { toggle(Attr::Underline); }
 bool DocumentController::isBold() const { return attrState(Attr::Bold); }
 bool DocumentController::isItalic() const { return attrState(Attr::Italic); }
 bool DocumentController::isUnderline() const { return attrState(Attr::Underline); }
+
+void DocumentController::setFontFamily(const QString &family)
+{
+    QTextCharFormat change;
+    change.setFontFamilies({family});
+    applyCharFormat(change);
+}
+
+QString DocumentController::currentFontFamily() const
+{
+    const QStringList families = currentCharFormat().fontFamilies().toStringList();
+    return families.isEmpty() ? m_document->defaultFont().family() : families.constFirst();
+}
+
+void DocumentController::setFontSize(qreal pointSize)
+{
+    if (pointSize <= 0)
+        return;
+    QTextCharFormat change;
+    change.setFontPointSize(pointSize);
+    applyCharFormat(change);
+}
+
+qreal DocumentController::currentFontSize() const
+{
+    const QTextCharFormat format = currentCharFormat();
+    return format.hasProperty(QTextFormat::FontPointSize) ? format.fontPointSize()
+                                                          : m_document->defaultFont().pointSizeF();
+}
+
+void DocumentController::setTextColor(const QString &hexColor)
+{
+    if (hexColor.compare(QLatin1String("auto"), Qt::CaseInsensitive) == 0) {
+        applyCharFormat(QTextCharFormat(), true);
+        return;
+    }
+    const QColor color = QColor::fromString(hexColor);
+    if (!color.isValid()) {
+        qWarning() << "DocumentController: invalid text color" << hexColor;
+        return;
+    }
+    QTextCharFormat change;
+    change.setForeground(color);
+    applyCharFormat(change);
+}
+
+QString DocumentController::currentTextColor() const
+{
+    const QTextCharFormat format = currentCharFormat();
+    if (!format.hasProperty(QTextFormat::ForegroundBrush) || format.foreground().style() == Qt::NoBrush)
+        return QStringLiteral("auto");
+    return format.foreground().color().name();
+}
+
+// --- Paragraph formatting --------------------------------------------------
+
+// Every block the selection touches, or the cursor's block.
+QList<QTextBlock> DocumentController::selectedBlocks() const
+{
+    const QTextCursor cursor = selectionCursor();
+    QList<QTextBlock> blocks;
+    const QTextBlock last = m_document->findBlock(cursor.selectionEnd());
+    for (QTextBlock block = m_document->findBlock(cursor.selectionStart()); block.isValid(); block = block.next()) {
+        blocks.append(block);
+        if (block == last)
+            break;
+    }
+    return blocks;
+}
+
+void DocumentController::setAlignment(Qt::Alignment alignment)
+{
+    QTextBlockFormat change;
+    change.setAlignment(alignment & Qt::AlignHorizontal_Mask);
+    const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+    selectionCursor().mergeBlockFormat(change);
+    emit formatChanged();
+}
+
+int DocumentController::currentAlignment() const
+{
+    return int(selectionCursor().blockFormat().alignment() & Qt::AlignHorizontal_Mask);
+}
+
+// --- Lists -----------------------------------------------------------------
+//
+// Qt does not join lists: QTextCursor::createList() always makes a new
+// QTextList, even right next to an identical one, and each QTextList numbers
+// itself from 1 and is written to ODF as its own <text:list>. So these
+// functions reuse an adjacent compatible list where one exists and only
+// create a list when there is none. Nesting is QTextListFormat::indent():
+// one QTextList per run of siblings at a level.
+
+DocumentController::ListKind DocumentController::listKind(const QTextList *list)
+{
+    if (!list)
+        return ListKind::None;
+    switch (list->format().style()) {
+    case QTextListFormat::ListDisc:
+    case QTextListFormat::ListCircle:
+    case QTextListFormat::ListSquare:
+        return ListKind::Bullet;
+    default:
+        return ListKind::Numbered;
+    }
+}
+
+QTextListFormat::Style DocumentController::listStyle(ListKind kind, int indent)
+{
+    if (kind == ListKind::Numbered)
+        return QTextListFormat::ListDecimal;
+    static const QTextListFormat::Style bullets[] = {
+        QTextListFormat::ListDisc, QTextListFormat::ListCircle, QTextListFormat::ListSquare};
+    return bullets[std::max(0, indent - 1) % 3];
+}
+
+DocumentController::ListKind DocumentController::currentListKind() const
+{
+    return listKind(selectionCursor().block().textList());
+}
+
+namespace {
+
+int listIndent(const QTextBlock &block)
+{
+    return block.textList() ? block.textList()->format().indent() : 0;
+}
+
+// Takes `block` out of its list as a plain paragraph. QTextList::remove()
+// would instead add the list's indent to the block's own, leaving it
+// indented as if it were still a list item.
+void removeFromList(const QTextBlock &block)
+{
+    QTextBlockFormat format = block.blockFormat();
+    format.setObjectIndex(-1);
+    QTextCursor(block).setBlockFormat(format);
+}
+
+} // namespace
+
+void DocumentController::toggleList(ListKind kind)
+{
+    const QList<QTextBlock> blocks = selectedBlocks();
+    const bool remove = currentListKind() == kind;
+    const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+    QTextCursor edit(m_document);
+    edit.beginEditBlock();
+
+    if (remove) {
+        for (const QTextBlock &block : blocks)
+            if (block.textList())
+                removeFromList(block);
+    } else {
+        // Join a top-level list of this kind directly before or after the
+        // blocks; failing that, start one.
+        const auto joinable = [kind](const QTextBlock &block) {
+            return block.isValid() && listKind(block.textList()) == kind && listIndent(block) == 1
+                ? block.textList() : nullptr;
+        };
+        QTextList *before = joinable(blocks.constFirst().previous());
+        QTextList *after = joinable(blocks.constLast().next());
+        QTextList *target = before ? before : after;
+        if (!target) {
+            QTextListFormat format;
+            format.setStyle(listStyle(kind, 1));
+            target = QTextCursor(blocks.constFirst()).createList(format);
+        }
+        for (const QTextBlock &block : blocks)
+            if (block.textList() != target)
+                target->add(block);
+        // Bridging two lists: fold the second into the first.
+        if (before && after && before != after) {
+            QList<QTextBlock> items;
+            for (int i = 0; i < after->count(); ++i)
+                items.append(after->item(i));
+            for (const QTextBlock &item : std::as_const(items))
+                target->add(item);
+        }
+    }
+
+    edit.endEditBlock();
+    emit formatChanged();
+}
+
+// Moves each selected list item `delta` levels deeper (+1) or shallower (-1).
+void DocumentController::changeListLevel(int delta)
+{
+    const QList<QTextBlock> blocks = selectedBlocks();
+    const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+    QTextCursor edit(m_document);
+    edit.beginEditBlock();
+
+    for (const QTextBlock &block : blocks) {
+        QTextList *list = block.textList();
+        if (!list)
+            continue;
+        const ListKind kind = listKind(list);
+        const int target = list->format().indent() + delta;
+        if (target < 1)
+            continue;
+
+        // The block's new siblings: the nearest earlier item at the target
+        // level, skipping deeper items, before reaching a shallower one
+        // (the parent); else an item right after it at that level.
+        QTextList *dest = nullptr;
+        for (QTextBlock previous = block.previous(); previous.isValid() && previous.textList();
+             previous = previous.previous()) {
+            const int indent = listIndent(previous);
+            if (indent < target)
+                break;
+            if (indent == target) {
+                if (listKind(previous.textList()) == kind)
+                    dest = previous.textList();
+                break;
+            }
+        }
+        const QTextBlock next = block.next();
+        if (!dest && listIndent(next) == target && listKind(next.textList()) == kind)
+            dest = next.textList();
+
+        if (dest) {
+            dest->add(block);
+        } else {
+            QTextListFormat format = list->format();
+            format.setIndent(target);
+            format.setStyle(listStyle(kind, target));
+            QTextCursor(block).createList(format);
+        }
+
+        // Promoting: the old list's following items now nest under this
+        // block, so they become a list of their own and number from 1.
+        if (delta < 0) {
+            QTextList *children = nullptr;
+            for (QTextBlock after = block.next(); after.isValid() && listIndent(after) > target;
+                 after = after.next()) {
+                if (after.textList() != list)
+                    continue;
+                if (children)
+                    children->add(after);
+                else
+                    children = QTextCursor(after).createList(list->format());
+            }
+        }
+    }
+
+    edit.endEditBlock();
+    emit formatChanged();
+}
+
+void DocumentController::toggleBulletList() { toggleList(ListKind::Bullet); }
+void DocumentController::toggleNumberedList() { toggleList(ListKind::Numbered); }
+bool DocumentController::isInBulletList() const { return currentListKind() == ListKind::Bullet; }
+bool DocumentController::isInNumberedList() const { return currentListKind() == ListKind::Numbered; }
+void DocumentController::promoteListItem() { changeListLevel(-1); }
+void DocumentController::demoteListItem() { changeListLevel(+1); }

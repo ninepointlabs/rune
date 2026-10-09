@@ -17,18 +17,25 @@
 //
 // Selection: QML can't hand C++ a QTextCursor, so the TextEdit reports its
 // cursor/selection via setSelection() and the controller builds a QTextCursor
-// on its own document on demand. Toggling with a collapsed cursor inside a
-// word formats that word; elsewhere it arms a pending format that is applied
-// to the next text typed at that position.
+// on its own document on demand. Character formatting (toggles, font,
+// size, color) with a collapsed cursor inside a word formats that word;
+// elsewhere it arms a pending format that is applied to the next text typed
+// at that position. Paragraph formatting (alignment, lists) applies to every
+// block the selection touches, or the cursor's block.
 
 #include <QObject>
 #include <QQmlEngine>
 #include <QQuickTextDocument>
+#include <QList>
 #include <QPointer>
 #include <QString>
+#include <QTextBlock>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextListFormat>
+
+class QTextList;
 
 class DocumentController : public QObject
 {
@@ -62,6 +69,32 @@ public:
     Q_INVOKABLE bool isItalic() const;
     Q_INVOKABLE bool isUnderline() const;
 
+    // Alignment of the selected blocks; currentAlignment() is the cursor
+    // block's horizontal alignment (Qt::AlignLeft/HCenter/Right/Justify).
+    Q_INVOKABLE void setAlignment(Qt::Alignment alignment);
+    Q_INVOKABLE int currentAlignment() const;
+
+    // Lists. Nested bullet levels use disc/circle/square, all of which count
+    // as "bullet"; numbered lists are decimal at every level.
+    Q_INVOKABLE void toggleBulletList();
+    Q_INVOKABLE void toggleNumberedList();
+    Q_INVOKABLE bool isInBulletList() const;
+    Q_INVOKABLE bool isInNumberedList() const;
+    // One nesting level out / in. Promoting a top-level item does nothing.
+    Q_INVOKABLE void promoteListItem();
+    Q_INVOKABLE void demoteListItem();
+
+    // Font and color: queries report the first selected character, or what
+    // typing at the cursor would produce; unset values report the
+    // document's default font and "auto".
+    Q_INVOKABLE void setFontFamily(const QString &family);
+    Q_INVOKABLE QString currentFontFamily() const;
+    Q_INVOKABLE void setFontSize(qreal pointSize);
+    Q_INVOKABLE qreal currentFontSize() const;
+    // "#RRGGBB", or "auto" to remove any explicit color.
+    Q_INVOKABLE void setTextColor(const QString &hexColor);
+    Q_INVOKABLE QString currentTextColor() const;
+
     // Rewrites `doc` so QTextDocumentWriter's ODF output is well-formed.
     // Every ODF save must go through this; see the .cpp for each rule.
     static void sanitizeForOdfExport(QTextDocument *doc);
@@ -75,13 +108,24 @@ signals:
 
 private:
     enum class Attr { Bold, Italic, Underline };
+    enum class ListKind { None, Bullet, Numbered };
 
     static bool hasAttr(const QTextCharFormat &f, Attr attr);
     static void setAttr(QTextCharFormat &f, Attr attr, bool on);
     QTextCursor selectionCursor() const;
     bool attrState(Attr attr) const;
     void toggle(Attr attr);
+    void applyCharFormat(const QTextCharFormat &change, bool clearForeground = false);
+    QTextCharFormat currentCharFormat() const;
+    void clearPending();
     void onContentsChange(int position, int removed, int added);
+
+    static ListKind listKind(const QTextList *list);
+    static QTextListFormat::Style listStyle(ListKind kind, int indent);
+    QList<QTextBlock> selectedBlocks() const;
+    ListKind currentListKind() const;
+    void toggleList(ListKind kind);
+    void changeListLevel(int delta);
 
     QTextDocument *m_document;
     QPointer<QQuickTextDocument> m_qmlDocument;
@@ -92,8 +136,12 @@ private:
     int m_selectionEnd = 0;
 
     // Format armed by a toggle with no selection and no word to apply it
-    // to; merged onto the next insertion at m_pendingPosition.
+    // to; merged onto the next insertion at m_pendingPosition. A pending
+    // "auto" color can't be expressed as a merge, hence the separate flag.
     QTextCharFormat m_pendingFormat;
+    bool m_pendingClearForeground = false;
     int m_pendingPosition = -1;
-    bool m_applyingPending = false;
+    // Set while the controller edits the document itself, so those
+    // contentsChange()s aren't taken for typing.
+    bool m_selfEdit = false;
 };
