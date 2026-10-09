@@ -104,13 +104,18 @@ public:
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
 
-    // Typing with a pending format armed (see the class comment): inserts
-    // `text` at the cursor in that format and returns true, else inserts
-    // nothing and returns false, for the TextEdit to handle the key itself.
-    // Formatting text already inserted would be a second undo step after
-    // the typing; this way it is one. (Input-method commits, which aren't
-    // key presses, still get the pending format applied after insertion.)
-    Q_INVOKABLE bool typeWithPendingFormat(const QString &text);
+    // Typed text (a printable key press): inserts `text` at the cursor,
+    // replacing any selection, in the format typing there would produce
+    // (pending format included). Returns false, inserting nothing, while
+    // busy. The UI routes printable keys here instead of letting the
+    // TextEdit insert them, to control undo grouping: Qt merges all
+    // consecutive same-format typing into one undo step, so Ctrl+Z after
+    // a paragraph of typing would remove the whole paragraph. Here a step
+    // is a word plus the spaces after it; a new one also starts after the
+    // cursor moves, any other edit, replacing a selection, a pending
+    // format, or a save. (Input-method commits don't come through here;
+    // Qt makes each commit its own step.)
+    Q_INVOKABLE bool typeText(const QString &text);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
@@ -215,6 +220,8 @@ private:
 
     void editTable(bool rows, bool insert);
     void stepHistory(bool undo);
+    // The next typeText() starts a new undo step.
+    void endTypingStep() { m_typingEnd = -1; }
 
     // After openOdf()/saveToOdf() of a temporary .odt ran with signals
     // blocked: point currentPath at the real file and emit what changed
@@ -257,6 +264,13 @@ private:
     QTextCharFormat m_pendingFormat;
     bool m_pendingClearForeground = false;
     int m_pendingPosition = -1;
+    // The typing undo step typeText() is extending: where its text ends,
+    // whether that text ended in whitespace, and m_contentRevision after it
+    // (any other edit since starts a new step). -1: none.
+    int m_typingEnd = -1;
+    bool m_typingEndsInSpace = false;
+    quint64 m_typingRevision = 0;
+
     // Set while the controller edits the document itself, so those
     // contentsChange()s aren't taken for typing.
     bool m_selfEdit = false;

@@ -523,9 +523,10 @@ Window {
 
             // Undo/redo go through the controller rather than the TextEdit's
             // built-in handling, which knows nothing of pending formats or
-            // the toolbar. Printable text typed with a pending format (e.g.
-            // Bold toggled with nothing selected) is inserted by the
-            // controller, so it is one undo step; see typeWithPendingFormat().
+            // the toolbar. Printable text is inserted by the controller too,
+            // which groups typing into word-sized undo steps; see
+            // DocumentController::typeText(). Return, Backspace, Delete and
+            // input-method text stay with the TextEdit.
             Keys.onPressed: event => {
                 if (event.matches(StandardKey.Undo))
                     controller.undo()
@@ -533,7 +534,7 @@ Window {
                     controller.redo()
                 else if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
                          && event.text.length > 0 && event.text >= " " && event.text !== "\x7f"
-                         && controller.typeWithPendingFormat(event.text))
+                         && controller.typeText(event.text))
                     ; // inserted
                 else
                     return

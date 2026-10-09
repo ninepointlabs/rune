@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 204 passing, independently-verified checks. The AI integration (the actual point of this project) hasn't started yet. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 212 passing, independently-verified checks. The AI integration (the actual point of this project) hasn't started yet. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -80,7 +80,7 @@ cmake --build build
 QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 ```
 
-204 checks, run headlessly: typing, formatting, tables, lists, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+212 checks, run headlessly: typing, formatting, tables, lists, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 

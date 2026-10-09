@@ -111,6 +111,8 @@ bool DocumentController::saveToOdf(const QString &path)
     }
 
     m_document->setModified(false);
+    // Undo back to here must stop at the save, not run on into the word.
+    endTypingStep();
     const QString absolute = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != absolute) {
         m_currentPath = absolute;
@@ -300,6 +302,7 @@ void DocumentController::saveFile(const QString &path)
             if (m_contentRevision == revision) {
                 const QSignalBlocker blocker(this);
                 m_document->setModified(false);
+                endTypingStep();
             } // else edited since the snapshot: still dirty
             finishConvertedIo(path, oldPath);
         }
@@ -578,21 +581,39 @@ QTextCharFormat DocumentController::currentCharFormat() const
     return format;
 }
 
-bool DocumentController::typeWithPendingFormat(const QString &text)
+bool DocumentController::typeText(const QString &text)
 {
-    if (m_busy || text.isEmpty() || m_pendingPosition < 0 || m_pendingPosition != m_cursorPosition
-        || m_selectionStart != m_selectionEnd)
+    if (m_busy || text.isEmpty())
         return false;
     QTextCursor cursor = selectionCursor();
+    const bool pending = m_pendingPosition >= 0 && m_pendingPosition == cursor.position() && !cursor.hasSelection();
     QTextCharFormat format = cursor.charFormat();
-    format.merge(m_pendingFormat);
-    if (m_pendingClearForeground)
-        format.clearForeground();
+    if (pending) {
+        format.merge(m_pendingFormat);
+        if (m_pendingClearForeground)
+            format.clearForeground();
+    }
+    // Extend the current step only when nothing else has happened since
+    // and this doesn't start a new word.
+    const bool startsWord = m_typingEndsInSpace && !text.front().isSpace();
+    const bool extend = m_typingEnd >= 0 && m_typingEnd == cursor.position() && !cursor.hasSelection()
+        && m_typingRevision == m_contentRevision && !pending && !startsWord;
     {
         const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        // Separate edit blocks are never merged by Qt; joining the previous
+        // one makes this part of its undo step.
+        if (extend)
+            cursor.joinPreviousEditBlock();
+        else
+            cursor.beginEditBlock();
         cursor.insertText(text, format);
+        cursor.endEditBlock();
     }
-    clearPending();
+    m_typingEnd = cursor.position();
+    m_typingEndsInSpace = text.back().isSpace();
+    m_typingRevision = m_contentRevision;
+    if (pending)
+        clearPending();
     emit cursorPositionRequested(cursor.position());
     emit formatChanged();
     return true;

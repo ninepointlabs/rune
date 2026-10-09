@@ -1568,12 +1568,15 @@ bool runAutoTest(QQuickWindow *window)
         controller->redo();
         t.check(doc->toPlainText() == QStringLiteral("Plain b") && formatOf(doc, 6, 7) == QStringLiteral("B"),
                 "... and one redo brings it back bold");
-        typeText(window, QStringLiteral("c"));
+        controller->newDocument();
+        typeText(window, QStringLiteral("Plain "));
+        controller->toggleBold();
+        const QString beforeBc = doc->toHtml();
+        typeText(window, QStringLiteral("bc"));
         const bool continued = doc->toPlainText() == QStringLiteral("Plain bc") && formatOf(doc, 6, 8) == QStringLiteral("B");
         controller->undo();
-        t.check(continued && doc->toHtml() == beforePending,
+        t.check(continued && doc->toHtml() == beforeBc,
                 "typing on in bold extends the same step: one undo removes \"bc\"");
-        controller->redo();
 
         // Input-method commits aren't key presses: the pending format is
         // still applied, after insertion (a second undo step there). Qt
@@ -1587,7 +1590,81 @@ bool runAutoTest(QQuickWindow *window)
         t.check(doc->toPlainText() == QStringLiteral("Plain q") && formatOf(doc, 6, 7) == QStringLiteral("B"),
                 "an input-method commit with a pending bold is bold: \"" + doc->toPlainText() + "\" " + formatOf(doc, 6, 7));
 
+        // Typing undoes a word at a time (a word plus the spaces after it),
+        // not a whole paragraph: Qt alone merges all of it into one step.
+        {
+            const auto undoAll = [&](int max) {
+                QStringList states{doc->toPlainText()};
+                for (int i = 0; i < max && controller->canUndo(); ++i) {
+                    controller->undo();
+                    states.append(doc->toPlainText());
+                }
+                return states;
+            };
+            controller->newDocument();
+            editor->forceActiveFocus();
+            typeText(window, QStringLiteral("The quick  brown fox."));
+            const QStringList steps = undoAll(10);
+            const QStringList expected{QStringLiteral("The quick  brown fox."), QStringLiteral("The quick  brown "),
+                                       QStringLiteral("The quick  "), QStringLiteral("The "), QString()};
+            t.check(steps == expected, "typing undoes word by word: " + steps.join(QStringLiteral(" | ")));
+            while (controller->canRedo())
+                controller->redo();
+            t.check(doc->toPlainText() == QStringLiteral("The quick  brown fox."), "... and redoes back to the full text");
+
+            // A second paragraph: Return is its own step, then words again.
+            pressReturn(window);
+            typeText(window, QStringLiteral("Next line"));
+            controller->undo();
+            const bool lineWord = doc->toPlainText() == QStringLiteral("The quick  brown fox.\nNext ");
+            controller->undo();
+            controller->undo();
+            t.check(lineWord && doc->toPlainText() == QStringLiteral("The quick  brown fox."),
+                    "after Return: words undo one at a time, then the paragraph break: \"" + doc->toPlainText() + "\"");
+
+            // Moving the cursor starts a new step, even mid-word.
+            controller->newDocument();
+            typeText(window, QStringLiteral("abcdef"));
+            select(3, 3);
+            typeText(window, QStringLiteral("XY"));
+            controller->undo();
+            t.check(doc->toPlainText() == QStringLiteral("abcdef"),
+                    "text typed after moving the cursor is its own step: \"" + doc->toPlainText() + "\"");
+            controller->undo();
+            t.check(doc->toPlainText().isEmpty(), "... and the earlier word is another");
+
+            // Typing over a selection: replacing and the new word are one step.
+            controller->newDocument();
+            typeText(window, QStringLiteral("a quick fox"));
+            select(2, 7);
+            typeText(window, QStringLiteral("slow"));
+            const bool replaced = doc->toPlainText() == QStringLiteral("a slow fox");
+            controller->undo();
+            t.check(replaced && doc->toPlainText() == QStringLiteral("a quick fox"),
+                    "one undo after typing over a selection restores the selected text: \"" + doc->toPlainText() + "\"");
+
+            // Backspace (the TextEdit's own edit) splits typing too.
+            controller->newDocument();
+            typeText(window, QStringLiteral("wordx"));
+            pressKey(window, Qt::Key_Backspace, Qt::NoModifier, QString());
+            typeText(window, QStringLiteral("s"));
+            controller->undo();
+            const bool sGone = doc->toPlainText() == QStringLiteral("word");
+            controller->undo();
+            t.check(sGone && doc->toPlainText() == QStringLiteral("wordx"),
+                    "a Backspace between keystrokes splits the step: \"" + doc->toPlainText() + "\"");
+
+            // Holding a key down: one long word is still one step.
+            controller->newDocument();
+            typeText(window, QString(200, QLatin1Char('z')));
+            controller->undo();
+            t.check(doc->isEmpty(), "200 repeated keystrokes in one word: one undo removes them");
+        }
+
         // Undo back to the saved state is clean again, title included.
+        // Mid-word ("Plain bc|"), so the save must end the typing step.
+        controller->newDocument();
+        typeText(window, QStringLiteral("Plain bc"));
         const IoRun saveRun = saveAndWait(controller, kUndoPath);
         typeText(window, QStringLiteral("x"));
         const bool dirtyAfterEdit = controller->isDirty();
