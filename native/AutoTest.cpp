@@ -453,6 +453,31 @@ void closeDialog(QQuickWindow *window, const QString &name)
         QMetaObject::invokeMethod(dialog, "close");
 }
 
+// QPlatformDialogHelper's StandardButton / ButtonRole values (qpa API, not
+// exposed to QML except through MessageDialog's enums).
+constexpr int kSaveButton = 0x00000800, kDiscardButton = 0x00800000, kCancelButton = 0x00400000;
+constexpr int kAcceptRole = 0, kRejectRole = 1, kDestructiveRole = 2;
+
+// What a MessageDialog emits when the user clicks one of its buttons, so
+// the QML handler runs as for a real click. Hides the dialog first, as a
+// click does.
+bool clickMessageButton(QQuickWindow *window, const QString &name, int button, int role)
+{
+    QObject *dialog = window->findChild<QObject *>(name);
+    if (!dialog)
+        return false;
+    QMetaObject::invokeMethod(dialog, "close");
+    const int index = dialog->metaObject()->indexOfSignal(
+        "buttonClicked(QPlatformDialogHelper::StandardButton,QPlatformDialogHelper::ButtonRole)");
+    if (index < 0)
+        return false;
+    const bool invoked = dialog->metaObject()->method(index).invoke(
+        dialog, Qt::DirectConnection, QGenericArgument("QPlatformDialogHelper::StandardButton", &button),
+        QGenericArgument("QPlatformDialogHelper::ButtonRole", &role));
+    QCoreApplication::processEvents(); // the dialog's deferred rejected() handling
+    return invoked;
+}
+
 } // namespace
 
 bool runAutoTest(QQuickWindow *window)
@@ -1719,15 +1744,21 @@ bool runAutoTest(QQuickWindow *window)
     }
 
     // File flow in Main.qml: Open/Save As dialogs, Save to the current
-    // path, the unsaved-changes guard on New/Open/close. The dialogs
-    // themselves can't be driven headlessly, so the checks call what their
-    // accepted/button handlers call (acceptSave, openPath, resolveDiscard).
+    // path, the unsaved-changes guard on New/Open/close. File dialogs can't
+    // be driven headlessly, so those checks call what their accepted
+    // handlers call (acceptSave, openPath); the unsaved-changes dialog gets
+    // its real buttonClicked() signal (clickMessageButton()).
     {
         const QStringList dialogs{QStringLiteral("openDialog"), QStringLiteral("saveDialog"),
                                   QStringLiteral("discardDialog")};
         t.check(std::all_of(dialogs.begin(), dialogs.end(),
                             [&](const QString &n) { return window->findChild<QObject *>(n) != nullptr; }),
                 "found openDialog, saveDialog and discardDialog");
+        // Qt 6.11's compiled QML resolved these enums to undefined, leaving
+        // only an OK button (see UnsavedChangesDialog.qml).
+        const int discardButtons = window->findChild<QObject *>(QStringLiteral("discardDialog"))->property("buttons").toInt();
+        t.check(discardButtons == (kSaveButton | kDiscardButton | kCancelButton),
+                QStringLiteral("unsaved-changes dialog has Save, Discard and Cancel buttons (0x%1)").arg(discardButtons, 0, 16));
         const auto anyDialog = [&] {
             return std::any_of(dialogs.begin(), dialogs.end(), [&](const QString &n) { return dialogVisible(window, n); });
         };
@@ -1778,22 +1809,19 @@ bool runAutoTest(QQuickWindow *window)
         callRoot(window, "requestOpen");
         t.check(dialogVisible(window, QStringLiteral("discardDialog")) && !dialogVisible(window, QStringLiteral("openDialog")),
                 "Open with unsaved changes asks first");
-        closeDialog(window, QStringLiteral("discardDialog"));
-        callRoot(window, "resolveDiscard", QStringLiteral("cancel"));
+        t.check(clickMessageButton(window, QStringLiteral("discardDialog"), kCancelButton, kRejectRole), "clicked Cancel");
         t.check(!anyDialog() && controller->isDirty() && doc->toPlainText().startsWith(QStringLiteral("Unsaved")),
                 "Cancel keeps the document and opens nothing");
 
         callRoot(window, "requestNew");
-        closeDialog(window, QStringLiteral("discardDialog"));
-        callRoot(window, "resolveDiscard", QStringLiteral("discard"));
+        clickMessageButton(window, QStringLiteral("discardDialog"), kDiscardButton, kDestructiveRole);
         t.check(doc->isEmpty() && !controller->isDirty() && !titleDirty() && controller->currentPath().isEmpty(),
                 "New → Discard: empty, clean (title too), untitled");
 
         doc->setPlainText(QStringLiteral("Save then new"));
         doc->setModified(true);
         callRoot(window, "requestNew");
-        closeDialog(window, QStringLiteral("discardDialog"));
-        callRoot(window, "resolveDiscard", QStringLiteral("save"));
+        clickMessageButton(window, QStringLiteral("discardDialog"), kSaveButton, kAcceptRole);
         t.check(dialogVisible(window, QStringLiteral("saveDialog")) && !doc->isEmpty(),
                 "New → Save on an untitled document goes through Save As first");
         QFile::remove(kDialogOdtPath);
@@ -1805,7 +1833,7 @@ bool runAutoTest(QQuickWindow *window)
         doc->setPlainText(QStringLiteral("Dropped"));
         doc->setModified(true);
         callRoot(window, "requestNew");
-        callRoot(window, "resolveDiscard", QStringLiteral("save"));
+        clickMessageButton(window, QStringLiteral("discardDialog"), kSaveButton, kAcceptRole);
         closeDialog(window, QStringLiteral("saveDialog"));
         QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("saveDialog")), "reject");
         t.check(window->property("pendingAction").isNull() && doc->toPlainText() == QStringLiteral("Dropped"),
@@ -1847,11 +1875,28 @@ bool runAutoTest(QQuickWindow *window)
         QCoreApplication::processEvents();
         t.check(window->isVisible() && dialogVisible(window, QStringLiteral("discardDialog")),
                 "closing with unsaved changes asks first and keeps the window open");
-        closeDialog(window, QStringLiteral("discardDialog"));
-        callRoot(window, "resolveDiscard", QStringLiteral("cancel"));
-        t.check(window->isVisible() && controller->isDirty(), "Cancel keeps the window and the edits");
+        clickMessageButton(window, QStringLiteral("discardDialog"), kCancelButton, kRejectRole);
+        t.check(window->isVisible() && controller->isDirty() && window->property("pendingAction").isNull(),
+                "Cancel keeps the window and the edits");
+
+        // Escape / the dialog's own close button: rejected() with no button.
+        window->close();
+        QCoreApplication::processEvents();
+        QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("discardDialog")), "reject");
+        QCoreApplication::processEvents();
+        t.check(window->isVisible() && window->property("pendingAction").isNull(),
+                "dismissing the dialog without a button cancels: window open, nothing left pending");
+        // Left pending, the close would have run after the next save.
+        const IoRun laterSave = saveAndWait(controller, kDialogOdtPath);
+        t.check(laterSave.success && window->isVisible(), "a later save doesn't close the window");
+
+        // Discard really closes it (what failed on the desktop).
+        QTextCursor(doc).insertText(QStringLiteral("y"));
+        window->close();
+        QCoreApplication::processEvents();
+        clickMessageButton(window, QStringLiteral("discardDialog"), kDiscardButton, kDestructiveRole);
+        t.check(!window->isVisible(), "Discard closes the window without saving");
         QGuiApplication::setQuitOnLastWindowClosed(quitOnClose);
-        controller->newDocument();
     }
 
     QTextStream(stdout) << (t.ok() ? "PASS" : "FAIL") << Qt::endl;

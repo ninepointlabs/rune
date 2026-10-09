@@ -257,28 +257,26 @@ Window {
         onRejected: root.pendingAction = null
     }
 
-    MessageDialog {
+    UnsavedChangesDialog {
         id: discardDialog
         objectName: "discardDialog"
         title: "Unsaved changes"
         text: "Save changes to " + root.documentName + "?"
         informativeText: "Your changes will be lost if you don't save them."
-        buttons: MessageDialog.Save | MessageDialog.Discard | MessageDialog.Cancel
-        onButtonClicked: (button, role) => root.resolveDiscard(
-            button === MessageDialog.Save ? "save" : button === MessageDialog.Discard ? "discard" : "cancel")
+        onChosen: choice => root.resolveDiscard(choice)
     }
 
-    Shortcut { sequence: StandardKey.New; onActivated: root.requestNew() }
-    Shortcut { sequence: StandardKey.Open; onActivated: root.requestOpen() }
-    Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
-    Shortcut { sequence: StandardKey.SaveAs; onActivated: root.saveAs() }
+    Shortcut { sequences: [StandardKey.New]; onActivated: root.requestNew() }
+    Shortcut { sequences: [StandardKey.Open]; onActivated: root.requestOpen() }
+    Shortcut { sequences: [StandardKey.Save]; onActivated: root.save() }
+    Shortcut { sequences: [StandardKey.SaveAs]; onActivated: root.saveAs() }
     // While the editor has focus it takes these keys itself (see its
     // Keys.onPressed); these cover focus anywhere else in the window.
-    Shortcut { sequence: StandardKey.Undo; onActivated: controller.undo() }
-    Shortcut { sequence: StandardKey.Redo; onActivated: controller.redo() }
-    Shortcut { sequence: StandardKey.Bold; onActivated: controller.toggleBold() }
-    Shortcut { sequence: StandardKey.Italic; onActivated: controller.toggleItalic() }
-    Shortcut { sequence: StandardKey.Underline; onActivated: controller.toggleUnderline() }
+    Shortcut { sequences: [StandardKey.Undo]; onActivated: controller.undo() }
+    Shortcut { sequences: [StandardKey.Redo]; onActivated: controller.redo() }
+    Shortcut { sequences: [StandardKey.Bold]; onActivated: controller.toggleBold() }
+    Shortcut { sequences: [StandardKey.Italic]; onActivated: controller.toggleItalic() }
+    Shortcut { sequences: [StandardKey.Underline]; onActivated: controller.toggleUnderline() }
 
     component ToolSeparator: Rectangle {
         width: 1

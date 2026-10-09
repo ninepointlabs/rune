@@ -24,10 +24,12 @@ find_package(QuaZip-Qt6 REQUIRED)
 qt_standard_project_setup(REQUIRES 6.7)
 
 qt_add_executable(rune main.cpp AutoTest.h AutoTest.cpp)
+# Interpreted, not compiled ahead of time: see the comment at its top.
+set_source_files_properties(UnsavedChangesDialog.qml PROPERTIES QT_QML_SKIP_CACHEGEN TRUE)
 qt_add_qml_module(rune
     URI Rune
     VERSION 1.0
-    QML_FILES Main.qml ToolButton.qml
+    QML_FILES Main.qml ToolButton.qml UnsavedChangesDialog.qml
     SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp
             DocxBridge.h DocxBridge.cpp
 )
