@@ -1,13 +1,17 @@
 #include "DocumentController.h"
 
+#include "DocxBridge.h"
 #include "OdfReader.h"
 
 #include <QBuffer>
 #include <QDebug>
+#include <QDir>
 #include <QFileInfo>
 #include <QList>
 #include <QScopedValueRollback>
 #include <QSaveFile>
+#include <QSignalBlocker>
+#include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextDocumentWriter>
 #include <QTextFrame>
@@ -110,6 +114,95 @@ bool DocumentController::openOdf(const QString &path)
     }
     emit formatChanged();
     return true;
+}
+
+// --- Other formats via DocxBridge ------------------------------------------
+//
+// The temporary .odt is opened/saved by the existing openOdf()/saveToOdf()
+// with this object's signals blocked, so QML never sees the temporary path;
+// finishConvertedIo() then sets the real path and emits once what openOdf()/
+// saveToOdf() would have for it. (The document's own signals aren't blocked:
+// the TextEdit still sees the content change.)
+
+bool DocumentController::openFile(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QLatin1String("odt"))
+        return openOdf(path);
+    if (suffix != QLatin1String("docx") && suffix != QLatin1String("doc")) {
+        qWarning().noquote() << "DocumentController: cannot open" << path
+                             << "- unsupported file type (expected .odt, .docx or .doc)";
+        return false;
+    }
+
+    QString error;
+    const QString odt = DocxBridge::convertToOdt(path, &error);
+    if (odt.isEmpty()) {
+        qWarning().noquote() << "DocumentController: cannot open" << path << "-" << error;
+        return false;
+    }
+    const QString oldPath = m_currentPath;
+    const bool wasDirty = isDirty();
+    bool opened = false;
+    {
+        const QSignalBlocker blocker(this);
+        opened = openOdf(odt);
+    }
+    DocxBridge::removeConvertedOdt(odt);
+    if (!opened)
+        return false; // openOdf() changed nothing and has said why
+    finishConvertedIo(path, oldPath, wasDirty);
+    emit formatChanged();
+    return true;
+}
+
+bool DocumentController::saveFile(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == QLatin1String("odt"))
+        return saveToOdf(path);
+    if (suffix != QLatin1String("docx")) {
+        qWarning().noquote() << "DocumentController: cannot save" << path
+                             << "- unsupported file type (expected .odt or .docx)";
+        return false;
+    }
+
+    QTemporaryDir dir(QDir::tempPath() + QStringLiteral("/rune-save-XXXXXX"));
+    if (!dir.isValid()) {
+        qWarning().noquote() << "DocumentController: cannot save" << path << "- no temporary directory:"
+                             << dir.errorString();
+        return false;
+    }
+    const QString odt = dir.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
+    const QString oldPath = m_currentPath;
+    const bool wasDirty = isDirty();
+    bool saved = false;
+    {
+        const QSignalBlocker blocker(this);
+        saved = saveToOdf(odt);
+        if (!saved)
+            return false; // saveToOdf() changed nothing and has said why
+        QString error;
+        if (!DocxBridge::convertOdtToDocx(odt, path, &error)) {
+            qWarning().noquote() << "DocumentController: cannot save" << path << "-" << error;
+            // Undo what saveToOdf() did to our state: nothing was saved
+            // where the user asked.
+            m_document->setModified(wasDirty);
+            m_currentPath = oldPath;
+            return false;
+        }
+    }
+    finishConvertedIo(path, oldPath, wasDirty);
+    return true;
+}
+
+void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty)
+{
+    m_currentPath = QFileInfo(path).absoluteFilePath();
+    if (m_currentPath != oldPath)
+        emit currentPathChanged();
+    if (isDirty() != wasDirty)
+        emit dirtyChanged();
 }
 
 // --- ODF export sanitizing -------------------------------------------------

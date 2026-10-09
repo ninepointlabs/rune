@@ -64,6 +64,15 @@ public:
     // Replaces the document with the .odt at `path` (see OdfReader for what
     // is read). On failure the current document is left as it was.
     Q_INVOKABLE bool openOdf(const QString &path);
+    // Open / save by extension (case-insensitive): .odt goes straight to
+    // openOdf() / saveToOdf(); .docx and .doc (open) and .docx (save) go
+    // through a temporary .odt converted by LibreOffice (see DocxBridge).
+    // Anything else fails. Signals, dirty state and currentPath (the
+    // .docx's, never the temporary's) end up as openOdf()/saveToOdf()
+    // leave them; on failure the document, its dirty state and
+    // currentPath are unchanged.
+    Q_INVOKABLE bool openFile(const QString &path);
+    Q_INVOKABLE bool saveFile(const QString &path);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
@@ -158,6 +167,11 @@ private:
     void changeListLevel(int delta);
 
     void editTable(bool rows, bool insert);
+
+    // After openOdf()/saveToOdf() of a temporary .odt ran with signals
+    // blocked: point currentPath at the real file and emit what changed
+    // since `oldPath`/`wasDirty`.
+    void finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty);
 
     QTextDocument *m_document;
     QPointer<QQuickTextDocument> m_qmlDocument;

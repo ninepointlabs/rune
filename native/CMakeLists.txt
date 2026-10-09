@@ -13,7 +13,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 6.7: QQuickTextDocument::setTextDocument(), which DocumentController relies on.
 find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick)
-# Unzipping .odt files for OdfReader.
+# Unzipping .odt files for OdfReader. (DocxBridge needs `soffice` at run time
+# only, found in PATH.)
 find_package(QuaZip-Qt6 REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.7)
@@ -24,6 +25,10 @@ qt_add_qml_module(rune_native
     VERSION 1.0
     QML_FILES Main.qml ToolButton.qml
     SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp
+            DocxBridge.h DocxBridge.cpp
 )
 
 target_link_libraries(rune_native PRIVATE Qt6::Gui Qt6::Quick QuaZip::QuaZip)
+
+# --auto-test opens samples/test.docx from the repo.
+target_compile_definitions(rune_native PRIVATE RUNE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../samples")

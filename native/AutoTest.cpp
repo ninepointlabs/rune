@@ -1,6 +1,7 @@
 #include "AutoTest.h"
 
 #include "DocumentController.h"
+#include "DocxBridge.h"
 #include "OdfReader.h"
 
 #include <QCoreApplication>
@@ -45,6 +46,15 @@ const QString kStage4bInheritPath = QStringLiteral("/tmp/rune-native-stage4b-inh
 const QString kStage4NotZipPath = QStringLiteral("/tmp/rune-native-stage4-not-a-zip.odt");
 const QString kStage4NoContentPath = QStringLiteral("/tmp/rune-native-stage4-no-content.odt");
 const QString kStage4BadXmlPath = QStringLiteral("/tmp/rune-native-stage4-bad-xml.odt");
+const QString kStage5DocxPath = QStringLiteral("/tmp/rune-native-stage5-roundtrip.docx");
+const QString kStage5TextDir = QStringLiteral("/tmp/rune-native-stage5-txt");
+const QString kStage5MissingPath = QStringLiteral("/tmp/rune-native-stage5-does-not-exist.docx");
+const QString kStage5TxtPath = QStringLiteral("/tmp/rune-native-stage5-plain.txt");
+const QString kStage5NoExtPath = QStringLiteral("/tmp/rune-native-stage5-no-extension");
+const QString kStage5CorruptPath = QStringLiteral("/tmp/rune-native-stage5-corrupt.docx");
+const QString kStage5UnwritablePath = QStringLiteral("/tmp/rune-native-stage5-no-such-dir/out.docx");
+const QString kSampleDocx = QStringLiteral(RUNE_SAMPLES_DIR "/test.docx");
+const QString kSampleDoc = QStringLiteral(RUNE_SAMPLES_DIR "/test.doc");
 
 class Checker
 {
@@ -273,6 +283,54 @@ bool writeZipMulti(const QString &path, const QList<QPair<QString, QByteArray>> 
     }
     zip.close();
     return zip.getZipError() == UNZ_OK;
+}
+
+// Converts `path` to UTF-8 plain text with a real headless LibreOffice into
+// `outDir` and returns the text ("" on failure). Independent of DocxBridge:
+// this is the check that a saved file really is what it claims to be.
+QString sofficeToText(const QString &path, const QString &outDir)
+{
+    QDir().mkpath(outDir);
+    const QString txtPath = outDir + '/' + QFileInfo(path).completeBaseName() + QStringLiteral(".txt");
+    QFile::remove(txtPath);
+    QProcess soffice;
+    soffice.start(QStringLiteral("soffice"),
+                  {QStringLiteral("-env:UserInstallation=file:///tmp/rune-native-lo-profile"),
+                   QStringLiteral("--headless"), QStringLiteral("--convert-to"), QStringLiteral("txt:Text (encoded):UTF8"),
+                   QStringLiteral("--outdir"), outDir, path});
+    if (!soffice.waitForFinished(120000) || soffice.exitCode() != 0)
+        return {};
+    QFile txt(txtPath);
+    return txt.open(QIODevice::ReadOnly) ? QString::fromUtf8(txt.readAll()) : QString();
+}
+
+// Text as a whitespace-collapsed word sequence, without soffice's bullet
+// characters and BOM, so its .txt export and toPlainText() compare.
+QString wordsOf(QString text)
+{
+    text.remove(QChar(0xFEFF)).remove(QChar(0x2022));
+    return text.simplified();
+}
+
+bool listKindIsBullet(const QTextList *list)
+{
+    const QTextListFormat::Style style = list->format().style();
+    return style == QTextListFormat::ListDisc || style == QTextListFormat::ListCircle
+        || style == QTextListFormat::ListSquare;
+}
+
+// DocxBridge's temporary directories currently in the temp dir.
+QStringList bridgeTempDirs()
+{
+    return QDir(QDir::tempPath()).entryList({QStringLiteral("rune-docx-*"), QStringLiteral("rune-save-*")},
+                                            QDir::Dirs | QDir::NoDotAndDotDot);
+}
+
+// The zip entry names in `path` ("" if not a zip).
+QStringList zipEntries(const QString &path)
+{
+    QuaZip zip(path);
+    return zip.open(QuaZip::mdUnzip) ? zip.getFileNameList() : QStringList();
 }
 
 } // namespace
@@ -924,6 +982,192 @@ bool runAutoTest(QQuickWindow *window)
                      "<office:body><office:text><p>truncated")
                 && !controller->openOdf(kStage4BadXmlPath) && unchanged(),
             "openOdf(zip with truncated content.xml) returns false, document unchanged");
+
+    // --- Stage 5: .docx via LibreOffice batch conversion ---
+
+    const QStringList tempDirsBefore = bridgeTempDirs();
+
+    // Round trip through .docx: heading-like bold title (there's no heading
+    // UI), bold/italic words, a bullet list, then a table straight after
+    // the list (the sanitizer's case), then a closing paragraph.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("Quarterly Report"));
+    pressReturn(window);
+    typeText(window, QStringLiteral("Some bold and italic words"));
+    pressReturn(window);
+    typeText(window, QStringLiteral("First item"));
+    controller->toggleBulletList();
+    pressReturn(window);
+    typeText(window, QStringLiteral("Second item"));
+    controller->insertTable(2, 2);
+    typeText(window, QStringLiteral("Cell A"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell B"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell C"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell D"));
+    editor->setProperty("cursorPosition", doc->characterCount() - 1);
+    typeText(window, QStringLiteral("Closing line"));
+    select(QStringLiteral("Quarterly Report"));
+    controller->toggleBold();
+    select(QStringLiteral("bold"));
+    controller->toggleBold();
+    select(QStringLiteral("italic"));
+    controller->toggleItalic();
+    const QString docxWritten = doc->toPlainText();
+    // What actually goes into the file: the sanitizer adds an empty
+    // paragraph between the list and the table.
+    std::unique_ptr<QTextDocument> exported(doc->clone());
+    DocumentController::sanitizeForOdfExport(exported.get());
+    const QString docxExpected = exported->toPlainText();
+
+    QStringList savePaths;
+    const auto savePathConn = QObject::connect(controller, &DocumentController::currentPathChanged,
+                                               [&] { savePaths << controller->currentPath(); });
+    t.check(controller->isDirty() && controller->saveFile(kStage5DocxPath), "saveFile(" + kStage5DocxPath + ")");
+    QObject::disconnect(savePathConn);
+    t.check(!controller->isDirty() && controller->currentPath() == kStage5DocxPath
+                && savePaths == QStringList{kStage5DocxPath},
+            "saveFile(.docx): clean, currentPath is the .docx, currentPathChanged once with it (never the temp .odt): "
+                + savePaths.join(QLatin1String(", ")));
+    t.check(doc->toPlainText() == docxWritten, "saveFile(.docx) left the live document unchanged");
+    const QStringList docxEntries = zipEntries(kStage5DocxPath);
+    QTextStream(stdout) << "  saved .docx: " << QFileInfo(kStage5DocxPath).size() << " bytes, zip entries: "
+                        << docxEntries.join(QLatin1String(", ")) << Qt::endl;
+    t.check(docxEntries.contains(QStringLiteral("word/document.xml"))
+                && docxEntries.contains(QStringLiteral("[Content_Types].xml")),
+            "saved file is an OOXML package (word/document.xml, [Content_Types].xml)");
+
+    // Independent check with real soffice, not DocxBridge.
+    const QString savedText = sofficeToText(kStage5DocxPath, kStage5TextDir);
+    QTextStream(stdout) << "  soffice " << QFileInfo(kStage5DocxPath).fileName() << " -> txt: \""
+                        << QString(savedText).replace('\n', '|') << "\"" << Qt::endl;
+    t.check(!savedText.isEmpty() && wordsOf(savedText) == wordsOf(docxWritten),
+            "soffice: the saved .docx opens and its text is what was typed");
+
+    DocumentController docxReader;
+    QTextDocument *xdoc = docxReader.textDocument();
+    QStringList openPaths;
+    QObject::connect(&docxReader, &DocumentController::currentPathChanged,
+                     [&] { openPaths << docxReader.currentPath(); });
+    t.check(docxReader.openFile(kStage5DocxPath), "openFile(" + kStage5DocxPath + ") on a fresh controller");
+    QTextStream(stdout) << "  .docx read back blocks: " << blocksOf(xdoc) << Qt::endl;
+    t.check(xdoc->toPlainText() == docxExpected,
+            QStringLiteral(".docx round trip: plain text matches what was written (%1 blocks)").arg(xdoc->blockCount()));
+    const QString xTitle = formatOfWord(xdoc, QStringLiteral("Quarterly Report"));
+    const QString xBold = formatOfWord(xdoc, QStringLiteral("bold"));
+    const QString xItalic = formatOfWord(xdoc, QStringLiteral("italic"));
+    const QString xSome = formatOfWord(xdoc, QStringLiteral("Some"));
+    QTextStream(stdout) << "  .docx read back formats: Title=" << xTitle << " Some=" << xSome << " bold=" << xBold
+                        << " italic=" << xItalic << Qt::endl;
+    t.check(xTitle == "B" && xBold == "B" && xItalic == "I" && xSome.isEmpty(),
+            ".docx round trip: title/bold/italic read back as B/B/I, plain text plain");
+    const QTextBlock xFirst = blockWithText(xdoc, QStringLiteral("First item"));
+    const QTextBlock xSecond = blockWithText(xdoc, QStringLiteral("Second item"));
+    t.check(xFirst.isValid() && xFirst.textList() && xSecond.isValid() && xSecond.textList() == xFirst.textList()
+                && listKindIsBullet(xFirst.textList()),
+            ".docx round trip: both items read back in one bullet list");
+    QTextTable *xTable = nullptr;
+    for (auto it = xdoc->rootFrame()->begin(); !it.atEnd() && !xTable; ++it)
+        xTable = qobject_cast<QTextTable *>(it.currentFrame());
+    t.check(xTable && xTable->rows() == 2 && xTable->columns() == 2
+                && xTable->cellAt(1, 1).firstCursorPosition().block().text() == QStringLiteral("Cell D"),
+            QStringLiteral(".docx round trip: 2x2 table, cell (1,1) = \"Cell D\" (%1x%2)")
+                .arg(xTable ? xTable->rows() : -1).arg(xTable ? xTable->columns() : -1));
+    t.check(!docxReader.isDirty() && docxReader.currentPath() == kStage5DocxPath
+                && openPaths == QStringList{kStage5DocxPath},
+            "openFile(.docx): clean, currentPath is the .docx, currentPathChanged once with it: "
+                + openPaths.join(QLatin1String(", ")));
+
+    // A real external .docx this pipeline didn't write.
+    DocumentController sampleReader;
+    QTextDocument *sdocx = sampleReader.textDocument();
+    t.check(QFileInfo::exists(kSampleDocx) && sampleReader.openFile(kSampleDocx), "openFile(" + kSampleDocx + ")");
+    QTextStream(stdout) << "  sample .docx blocks: " << blocksOf(sdocx) << Qt::endl;
+    const QString sampleText = sofficeToText(kSampleDocx, kStage5TextDir);
+    QTextStream(stdout) << "  soffice test.docx -> txt: \"" << QString(sampleText).replace('\n', '|') << "\"" << Qt::endl;
+    t.check(sdocx->toPlainText().startsWith(QStringLiteral("Rune Spike Test Document")) && sdocx->blockCount() > 5,
+            QStringLiteral("sample .docx: non-empty, starts with its title (%1 blocks)").arg(sdocx->blockCount()));
+    t.check(!sampleText.isEmpty() && wordsOf(sdocx->toPlainText()) == wordsOf(sampleText),
+            "sample .docx: our text matches soffice's own text export word for word");
+    const QTextBlock sampleItem = blockWithText(sdocx, QStringLiteral("Render page 0 with paintTile"));
+    QTextTable *sampleTable = nullptr;
+    for (auto it = sdocx->rootFrame()->begin(); !it.atEnd() && !sampleTable; ++it)
+        sampleTable = qobject_cast<QTextTable *>(it.currentFrame());
+    t.check(sampleItem.isValid() && sampleItem.textList() && sampleTable && sampleTable->rows() == 3
+                && sampleTable->columns() == 2,
+            QStringLiteral("sample .docx: checklist read as a list, table as %1x%2")
+                .arg(sampleTable ? sampleTable->rows() : -1).arg(sampleTable ? sampleTable->columns() : -1));
+    DocumentController docReader;
+    const bool docOpened = QFileInfo::exists(kSampleDoc) && docReader.openFile(kSampleDoc);
+    const QString docText = sofficeToText(kSampleDoc, kStage5TextDir);
+    QTextStream(stdout) << "  sample .doc blocks: " << blocksOf(docReader.textDocument()) << Qt::endl;
+    t.check(docOpened && !docText.isEmpty() && wordsOf(docReader.textDocument()->toPlainText()) == wordsOf(docText),
+            QStringLiteral("openFile(%1) [legacy .doc]: %2 blocks, text matches soffice's export")
+                .arg(kSampleDoc).arg(docReader.textDocument()->blockCount()));
+
+    // Failures leave the open document alone, as for openOdf().
+    t.check(controller->openOdf(kStage4RoundTripPath) && unchanged(),
+            "restored shared controller to the Stage 4a round-trip document");
+    t.check(!controller->openFile(kStage5MissingPath) && unchanged(),
+            "openFile(non-existent .docx) returns false, document and path unchanged");
+    {
+        QFile txt(kStage5TxtPath);
+        QFile noExt(kStage5NoExtPath);
+        t.check(txt.open(QIODevice::WriteOnly | QIODevice::Truncate) && txt.write("plain text\n") > 0
+                    && noExt.open(QIODevice::WriteOnly | QIODevice::Truncate) && noExt.write("plain text\n") > 0,
+                "wrote " + kStage5TxtPath + " and " + kStage5NoExtPath);
+    }
+    t.check(!controller->openFile(kStage5TxtPath) && unchanged(),
+            "openFile(existing .txt) returns false (unsupported type), document unchanged");
+    t.check(!controller->openFile(kStage5NoExtPath) && unchanged(),
+            "openFile(existing file, no extension) returns false, document unchanged");
+    {
+        QFile corrupt(kStage5CorruptPath);
+        t.check(corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate) && corrupt.write("PK\x03\x04garbage") > 0,
+                "wrote truncated-zip " + kStage5CorruptPath);
+    }
+    t.check(!controller->openFile(kStage5CorruptPath) && unchanged(),
+            "openFile(corrupt .docx, soffice exits non-zero) returns false, document unchanged");
+    QString bridgeError;
+    const bool corruptFailed = DocxBridge::convertToOdt(kStage5CorruptPath, &bridgeError).isEmpty();
+    t.check(corruptFailed && bridgeError.contains(QStringLiteral("exit")),
+            "DocxBridge::convertToOdt(corrupt): \"" + bridgeError + "\"");
+    {
+        // soffice not installed: an empty PATH.
+        const QByteArray path = qgetenv("PATH");
+        qputenv("PATH", "/nonexistent");
+        bridgeError.clear();
+        const bool notFound = DocxBridge::convertToOdt(kSampleDocx, &bridgeError).isEmpty();
+        const bool openFailed = !controller->openFile(kSampleDocx);
+        qputenv("PATH", path);
+        t.check(notFound && bridgeError.contains(QStringLiteral("not found")) && openFailed && unchanged(),
+                "soffice not in PATH: conversion and openFile() fail cleanly: \"" + bridgeError + "\"");
+    }
+
+    // Save failures: unsupported type writes nothing; a failed .docx
+    // conversion/write leaves the document dirty and its path unchanged.
+    QFile::remove(kStage5TxtPath);
+    t.check(!controller->saveFile(kStage5TxtPath) && !QFileInfo::exists(kStage5TxtPath) && unchanged(),
+            "saveFile(.txt) returns false, writes nothing, document unchanged");
+    {
+        DocumentController dirtyDoc;
+        dirtyDoc.textDocument()->setPlainText(QStringLiteral("unsaved"));
+        dirtyDoc.textDocument()->setModified(true);
+        int signalsSeen = 0;
+        QObject::connect(&dirtyDoc, &DocumentController::currentPathChanged, [&] { ++signalsSeen; });
+        QObject::connect(&dirtyDoc, &DocumentController::dirtyChanged, [&] { ++signalsSeen; });
+        t.check(!dirtyDoc.saveFile(kStage5UnwritablePath) && dirtyDoc.isDirty() && dirtyDoc.currentPath().isEmpty()
+                    && signalsSeen == 0,
+                "saveFile(.docx in a missing directory) returns false, still dirty, no path, no signals");
+    }
+    DocxBridge::removeConvertedOdt(kStage4RoundTripPath);
+    t.check(QFileInfo::exists(kStage4RoundTripPath), "removeConvertedOdt() refuses a path outside its temp directories");
+    const QStringList tempDirsAfter = bridgeTempDirs();
+    t.check(tempDirsAfter == tempDirsBefore,
+            "no DocxBridge temp directories left behind: " + tempDirsAfter.join(QLatin1String(", ")));
 
     QTextStream(stdout) << (t.ok() ? "PASS" : "FAIL") << Qt::endl;
     return t.ok();
