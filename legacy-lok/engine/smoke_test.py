@@ -19,7 +19,10 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "build/engine/rune-engine")
-DOC = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "samples/test.docx")
+# samples/ lives at the repo root, one level above legacy-lok/ (this file's
+# grandparent) -- legacy-lok/ was split out of the repo root during the
+# native-engine cutover; samples/ stayed put since native/ uses it too.
+DOC = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "..", "samples", "test.docx")
 
 VK_LEFT, VK_RIGHT, VK_HOME, VK_BACKSPACE = 1026, 1027, 1028, 1283
 VK_SHIFT, VK_MOD1 = 0x1000, 0x2000
@@ -157,7 +160,7 @@ def main():
         check(not a.call("key", doc_id=999, type="input", char_code=65)["ok"], "unknown doc rejected")
 
         # --- .doc (binary format) ---
-        doc_path = os.environ.get("RUNE_TEST_DOC", os.path.join(ROOT, "samples/test.doc"))
+        doc_path = os.environ.get("RUNE_TEST_DOC", os.path.join(ROOT, "..", "samples", "test.doc"))
         if os.path.exists(doc_path):
             a.events.clear()
             r = a.call("open", path=doc_path)

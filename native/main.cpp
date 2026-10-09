@@ -1,10 +1,11 @@
 // Rune (native): single-process editor on QML TextEdit + QTextDocument.
 //
-// Usage: rune_native [--auto-test]
+// Usage: rune [--auto-test]
 //   --auto-test  type, format and save a document headlessly, report
 //                PASS/FAIL, exit (0 = pass)
 
 #include "AutoTest.h"
+#include "DocumentController.h"
 
 #include <QCommandLineParser>
 #include <QDir>
@@ -43,7 +44,7 @@ QVariantMap omarchyTheme()
 struct Options
 {
     bool autoTest = false;
-    // Positional arguments (e.g. a document to open) go here.
+    QString documentPath; // positional argument: a document to open at startup
 };
 
 Options parseOptions(const QCoreApplication &app)
@@ -53,10 +54,15 @@ Options parseOptions(const QCoreApplication &app)
     const QCommandLineOption autoTestOpt(QStringLiteral("auto-test"),
                                          QStringLiteral("Run the headless self-test, then quit."));
     parser.addOption(autoTestOpt);
+    parser.addPositionalArgument(QStringLiteral("document"),
+                                 QStringLiteral("A .odt, .docx, or .doc file to open at startup."));
     parser.process(app);
 
     Options options;
     options.autoTest = parser.isSet(autoTestOpt);
+    const QStringList positional = parser.positionalArguments();
+    if (!positional.isEmpty())
+        options.documentPath = positional.constFirst();
     return options;
 }
 
@@ -72,11 +78,18 @@ int main(int argc, char *argv[])
     engine.setInitialProperties({{"theme", omarchyTheme()}});
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
-    engine.loadFromModule("RuneNative", "Main");
+    engine.loadFromModule("Rune", "Main");
+
+    auto *window = engine.rootObjects().isEmpty()
+        ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
+
+    if (!options.documentPath.isEmpty() && window) {
+        auto *controller = window->findChild<DocumentController *>(QStringLiteral("controller"));
+        if (controller)
+            controller->openFile(options.documentPath);
+    }
 
     if (options.autoTest) {
-        auto *window = engine.rootObjects().isEmpty()
-            ? nullptr : qobject_cast<QQuickWindow *>(engine.rootObjects().constFirst());
         if (!window)
             return 1;
         // Let the window expose and the scene settle first.

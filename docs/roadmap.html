@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Roadmap — Rune</title>
-<meta name="description" content="The full, honest roadmap for Rune: what's built, what's not started, and the headless LibreOfficeKit limitations we found and documented.">
+<meta name="description" content="The full, honest roadmap for Rune: what's built, what's not started, and the real bugs we found and documented — in Qt's ODF writer and the retired LibreOfficeKit engine alike.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -157,77 +157,72 @@
 <div class="page-hero">
   <div class="section-label">Roadmap</div>
   <h1>Every feature, plainly stated</h1>
-  <p>What's built, what isn't, and the two things we tried and genuinely couldn't make work headlessly — with the evidence, not a guess.</p>
+  <p>What's built in the current app, what's not started, and the real bugs we found along the way — with the evidence, not a guess.</p>
 </div>
 
 <main class="wrap">
 
   <div class="legend">
     <span><span class="dot dot-done"></span> Done</span>
-    <span><span class="dot dot-progress"></span> In progress</span>
+    <span><span class="dot dot-progress"></span> Limitation (found, tested, documented)</span>
     <span><span class="dot dot-none"></span> Not started</span>
   </div>
 
   <section class="roadmap-section">
-    <h2><span class="dot dot-done"></span> Done</h2>
+    <h2><span class="dot dot-done"></span> Done (in <code style="font-size:0.85em;">native/</code>, the current app)</h2>
     <ul class="checklist">
-      <li><span class="dot dot-done"></span><div>Document I/O: open/save <strong><code>.docx</code>, <code>.doc</code>, <code>.odt</code>, <code>.txt</code>, <code>.md</code></strong>; markdown import/export; autosave</div></li>
-      <li><span class="dot dot-done"></span><div>Multi-page scrolling with viewport-aware tile loading</div></li>
-      <li><span class="dot dot-done"></span><div>Full text editing: keyboard, mouse (click-to-cursor, drag-select), copy/cut/paste</div></li>
-      <li><span class="dot dot-done"></span><div>Formatting: Bold/Italic/Underline, paragraph styles (Normal, H1&ndash;H3), bullet/numbered lists with promote/demote, alignment, font/size, text color, clear formatting</div></li>
-      <li><span class="dot dot-done"></span><div>Format Painter</div></li>
-      <li><span class="dot dot-done"></span><div>Tables: insert, AutoFit, insert/delete row, insert/delete column</div></li>
-      <li><span class="dot dot-done"></span><div>Paragraph spacing (directional increase/decrease &mdash; exact point values not achievable headlessly, see below)</div></li>
-      <li><span class="dot dot-done"></span><div>Layered toolbar UX: slim persistent bar + contextual strip that follows the cursor, instead of a Word-style ribbon</div></li>
-      <li><span class="dot dot-progress"></span><div>AI provider skeleton (Claude/ChatGPT/Grok registry, token storage) &mdash; <strong>no real HTTP calls yet</strong></div></li>
+      <li><span class="dot dot-done"></span><div>Document I/O: <strong><code>.odt</code></strong> native read/write; <strong><code>.docx</code>/<code>.doc</code></strong> via an async <code>soffice</code> batch-conversion bridge &mdash; verified against real-world files, not just our own writer's output</div></li>
+      <li><span class="dot dot-done"></span><div>Full text editing: keyboard, mouse, clipboard &mdash; native <code>TextEdit</code> behavior, not custom-built</div></li>
+      <li><span class="dot dot-done"></span><div>Formatting: Bold/Italic/Underline, paragraph styles with named/inherited style resolution on import (<code>styles.xml</code> parent-style-name chains), bullet/numbered lists with promote/demote nesting, alignment, font family/size, text color</div></li>
+      <li><span class="dot dot-done"></span><div>Tables: insert, insert/delete row, insert/delete column, Tab/Shift+Tab cell navigation</div></li>
+      <li><span class="dot dot-done"></span><div>A save-time sanitizer working around a real Qt ODF-writer bug (see below) &mdash; verified with a direct A/B test, not an assumption</div></li>
+      <li><span class="dot dot-done"></span><div><code>.docx</code> conversion runs off the main thread (<code>QtConcurrent</code>) &mdash; empirically proven not to block the UI, not just an API shape change</div></li>
     </ul>
   </section>
 
   <section class="roadmap-section">
-    <h2><span class="dot dot-none"></span> Not started — Word feature audit</h2>
-    <p class="lede">Measured against Microsoft Word's ten most-reached-for features. Three of these need entirely new document object types (tables were the first; images and headers/footers are next).</p>
+    <h2><span class="dot dot-progress"></span> Known limitations &mdash; found, tested, documented</h2>
     <table class="audit-table">
-      <tr><th>Feature</th><th>Notes</th></tr>
-      <tr><td>Section breaks</td><td>Mixed page orientation, independent headers/margins per section, restart page numbering</td></tr>
-      <tr><td>Headers &amp; footers</td><td>Including "different first page," "different odd/even," "link to previous"</td></tr>
-      <tr><td>Tab stops &amp; leader lines</td><td>Needs a ruler widget &mdash; most UI-heavy item on this list</td></tr>
-      <tr><td>Text wrap on images</td><td>No image insertion at all yet &mdash; this blocks wrap modes too</td></tr>
-      <tr><td>Table of Contents / outline nav</td><td>Builds on existing paragraph styles; needs <code>.uno:InsertMultiIndex</code> or similar, untested</td></tr>
-      <tr><td>Repeat header rows (tables)</td><td>Tried 3 UNO command names, none worked headlessly &mdash; see below</td></tr>
-      <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Same limitation as above &mdash; see below</td></tr>
+      <tr><th>Limitation</th><th>Why</th></tr>
+      <tr><td>Nested tables lose the inner table's content on export</td><td>Confirmed via HTML export (plain-text conversion doesn't reliably represent nested structures). Rare pattern; lower priority.</td></tr>
+      <tr><td>List numbering restart, custom start values, bullet characters, number formats</td><td>Imported lists get the UI's own level styles rather than preserving the source document's exact presentation.</td></tr>
+      <tr><td>Table/column widths, cell borders, backgrounds</td><td>Not read or written.</td></tr>
+      <tr><td><code>styles.xml</code>'s own automatic-styles and default-style</td><td>Not read &mdash; only named paragraph styles with parent chains.</td></tr>
     </table>
   </section>
 
   <section class="roadmap-section">
-    <h2><span class="dot dot-progress"></span> AI integration — the actual differentiator</h2>
-    <p class="lede">Everything else on this page is table stakes. This is the reason the project exists.</p>
-    <ul class="checklist">
-      <li><span class="dot dot-none"></span><div>Real OAuth flows for Claude, ChatGPT, Grok (the skeleton only stores a raw token today)</div></li>
-      <li><span class="dot dot-none"></span><div>Streaming HTTP responses into the document or a sidebar</div></li>
-      <li><span class="dot dot-none"></span><div>Three interaction modes per the original architecture plan: inline edit, sidebar chat, draft generation</div></li>
-      <li><span class="dot dot-none"></span><div>Right-side dock UI &mdash; deferred from the toolbar redesign; will reuse the same dock mechanism for AI chat and a future "inspector" panel</div></li>
-    </ul>
+    <h2><span class="dot dot-none"></span> Not started</h2>
+    <table class="audit-table">
+      <tr><th>Feature</th><th>Notes</th></tr>
+      <tr><td>Images</td><td>No insertion, no text wrap, no import/export at all</td></tr>
+      <tr><td>Headers &amp; footers</td><td>Including "different first page," "different odd/even," "link to previous"</td></tr>
+      <tr><td>Section breaks</td><td>Mixed page orientation, independent headers/margins per section, restart page numbering</td></tr>
+      <tr><td>Tab stops &amp; leader lines</td><td>Needs a ruler widget</td></tr>
+      <tr><td>Table of Contents / outline nav</td><td>Builds on existing paragraph styles</td></tr>
+      <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Was a documented dead end in the old LibreOfficeKit engine; not yet investigated against <code>QTextBlockFormat</code> directly &mdash; may actually be achievable now that we're not routing through <code>.uno:</code> commands. Worth a fresh look.</td></tr>
+      <tr><td>Find/replace, spell check, undo/redo UI</td><td><code>QTextDocument</code> has undo/redo natively; needs toolbar wiring. The others aren't built.</td></tr>
+      <tr><td>File Open / Save As dialogs</td><td><code>openFile()</code>/<code>saveFile()</code> exist and work; no file picker UI yet</td></tr>
+    </table>
   </section>
 
   <section class="roadmap-section">
-    <h2><span class="dot dot-none"></span> Housekeeping &amp; known rough edges</h2>
+    <h2><span class="dot dot-none"></span> AI integration &mdash; the actual differentiator</h2>
+    <p class="lede">Everything else on this page is table stakes. This is the reason the project exists, and nothing is built yet.</p>
     <ul class="checklist">
-      <li><span class="dot dot-none"></span><div>File &rarr; Open has no file picker yet (stub message only)</div></li>
-      <li><span class="dot dot-none"></span><div>Save As has no path picker (only plain Save to the already-open path)</div></li>
-      <li><span class="dot dot-none"></span><div>Command palette (Ctrl+K) &mdash; planned as part of the toolbar redesign but not yet built; rare actions (insert table with a custom size, PDF export) should live here instead of permanent toolbar space</div></li>
-      <li><span class="dot dot-none"></span><div>No undo/redo UI (the engine likely supports <code>.uno:Undo</code>/<code>.uno:Redo</code> already via the generic <code>format</code> command &mdash; needs toolbar/shortcut wiring and testing)</div></li>
-      <li><span class="dot dot-none"></span><div>No find/replace</div></li>
-      <li><span class="dot dot-none"></span><div>No spell check</div></li>
-      <li><span class="dot dot-none"></span><div><code>.doc</code>/<code>.odt</code> round-trip fidelity not stress-tested on complex real-world documents, only the generated sample</div></li>
+      <li><span class="dot dot-none"></span><div>Real OAuth flows for Claude, ChatGPT, Grok</div></li>
+      <li><span class="dot dot-none"></span><div>Streaming HTTP responses into the document or a sidebar</div></li>
+      <li><span class="dot dot-none"></span><div>Three interaction modes per the original architecture plan: inline edit, sidebar chat, draft generation</div></li>
+      <li><span class="dot dot-none"></span><div>A UI dock for AI chat (and potentially a future "inspector" panel for deep formatting controls)</div></li>
     </ul>
   </section>
 
   <section class="roadmap-section">
     <h2>Architecture notes for contributors</h2>
-    <div class="note-box">Engine (<code>engine/</code>) is a headless LibreOfficeKit daemon behind a JSON-lines Unix socket. Split into feature-scoped files: <code>commands_document.cpp</code>, <code>commands_editing.cpp</code>, <code>commands_formatting.cpp</code>, <code>commands_tables.cpp</code>. See <code>engine/engine_internal.h</code> for the shared <code>Engine</code> class declaration.</div>
-    <div class="note-box">Frontend (<code>app/</code>) is Qt Quick/QML, also feature-scoped: <code>Toolbar.qml</code>, <code>ContextualBar.qml</code>, <code>FileBar.qml</code>, <code>StatusBar.qml</code>, <code>DocumentCanvas.qml</code> composed by <code>Main.qml</code>.</div>
-    <div class="note-box"><code>engine/smoke_test.py</code> is the test suite (156 checks) &mdash; run it after any engine change. It starts a private engine instance, drives the full JSON protocol, and diffs rendered tiles to confirm visual changes actually happened, not just that a command returned <code>ok</code>.</div>
-    <div class="note-box"><strong style="color: var(--ink);">Before adding a UNO command that isn't already used elsewhere, verify it actually works headlessly by diffing a rendered tile before and after.</strong> <code>postUnoCommand()</code> never reports failure even for commands LOK silently ignores. Several "should work" commands &mdash; exact paragraph spacing, repeat header rows &mdash; turned out to be dead ends this way. Don't assume the UNO API shape; test it.</div>
+    <div class="note-box">The current app (<code>native/</code>) is a single process built on <code>QTextDocument</code> — no sockets, no protocol, no IPC. <code>DocumentController</code> is the QML-facing editing API; <code>OdfReader</code>/<code>DocxBridge</code> are plain C++ (not QML-exposed) handling ODF import and the .docx conversion bridge respectively.</div>
+    <div class="note-box">An earlier two-process LibreOfficeKit design (<code>legacy-lok/</code>) is kept for reference, not actively developed. See <code>legacy-lok/README.md</code> and the main README's architecture section for why it was replaced.</div>
+    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 158 checks covering formatting, tables, lists, and save/load round-trips verified via real <code>soffice</code> conversion, not just a successful-looking return value.</div>
+    <div class="note-box"><strong style="color: var(--ink);">Verify Qt/ODF API behavior against real files before relying on it.</strong> This project has twice found real, silent-failure bugs this way &mdash; Qt's own ODF writer mangling list-then-table structure (confirmed with <code>xmllint</code> plus a direct A/B <code>soffice</code> conversion test), and earlier, the old LOK engine's <code>.uno:</code> commands that returned <code>ok</code> while silently doing nothing (confirmed by diffing rendered tiles). Don't assume an API's documented behavior is what actually happens on disk &mdash; test it.</div>
   </section>
 
 </main>

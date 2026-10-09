@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Window
-import RuneNative
+import Rune
 
 Window {
     id: root

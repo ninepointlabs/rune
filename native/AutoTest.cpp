@@ -420,7 +420,7 @@ QStringList zipEntries(const QString &path)
 bool runAutoTest(QQuickWindow *window)
 {
     Checker t;
-    QTextStream(stdout) << "rune_native --auto-test" << Qt::endl;
+    QTextStream(stdout) << "rune --auto-test" << Qt::endl;
 
     auto *controller = window->findChild<DocumentController *>(QStringLiteral("controller"));
     auto *editor = window->findChild<QQuickItem *>(QStringLiteral("editor"));

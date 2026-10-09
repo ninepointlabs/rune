@@ -1,12 +1,8 @@
 #!/bin/bash
-# Launch Rune: engine + app
-ENGINE_SOCK=/tmp/rune-show.sock
+# Launch Rune (the native, single-process app).
+#
+#   ./run.sh                    # blank document
+#   ./run.sh path/to/doc.docx   # open a specific file
 
-# Start engine if not already running
-if ! [ -S "$ENGINE_SOCK" ]; then
-    /home/tim/Projects/rune/build/engine/rune-engine --socket-path "$ENGINE_SOCK" 2>/tmp/rune-engine.log &
-    sleep 2
-fi
-
-# Launch app
-exec /home/tim/Projects/rune/build/app/rune --socket-path "$ENGINE_SOCK" "$@"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+exec ./build/native/rune "$@"

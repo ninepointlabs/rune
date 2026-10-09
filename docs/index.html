@@ -318,18 +318,18 @@
     </div>
 
     <div class="stanza">
-      <h2>Format fidelity without reinventing it.</h2>
+      <h2>ODF-first, Word-compatible.</h2>
       <div>
-        <p>Parsing OOXML correctly is a problem LibreOffice has already spent two decades solving. Rune runs <strong>LibreOfficeKit headless</strong> as its document engine instead of writing a parser from scratch — so your .docx opens correctly, your tables survive, and your footnotes don't vanish.</p>
-        <p>The engineering budget goes into the editing experience and the AI integration, not into re-deriving a file format.</p>
+        <p>Rune's native format is ODF — open, documented, and the thing Rune's own engine understands directly. <strong>Word documents are supported too</strong>, but as a conversion at the boundary: open a .docx and Rune converts it once; save as .docx and it converts back. Your working format while you edit is never locked to a proprietary spec.</p>
+        <p>The engineering budget goes into the editing experience and the AI integration, not into chasing Word-format compatibility as the product's center of gravity.</p>
       </div>
     </div>
 
     <div class="stanza">
-      <h2>No ribbon. No clutter.</h2>
+      <h2>Native, not a bitmap.</h2>
       <div>
-        <p>Microsoft's ribbon solves "too many commands" by sorting them into tabs you have to know to click. Rune surfaces tools based on <strong>what your cursor is actually touching</strong> — select text and font controls appear; click into a table and row/column tools appear; otherwise the toolbar stays small enough to fit any window.</p>
-        <p>Built for <a href="https://github.com/basecamp/omarchy">Omarchy</a>'s keyboard-first, minimal aesthetic — not imported from Office 2007.</p>
+        <p>Rune is a single process built directly on Qt's text engine — <strong>no tiled bitmap rendering, no inter-process protocol, no serialization</strong> standing between your keystroke and the screen. Real incremental text layout, the way a native app should feel.</p>
+        <p>Built for <a href="https://github.com/basecamp/omarchy">Omarchy</a>'s keyboard-first, minimal aesthetic.</p>
       </div>
     </div>
   </div>
@@ -338,30 +338,30 @@
 <section id="architecture">
   <div class="wrap">
     <div class="section-label">Architecture</div>
-    <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 12px; color: var(--ink);">Two processes, one socket</h2>
-    <p style="color: var(--ink-dim); max-width: 640px;">LibreOfficeKit isn't thread-safe and has an awkward shutdown path in current builds. Keeping it in its own process means a document engine crash never takes the editing window down with it.</p>
+    <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 12px; color: var(--ink);">One process, native all the way down</h2>
+    <p style="color: var(--ink-dim); max-width: 640px;">Built directly on Qt's <code style="color: var(--ember-bright);">QTextDocument</code> — no bitmap tiles, no IPC, no serialization. ODF is the native format; Word documents are a one-shot conversion at the boundary, not the live model.</p>
 
     <div class="arch-diagram">
       <div class="arch-box">
-        <h3>rune (Qt Quick / QML)</h3>
+        <h3>DocumentController</h3>
         <ul>
-          <li>Toolbar + contextual strip</li>
-          <li>Document canvas</li>
+          <li>QML-facing editing API</li>
+          <li>QTextCursor operations</li>
           <li>Native, no Electron</li>
         </ul>
       </div>
-      <div class="arch-link"><span class="pipe">⇄</span>JSON lines<br>over a Unix socket</div>
+      <div class="arch-link"><span class="pipe">⇄</span>in-process<br>function calls</div>
       <div class="arch-box">
-        <h3>rune-engine (headless)</h3>
+        <h3>OdfReader + DocxBridge</h3>
         <ul>
-          <li>LibreOfficeKit, dlopen'd</li>
-          <li>Command dispatch, per feature</li>
-          <li>156 protocol-level tests</li>
+          <li>Custom ODF import (Qt has none)</li>
+          <li>.docx via soffice, batch-only</li>
+          <li>158 verified checks</li>
         </ul>
       </div>
     </div>
 
-    <p style="color: var(--ink-dim);">Full protocol reference and every documented limitation: <a href="https://github.com/ninepointlabs/rune/blob/main/engine/README.md">engine/README.md</a></p>
+    <p style="color: var(--ink-dim);">Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
   </div>
 </section>
 
@@ -373,15 +373,15 @@
 
     <table class="status-table">
       <tr><th>Area</th><th>State</th></tr>
-      <tr><td><span class="dot dot-done"></span>Document I/O (.docx, .doc, .odt, .txt, .md)</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Document I/O (.odt native, .docx/.doc via bridge)</td><td>Working</td></tr>
       <tr><td><span class="dot dot-done"></span>Text editing — keyboard, mouse, clipboard</td><td>Working</td></tr>
-      <tr><td><span class="dot dot-done"></span>Formatting, styles, tables</td><td>Working</td></tr>
-      <tr><td><span class="dot dot-done"></span>Multi-page rendering, autosave</td><td>Working</td></tr>
-      <tr><td><span class="dot dot-progress"></span>AI integration</td><td>Provider skeleton only — no requests sent yet</td></tr>
+      <tr><td><span class="dot dot-done"></span>Formatting, styles (incl. inherited), lists, tables</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Async .docx conversion — doesn't block the UI</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-none"></span>AI integration</td><td>Not started</td></tr>
       <tr><td><span class="dot dot-none"></span>Headers, footers, section breaks, images</td><td>Not started</td></tr>
     </table>
 
-    <p class="honest-note">Some features we tried and couldn't make work headlessly — exact paragraph spacing, repeat-header-rows — are documented with the evidence, not hidden. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
+    <p class="honest-note">Some things we tried and couldn't make work — Qt's own ODF writer silently drops a table placed directly after a list, nested tables lose content on export — are documented with the evidence, not hidden. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
   </div>
 </section>
 
@@ -389,10 +389,10 @@
   <div class="wrap">
     <div class="section-label">Get it</div>
     <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 8px; color: var(--ink);">Build it yourself</h2>
-    <p style="color: var(--ink-dim);">Arch / Omarchy, with LibreOffice and Qt 6 already in the official repos.</p>
+    <p style="color: var(--ink-dim);">Arch / Omarchy, with Qt 6 and QuaZip already in the official repos.</p>
 
     <div class="code-block"><span class="comment"># dependencies</span>
-<span class="prompt">$</span> sudo pacman -S libreoffice-fresh libreoffice-fresh-sdk qt6-base qt6-declarative
+<span class="prompt">$</span> sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libreoffice-fresh
 
 <span class="comment"># build</span>
 <span class="prompt">$</span> git clone https://github.com/ninepointlabs/rune.git
