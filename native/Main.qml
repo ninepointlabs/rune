@@ -208,6 +208,12 @@ Window {
         syncSelection()
     }
 
+    AiManager {
+        id: ai
+        objectName: "ai"
+        document: controller
+    }
+
     DocumentController {
         id: controller
         objectName: "controller"
@@ -274,6 +280,8 @@ Window {
     // Keys.onPressed); these cover focus anywhere else in the window.
     Shortcut { sequences: [StandardKey.Undo]; onActivated: controller.undo() }
     Shortcut { sequences: [StandardKey.Redo]; onActivated: controller.redo() }
+    // AI: open the panel ready to edit the document (selection or cursor).
+    Shortcut { sequences: ["Ctrl+Shift+E"]; onActivated: aiPanel.startEdit() }
     Shortcut { sequences: [StandardKey.Bold]; onActivated: controller.toggleBold() }
     Shortcut { sequences: [StandardKey.Italic]; onActivated: controller.toggleItalic() }
     Shortcut { sequences: [StandardKey.Underline]; onActivated: controller.toggleUnderline() }
@@ -472,6 +480,15 @@ Window {
             }
         }
 
+        ToolButton {
+            objectName: "aiButton"
+            anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 6 }
+            appRoot: root
+            label: "✦ AI"; tip: "AI assistant"
+            active: aiPanel.visible
+            onClicked: aiPanel.visible = !aiPanel.visible
+        }
+
         Rectangle {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
             height: 1
@@ -479,9 +496,25 @@ Window {
         }
     }
 
+    AiPanel {
+        id: aiPanel
+        objectName: "aiPanel"
+        anchors { right: parent.right; top: toolbar.bottom; bottom: statusBar.top }
+        width: Math.min(380, root.width * 0.45)
+        visible: false
+        appRoot: root
+        ai: ai
+        controller: controller
+        onCloseRequested: {
+            visible = false
+            editor.forceActiveFocus()
+        }
+    }
+
     Flickable {
         id: flick
-        anchors { left: parent.left; right: parent.right; top: toolbar.bottom; bottom: statusBar.top }
+        anchors { left: parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
+                  top: toolbar.bottom; bottom: statusBar.top }
         contentWidth: width
         contentHeight: editor.implicitHeight
         clip: true
@@ -504,7 +537,9 @@ Window {
             focus: true
             // A .docx open replaces the document when it finishes; edits
             // made meanwhile would be lost (see DocumentController::openFile).
-            readOnly: controller.busy
+            // ... and while the AI writes into it (one undo step, see
+            // DocumentController::beginStreamedEdit()).
+            readOnly: controller.busy || controller.streamingEdit
             selectByMouse: true
             persistentSelection: true
             textFormat: TextEdit.RichText

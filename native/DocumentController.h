@@ -52,6 +52,11 @@ class DocumentController : public QObject
     Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY canUndoChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY canRedoChanged)
+    // Some text is selected (the TextEdit's selection, see setSelection()).
+    Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY formatChanged)
+    // A streamed edit (beginStreamedEdit()) is writing into the document;
+    // the UI should keep the user from editing meanwhile.
+    Q_PROPERTY(bool streamingEdit READ isStreamingEdit NOTIFY streamingEditChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -66,6 +71,8 @@ public:
     bool isBusy() const { return m_busy; }
     bool canUndo() const { return m_document->isUndoAvailable(); }
     bool canRedo() const { return m_document->isRedoAvailable(); }
+    bool hasSelection() const { return m_selectionStart != m_selectionEnd; }
+    bool isStreamingEdit() const { return m_streaming; }
 
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool saveToOdf(const QString &path);
@@ -116,6 +123,43 @@ public:
     // format, or a save. (Input-method commits don't come through here;
     // Qt makes each commit its own step.)
     Q_INVOKABLE bool typeText(const QString &text);
+
+    // The document as Markdown around the selection (or the cursor, where
+    // `selection` is ""): what an AI request sends as context.
+    struct MarkdownContext
+    {
+        QString before, selection, after;
+    };
+    MarkdownContext markdownContext() const;
+
+    // A streamed edit: an AI reply changing the document as it arrives, all
+    // of it ONE undo step. Typing, undo and other edits are refused while
+    // one is open; nothing changes until the reply's first piece.
+    //
+    // beginStreamedEdit() opens it on the current selection or cursor
+    // (false, doing nothing, while busy or already streaming). Then either:
+    //  - New text: appendStreamedText() replaces the selection (first call)
+    //    or writes at the cursor, as plain text as it arrives; then
+    //    finishStreamedEdit() replaces all of it with `markdown` converted
+    //    to formatting (headings, lists, emphasis, tables; a paragraph that
+    //    is only a non-breaking space becomes an empty one).
+    //  - Changes to existing text: applyStreamedReplacement() for each
+    //    (find, replace) pair, within the selection if there was one, else
+    //    the whole document; see there.
+    // abortStreamedEdit() closes it, keeping what was done, or reverting the
+    // document to exactly how it was.
+    bool beginStreamedEdit();
+    void appendStreamedText(const QString &text);
+    void finishStreamedEdit(const QString &markdown);
+    // Replaces `find` with `replace` (plain text; "\n" is a paragraph
+    // break). `find` is matched exactly, else ignoring Markdown markup and
+    // differences in whitespace; the first match at or after the previous
+    // replacement wins, else the first in scope. Only the characters that
+    // differ are rewritten, so the formatting of the rest is kept; new empty
+    // paragraphs are left out of any list. False if `find` isn't there (or
+    // spans a table boundary), changing nothing.
+    bool applyStreamedReplacement(const QString &find, const QString &replace);
+    void abortStreamedEdit(bool keepText);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
@@ -185,6 +229,7 @@ signals:
     void dirtyChanged();
     void currentPathChanged();
     void busyChanged();
+    void streamingEditChanged();
     void canUndoChanged();
     void canRedoChanged();
     // Completion of openFile() / saveFile(): `path` as passed, `error` ""
@@ -245,6 +290,24 @@ private:
     QPointer<QQuickTextDocument> m_qmlDocument;
     QString m_currentPath;
     bool m_busy = false;
+    // The streamed edit in progress (see beginStreamedEdit()): its
+    // selection when it began, the text it has written so far (start -1:
+    // none yet), where the next replacement search starts, the format new
+    // text gets, and whether its undo step exists yet.
+    bool m_streaming = false;
+    int m_streamSelStart = 0;
+    int m_streamSelEnd = 0;
+    bool m_streamHadSelection = false;
+    int m_streamStart = -1;
+    int m_streamEnd = -1;
+    int m_streamSearchFrom = 0;
+    QTextCharFormat m_streamFormat;
+    bool m_streamHasStep = false;
+    // Opens (or joins) the edit's undo step on `cursor`.
+    void openStreamStep(QTextCursor &cursor);
+    // The first appendStreamedText()/finishStreamedEdit(): removes the
+    // selection and sets where new text goes.
+    void startStreamedText();
     // isDirty() as last reported by dirtyChanged(); see updateDirty().
     bool m_dirty = false;
     // Bumped on every document edit, so a background .docx save can tell

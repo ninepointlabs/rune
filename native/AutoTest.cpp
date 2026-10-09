@@ -1,5 +1,7 @@
 #include "AutoTest.h"
 
+#include "AiAutoTest.h"
+
 #include "DocumentController.h"
 #include "DocxBridge.h"
 #include "OdfReader.h"
@@ -1742,6 +1744,9 @@ bool runAutoTest(QQuickWindow *window)
         t.check(busyOpen.success && busyOpen.busyAfterCall && !undoneWhileBusy,
                 "undo does nothing while a .docx open converts" + errorNote(busyOpen));
     }
+
+    // The AI layer (AiAutoTest.cpp): mock servers, no real network.
+    runAiAutoTest(window, [&t](bool ok, const QString &what) { t.check(ok, what); });
 
     // File flow in Main.qml: Open/Save As dialogs, Save to the current
     // path, the unsaved-changes guard on New/Open/close. File dialogs can't

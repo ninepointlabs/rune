@@ -5,6 +5,7 @@
 //                PASS/FAIL, exit (0 = pass)
 
 #include "AutoTest.h"
+#include "AiManager.h"
 
 #include <QCommandLineParser>
 #include <QDir>
@@ -73,6 +74,9 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Rune"));
     const Options options = parseOptions(app);
+
+    if (options.autoTest)
+        AiManager::useTestDefaults();
 
     QQmlApplicationEngine engine;
     engine.setInitialProperties({{"theme", omarchyTheme()}});

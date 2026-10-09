@@ -21,12 +21,12 @@ Status as of 2026-10-09 (post-cutover to the native, single-process architecture
 | **List numbering restart, custom start values, bullet characters, number formats** | Imported lists always get the UI's own level styles rather than preserving the source document's exact numbering presentation. |
 | **Table/column widths, cell borders, backgrounds** | Not read or written. |
 | **`styles.xml`'s own automatic-styles (headers/footers) and default-style** | Not read — only named paragraph styles with `style:parent-style-name` chains. |
+| **Headings save as bold body text** | Found 2026-10-09: Qt's ODF writer drops a block's heading level and its relative font size, so headings (opened from a file, or written by the AI) save as bold paragraphs: `text:p` with only bold, no `text:h`/outline level. Pre-existing, affects every saved document; fixing it means post-processing the written XML or our own ODF writer. |
 
 ## Not started
 
 | Feature | Notes |
 |---|---|
-| **AI integration** | The actual point of this project. Nothing built yet — see below. |
 | **Images** | No insertion, no text wrap, no import/export at all |
 | **Headers & footers** | Including "different first page," "different odd/even," "link to previous" |
 | **Section breaks** | Mixed page orientation, independent headers/margins per section, restart page numbering |
@@ -40,16 +40,32 @@ Status as of 2026-10-09 (post-cutover to the native, single-process architecture
 
 ## AI integration (the actual differentiator)
 
-Nothing built yet in the native app. The old LOK-based `engine/`'s AI provider skeleton (Claude/ChatGPT/Grok registry, token storage, no real HTTP calls) lives in `legacy-lok/` for reference but wasn't ported — the right design for this should be native-app-first, not a port of the old engine's command-dispatch pattern.
+**Built: the provider layer** (`native/ai/`, the AI panel in `native/AiPanel.qml`):
 
-- [ ] Real OAuth flows for Claude, ChatGPT, Grok
-- [ ] Streaming HTTP responses into the document or a sidebar
-- [ ] Three interaction modes per the original architecture plan: inline edit, sidebar chat, draft generation
-- [ ] A UI dock for AI chat (and potentially a future "inspector" panel for deep formatting controls)
+- **Sign in with ChatGPT** (OpenAI's open-source plan-usage program): ChatGPT Plus/Pro users authorize Rune in the browser and requests draw on their existing plan. Full spec: dynamic client registration, PKCE + state + nonce, ID token verified (RS256 against OpenAI's JWKS), rotating refresh, revoke on sign-out, OpenAI's error codes and required UI wording ("Using ChatGPT plan", "Usage limit reached → Manage usage", the first-sign-in notice)
+- **OpenRouter** (OAuth PKCE → a user-controlled key): one sign-in reaches Claude, GPT and Grok models, paid from the user's OpenRouter credits
+- Secrets in the desktop keyring (libsecret); streaming over SSE; model picker; per-provider model remembered
+- **Edit document** mode (Ctrl+Shift+E), one undo step per instruction; the editor is read-only while the AI writes; a failure reverts the document exactly, Stop keeps what was done. The model answers in one of two forms:
+  - **Changes to existing text** (spelling, grammar, wording, spacing): find/replace blocks, each applied as it arrives, within the selection if there is one, else anywhere in the document. Only the characters that differ are rewritten, so formatting survives; quotes with Markdown markup or different spacing still match; changes whose text isn't found are skipped and reported, never guessed. A blank line in a replacement makes a real empty paragraph (taken out of any list)
+  - **New text**: replaces the selection or is written at the cursor, streamed in live, then converted from Markdown to real formatting (headings, lists, emphasis, tables; `&nbsp;` lines become empty paragraphs). Multi-paragraph replies get paragraphs of their own; a one-phrase rewrite stays inline
+- **Ask** mode: questions and research in the panel, with the document and selection sent as context (each side of the selection cut to 60k characters)
+
+**Why not "OAuth for Claude, ChatGPT, Grok"** (the original plan), checked 2026-10-09:
+- **Claude**: Anthropic's terms prohibit third-party apps from offering Claude.ai login or using Free/Pro/Max credentials ([legal & compliance](https://code.claude.com/docs/en/legal-and-compliance)); apps must use API keys. Rune reaches Claude through OpenRouter instead
+- **Grok**: xAI has no third-party OAuth program; tools that offer it borrow xAI's own client. Not built on. Grok is available through OpenRouter
+
+**Next:**
+- [ ] Formatting changes by instruction ("make every heading blue", "bold the names"): changes are text-only; formatting comes from the toolbar
+- [ ] A rewrite of a whole selection as *new text* still goes through Markdown, losing what Markdown can't express (colors, alignment, fonts) in that selection
+- [ ] An inline prompt at the selection (instead of the side panel)
+- [ ] New text takes default formatting, not the surrounding paragraph's (fonts, colors)
+- [ ] Optional API-key entry for people who want to use Anthropic or xAI directly
+- [ ] OpenAI's official "Continue with ChatGPT" button artwork (currently a plain text button)
+- [ ] Not verified by tests: a real sign-in against OpenAI's and OpenRouter's servers (tests use local mock servers; the real token/key endpoints were checked to be reachable and to answer as documented)
 
 ## Architecture notes for contributors
 
 - `native/` is the current app — single process, `QTextDocument`-based. `DocumentController` is the QML-facing API; `OdfReader`/`DocxBridge` are plain C++ (not QML-exposed) handling import and the `.docx` bridge respectively.
 - `legacy-lok/` is the **retired** two-process LibreOfficeKit implementation, kept for reference only. See `legacy-lok/README.md`.
-- Run `native/build/rune --auto-test` (headless, `QT_QPA_PLATFORM=offscreen`) after any change — 217 checks covering formatting, tables, lists, undo/redo, the file Open/Save flow, save/load round-trips verified via real `soffice` conversion, and an empirical proof the `.docx` bridge doesn't block the UI thread.
+- Run `native/build/rune --auto-test` (headless, `QT_QPA_PLATFORM=offscreen`) after any change — 298 checks covering formatting, tables, lists, undo/redo, the file Open/Save flow, both AI sign-in flows and AI document edits against mock servers, save/load round-trips verified via real `soffice` conversion, and an empirical proof the `.docx` bridge doesn't block the UI thread.
 - **Verify Qt/ODF API behavior against real files before relying on it.** This project has twice found real, silent-failure bugs this way: Qt's ODF writer mangling list-then-table structure (confirmed via `xmllint` + a direct A/B `soffice` conversion test), and earlier, the old LOK engine's `.uno:` commands that returned `ok` while silently doing nothing (confirmed via tile-diffing before/after). Don't assume an API's documented behavior is what actually happens on disk — test it.

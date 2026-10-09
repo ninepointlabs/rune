@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 217 passing, independently-verified checks. The AI integration (the actual point of this project) hasn't started yet. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 298 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -22,7 +22,8 @@ Early and moving fast. Core editing — open, type, format, save, tables, lists,
 | Tables (insert, row/column ops) | ✅ Working |
 | Named/inherited paragraph styles on import (`styles.xml`) | ✅ Working |
 | Async `.docx` conversion (doesn't block the UI) | ✅ Working |
-| AI integration | ❌ Not started |
+| AI sign-in (ChatGPT plan, OpenRouter) + streaming chat panel | ✅ Working |
+| AI editing in the document (corrections in place, rewrite selection, write at cursor; one undo step) | ✅ Working |
 | Headers/footers, section breaks, images, tab stops | ❌ Not started |
 
 ## Architecture
@@ -59,7 +60,7 @@ Full protocol/implementation notes: [`native/`](native/) source comments (each f
 Requires Arch/Omarchy with Qt 6.7+, QuaZip, and LibreOffice (for the `.docx` bridge only — not needed to edit native `.odt` files):
 
 ```sh
-sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libreoffice-fresh
+sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libsecret openssl libreoffice-fresh
 
 git clone https://github.com/ninepointlabs/rune.git
 cd rune
@@ -80,7 +81,7 @@ cmake --build build
 QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 ```
 
-217 checks, run headlessly: typing, formatting, tables, lists, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+298 checks, run headlessly: typing, formatting, tables, lists, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 

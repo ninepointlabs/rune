@@ -17,6 +17,8 @@
 #include <QTextDocumentWriter>
 #include <QTextFrame>
 #include <QTextList>
+#include <QRegularExpression>
+#include <QTextDocumentFragment>
 #include <QTextTable>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -399,7 +401,7 @@ void DocumentController::redo() { stepHistory(false); }
 
 void DocumentController::stepHistory(bool undo)
 {
-    if (m_busy || !(undo ? canUndo() : canRedo()))
+    if (m_busy || isStreamingEdit() || !(undo ? canUndo() : canRedo()))
         return;
     QTextCursor cursor = selectionCursor();
     {
@@ -583,7 +585,7 @@ QTextCharFormat DocumentController::currentCharFormat() const
 
 bool DocumentController::typeText(const QString &text)
 {
-    if (m_busy || text.isEmpty())
+    if (m_busy || isStreamingEdit() || text.isEmpty())
         return false;
     QTextCursor cursor = selectionCursor();
     const bool pending = m_pendingPosition >= 0 && m_pendingPosition == cursor.position() && !cursor.hasSelection();
@@ -1035,5 +1037,302 @@ void DocumentController::previousTableCell()
     if (!previous.isValid())
         return;
     emit cursorPositionRequested(previous.firstCursorPosition().position());
+    emit formatChanged();
+}
+
+// --- Streamed edits (AI replies) ------------------------------------------------
+
+namespace {
+
+// The reply's Markdown, minus a code fence wrapped around all of it (which
+// models add despite being asked not to).
+QString unfence(const QString &markdown)
+{
+    const QString trimmed = markdown.trimmed();
+    if (!trimmed.startsWith(QLatin1String("```")) || !trimmed.endsWith(QLatin1String("```")) || trimmed.size() < 6)
+        return markdown;
+    const qsizetype firstNewline = trimmed.indexOf(QLatin1Char('\n'));
+    if (firstNewline < 0)
+        return markdown;
+    return trimmed.mid(firstNewline + 1, trimmed.size() - 3 - firstNewline - 1);
+}
+
+} // namespace
+
+DocumentController::MarkdownContext DocumentController::markdownContext() const
+{
+    const auto markdown = [this](int start, int end) {
+        if (start >= end)
+            return QString();
+        QTextCursor range(m_document);
+        range.setPosition(start);
+        range.setPosition(end, QTextCursor::KeepAnchor);
+        return QTextDocumentFragment(range).toMarkdown();
+    };
+    const QTextCursor cursor = selectionCursor();
+    const int end = m_document->characterCount() - 1;
+    return {markdown(0, cursor.selectionStart()), markdown(cursor.selectionStart(), cursor.selectionEnd()),
+            markdown(cursor.selectionEnd(), end)};
+}
+
+bool DocumentController::beginStreamedEdit()
+{
+    if (m_busy || m_streaming)
+        return false;
+    const QTextCursor cursor = selectionCursor();
+    clearPending();
+    m_streaming = true;
+    m_streamSelStart = cursor.selectionStart();
+    m_streamSelEnd = cursor.selectionEnd();
+    m_streamHadSelection = cursor.hasSelection();
+    m_streamStart = m_streamEnd = -1;
+    m_streamSearchFrom = m_streamSelStart;
+    m_streamHasStep = false;
+    emit streamingEditChanged();
+    emit formatChanged();
+    return true;
+}
+
+void DocumentController::openStreamStep(QTextCursor &cursor)
+{
+    if (m_streamHasStep)
+        cursor.joinPreviousEditBlock();
+    else
+        cursor.beginEditBlock();
+    m_streamHasStep = true;
+}
+
+void DocumentController::startStreamedText()
+{
+    if (m_streamStart >= 0)
+        return;
+    QTextCursor cursor(m_document);
+    cursor.setPosition(m_streamSelStart);
+    if (m_streamHadSelection) {
+        // Typing over a selection keeps its format; so does this.
+        QTextCursor first(m_document);
+        first.setPosition(m_streamSelStart + 1);
+        m_streamFormat = first.charFormat();
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        cursor.setPosition(m_streamSelEnd, QTextCursor::KeepAnchor);
+        openStreamStep(cursor);
+        cursor.removeSelectedText();
+        cursor.endEditBlock();
+    } else {
+        m_streamFormat = cursor.charFormat();
+    }
+    m_streamStart = m_streamEnd = cursor.position();
+}
+
+void DocumentController::appendStreamedText(const QString &text)
+{
+    if (!m_streaming || text.isEmpty())
+        return;
+    startStreamedText();
+    QTextCursor cursor(m_document);
+    cursor.setPosition(m_streamEnd);
+    const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+    openStreamStep(cursor);
+    cursor.insertText(text, m_streamFormat);
+    cursor.endEditBlock();
+    m_streamEnd = cursor.position();
+    emit cursorPositionRequested(m_streamEnd);
+}
+
+void DocumentController::finishStreamedEdit(const QString &markdown)
+{
+    if (!m_streaming)
+        return;
+    startStreamedText();
+    // Converted in a document of its own, then inserted as a fragment.
+    QTextDocument converted;
+    converted.setMarkdown(unfence(markdown).trimmed());
+    // Markdown has no empty paragraph; the model writes "&nbsp;" for one.
+    for (QTextBlock block = converted.begin(); block.isValid(); block = block.next()) {
+        if (block.text() == QString(QChar::Nbsp)) {
+            QTextCursor nbsp(block);
+            nbsp.movePosition(QTextCursor::EndOfBlock, QTextCursor::KeepAnchor);
+            nbsp.removeSelectedText();
+        }
+    }
+    QTextCursor cursor(m_document);
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        cursor.setPosition(m_streamStart);
+        openStreamStep(cursor);
+        cursor.setPosition(m_streamEnd, QTextCursor::KeepAnchor);
+        cursor.removeSelectedText();
+        // Several paragraphs (or a heading, list or table) get paragraphs
+        // of their own: inserted mid-paragraph, the fragment's first block
+        // would merge into the text before it and its last into the text
+        // after. A single plain paragraph stays inline (a rewritten phrase).
+        const QTextBlock firstConverted = converted.begin();
+        bool hasTable = false;
+        for (auto it = converted.rootFrame()->begin(); !it.atEnd() && !hasTable; ++it)
+            hasTable = it.currentFrame() != nullptr;
+        const bool ownBlocks = converted.blockCount() > 1 || hasTable || firstConverted.textList()
+            || firstConverted.blockFormat().headingLevel() > 0;
+        if (ownBlocks) {
+            // The spaces at a split would start or end a paragraph.
+            while (!cursor.atBlockEnd() && m_document->characterAt(cursor.position()).isSpace())
+                cursor.deleteChar();
+            while (!cursor.atBlockStart() && m_document->characterAt(cursor.position() - 1).isSpace())
+                cursor.deletePreviousChar();
+        }
+        if (ownBlocks && !cursor.atBlockEnd()) {
+            cursor.insertBlock();
+            cursor.movePosition(QTextCursor::PreviousCharacter);
+        }
+        if (ownBlocks && !cursor.atBlockStart())
+            cursor.insertBlock();
+        const int insertedAt = cursor.position();
+        const bool atBlockStart = cursor.atBlockStart();
+        if (!converted.isEmpty())
+            cursor.insertFragment(QTextDocumentFragment(&converted));
+        // A fragment's first block merges into the block it lands in and
+        // loses its own block format: a leading "# Title" would arrive as
+        // body text. Restore its heading level when it starts a block.
+        const int heading = firstConverted.blockFormat().headingLevel();
+        if (atBlockStart && heading > 0) {
+            QTextCursor first(m_document->findBlock(insertedAt));
+            QTextBlockFormat format;
+            format.setHeadingLevel(heading);
+            first.mergeBlockFormat(format);
+        }
+        cursor.endEditBlock();
+    }
+    m_streaming = false;
+    m_streamStart = m_streamEnd = -1;
+    m_streamHasStep = false;
+    emit cursorPositionRequested(cursor.position());
+    emit streamingEditChanged();
+    emit formatChanged();
+}
+
+namespace {
+
+// QTextDocument's frame boundaries (tables): never inside a replacement.
+bool isFrameBoundary(QChar c)
+{
+    return c.unicode() == 0xfdd0 || c.unicode() == 0xfdd1; // QTextBeginningOfFrame / QTextEndOfFrame
+}
+
+// `find` as a pattern tolerant of what models change when quoting: Markdown
+// markup (emphasis, code, list markers, heading hashes) and whitespace.
+QRegularExpression loosePattern(const QString &find)
+{
+    QString text = find;
+    static const QRegularExpression lineMarkers(QStringLiteral(R"((^|\n)[ \t]*(?:[-*+]|\d+[.)]|#{1,6})[ \t]+)"));
+    text.replace(lineMarkers, QStringLiteral("\\1"));
+    static const QRegularExpression emphasis(QStringLiteral(R"(\*\*|__|\*|`)"));
+    text.remove(emphasis);
+    const QStringList words = text.split(QRegularExpression(QStringLiteral(R"(\s+)")), Qt::SkipEmptyParts);
+    QStringList escaped;
+    for (const QString &w : words)
+        escaped.append(QRegularExpression::escape(w));
+    return QRegularExpression(escaped.join(QStringLiteral(R"(\s+)")));
+}
+
+} // namespace
+
+bool DocumentController::applyStreamedReplacement(const QString &find, const QString &replace)
+{
+    if (!m_streaming || find.isEmpty() || m_streamStart >= 0)
+        return false; // new text was already being written: one kind of edit per reply
+    // The scope as text, position for position ('\n' for paragraph breaks).
+    const int scopeStart = m_streamHadSelection ? m_streamSelStart : 0;
+    const int scopeEnd = m_streamHadSelection ? m_streamSelEnd : m_document->characterCount() - 1;
+    QString text;
+    text.reserve(scopeEnd - scopeStart);
+    for (int i = scopeStart; i < scopeEnd; ++i) {
+        const QChar c = m_document->characterAt(i);
+        text.append(c == QChar::ParagraphSeparator || c == QChar::LineSeparator ? QChar(u'\n') : c);
+    }
+    // First match at or after the previous replacement, else the first.
+    const int from = std::clamp(m_streamSearchFrom - scopeStart, 0, int(text.size()));
+    int at = -1, length = 0;
+    const auto exact = [&](int start) {
+        const qsizetype i = text.indexOf(find, start);
+        if (i >= 0) {
+            at = int(i);
+            length = int(find.size());
+        }
+        return i >= 0;
+    };
+    const QRegularExpression loose = loosePattern(find);
+    const auto fuzzy = [&](int start) {
+        if (loose.pattern().isEmpty())
+            return false;
+        const QRegularExpressionMatch m = loose.match(text, start);
+        if (m.hasMatch()) {
+            at = int(m.capturedStart());
+            length = int(m.capturedLength());
+        }
+        return m.hasMatch();
+    };
+    if (!exact(from) && !exact(0) && !fuzzy(from) && !fuzzy(0))
+        return false;
+    const QString found = text.mid(at, length);
+    if (std::any_of(found.begin(), found.end(), isFrameBoundary))
+        return false;
+
+    // Rewrite only what differs: the common prefix and suffix stay as they
+    // are, formatting and all.
+    int prefix = 0;
+    while (prefix < found.size() && prefix < replace.size() && found[prefix] == replace[prefix])
+        ++prefix;
+    int suffix = 0;
+    while (suffix < found.size() - prefix && suffix < replace.size() - prefix
+           && found[found.size() - 1 - suffix] == replace[replace.size() - 1 - suffix])
+        ++suffix;
+    const int start = scopeStart + at + prefix;
+    const int end = scopeStart + at + int(found.size()) - suffix;
+    const QString middle = replace.mid(prefix, replace.size() - prefix - suffix);
+
+    QTextCursor cursor(m_document);
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        cursor.setPosition(start);
+        openStreamStep(cursor);
+        // The text it replaces sets the format (else the text before it).
+        QTextCursor formatAt(m_document);
+        formatAt.setPosition(start < end ? start + 1 : start);
+        const QTextCharFormat format = formatAt.charFormat();
+        cursor.setPosition(end, QTextCursor::KeepAnchor);
+        cursor.insertText(middle, format);
+        // Empty paragraphs it made ("leave a line") aren't list items.
+        for (QTextBlock block = m_document->findBlock(start); block.isValid() && block.position() <= cursor.position();
+             block = block.next()) {
+            if (block.text().isEmpty() && block.textList())
+                removeFromList(block);
+        }
+        cursor.endEditBlock();
+    }
+    const int delta = int(middle.size()) - (end - start);
+    if (m_streamHadSelection)
+        m_streamSelEnd += delta;
+    m_streamSearchFrom = cursor.position() + suffix;
+    emit cursorPositionRequested(cursor.position());
+    return true;
+}
+
+void DocumentController::abortStreamedEdit(bool keepText)
+{
+    if (!m_streaming)
+        return;
+    const bool revert = !keepText && m_streamHasStep;
+    const int position = revert ? m_streamSelStart : (m_streamEnd >= 0 ? m_streamEnd : m_streamSearchFrom);
+    m_streaming = false;
+    m_streamStart = m_streamEnd = -1;
+    if (revert) {
+        // Our step is the last one: nothing else could edit meanwhile.
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        m_document->undo();
+        // Undone, it would otherwise be redoable.
+        m_document->clearUndoRedoStacks(QTextDocument::RedoStack);
+    }
+    m_streamHasStep = false;
+    emit cursorPositionRequested(position);
+    emit streamingEditChanged();
     emit formatChanged();
 }
