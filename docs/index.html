@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rune — The word processor that writes with you</title>
-<meta name="description" content="An AI-native word processor for Linux. Opens real .docx, .doc, .odt, .md files. Claude, ChatGPT, and Grok are built into the editing surface, not bolted on.">
+<meta name="description" content="An AI-native word processor for Linux. Opens real .odt, .docx and .doc files. Sign in with your ChatGPT plan, or use Claude, GPT and Grok through OpenRouter, and the AI edits your document directly.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -186,9 +186,9 @@
   /* ---------- Architecture diagram ---------- */
   .arch-diagram {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 20px;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: stretch;
+    gap: 16px;
     margin: 40px 0;
     padding: 36px 28px;
     background: var(--bg-raised);
@@ -208,10 +208,12 @@
     color: var(--ember-bright);
     margin: 0 0 10px;
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   .arch-box ul { margin: 0; padding-left: 18px; color: var(--ink-dim); font-size: 15px; }
   .arch-box li { margin-bottom: 4px; }
   .arch-link {
+    align-self: center;
     text-align: center;
     font-family: var(--mono);
     font-size: 12px;
@@ -298,7 +300,7 @@
     <path d="M30 10 L30 90 M30 10 L72 36 L30 58 M72 36 L84 90" stroke="#d98f4e" stroke-width="6" fill="none" stroke-linecap="square"/>
   </svg>
   <h1>The word processor<br>that writes <span class="accent">with</span> you</h1>
-  <p class="hero-sub">Real .docx, .doc, .odt, and Markdown. Claude, ChatGPT, and Grok built into the editing surface — not a sidebar plugin bolted onto a twenty-year-old codebase.</p>
+  <p class="hero-sub">Real .odt, .docx, and .doc. Your ChatGPT plan — or Claude, GPT, and Grok through OpenRouter — writing straight into the document, not a chat window bolted onto a twenty-year-old codebase.</p>
   <div class="hero-ctas">
     <a href="https://github.com/ninepointlabs/rune" class="btn btn-primary">View on GitHub</a>
     <a href="#architecture" class="btn btn-ghost">How it works</a>
@@ -313,7 +315,15 @@
       <h2>AI is not a plugin here.</h2>
       <div>
         <p>Every other word processor on Linux treats AI as an afterthought — a sidebar chat window stapled onto software that was finished before large language models existed. <strong>Rune starts from the opposite premise.</strong> The model is a writing primitive, on the same level as bold, italic, and paste.</p>
-        <p>Highlight a paragraph and ask Claude to tighten it. Place your cursor and have GPT draft the next section. Switch providers mid-document. This is the actual point of the project — everything else is table stakes.</p>
+        <p>Highlight a paragraph and ask Claude to tighten it. Place your cursor and have GPT draft the next section. Ask it to fix the spelling and it corrects the page in place, keeping your formatting. Every AI edit lands as a single undo step, so taking it back is one Ctrl+Z. This is the actual point of the project — everything else is table stakes.</p>
+      </div>
+    </div>
+
+    <div class="stanza">
+      <h2>Your accounts, no middleman.</h2>
+      <div>
+        <p>Sign in with the <strong>ChatGPT plan you already pay for</strong>, or with OpenRouter to use Claude, GPT, and Grok on your own credits. Rune has no server and no account of its own: requests go straight from your machine to your provider, and sign-in secrets live in your desktop keyring.</p>
+        <p>Why no direct Claude or Grok sign-in? Anthropic's terms don't allow third-party apps to offer Claude.ai login, and xAI has no sign-in program for other apps. Rune uses only the sanctioned routes.</p>
       </div>
     </div>
 
@@ -339,29 +349,38 @@
   <div class="wrap">
     <div class="section-label">Architecture</div>
     <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 12px; color: var(--ink);">One process, native all the way down</h2>
-    <p style="color: var(--ink-dim); max-width: 640px;">Built directly on Qt's <code style="color: var(--ember-bright);">QTextDocument</code> — no bitmap tiles, no IPC, no serialization. ODF is the native format; Word documents are a one-shot conversion at the boundary, not the live model.</p>
+    <p style="color: var(--ink-dim); max-width: 640px;">Built directly on Qt's <code style="color: var(--ember-bright);">QTextDocument</code> — no bitmap tiles, no IPC, no serialization. ODF is the native format; Word documents are a one-shot conversion at the boundary, not the live model. The AI layer lives in the same process and edits the same document object you type into.</p>
 
     <div class="arch-diagram">
-      <div class="arch-box">
-        <h3>DocumentController</h3>
-        <ul>
-          <li>QML-facing editing API</li>
-          <li>QTextCursor operations</li>
-          <li>Native, no Electron</li>
-        </ul>
+        <div class="arch-box">
+          <h3>Files</h3>
+          <ul>
+            <li>OdfReader: our own ODF import (Qt has none)</li>
+            <li>Qt's ODF writer + a save-time sanitizer</li>
+            <li>.docx/.doc via soffice, off the UI thread</li>
+          </ul>
+        </div>
+        <div class="arch-link"><span class="pipe">⇄</span>open / save</div>
+        <div class="arch-box">
+          <h3>DocumentController</h3>
+          <ul>
+            <li>One QTextDocument, shown by QML</li>
+            <li>Formatting, lists, tables, undo</li>
+            <li>AI edits as a single undo step</li>
+          </ul>
+        </div>
+        <div class="arch-link"><span class="pipe">⇄</span>context / edits</div>
+        <div class="arch-box">
+          <h3>AI layer</h3>
+          <ul>
+            <li>Sign in with ChatGPT; OpenRouter OAuth</li>
+            <li>Secrets in the desktop keyring</li>
+            <li>Streamed replies: answers or edits</li>
+          </ul>
+        </div>
       </div>
-      <div class="arch-link"><span class="pipe">⇄</span>in-process<br>function calls</div>
-      <div class="arch-box">
-        <h3>OdfReader + DocxBridge</h3>
-        <ul>
-          <li>Custom ODF import (Qt has none)</li>
-          <li>.docx via soffice, batch-only</li>
-          <li>217 verified checks</li>
-        </ul>
-      </div>
-    </div>
 
-    <p style="color: var(--ink-dim);">Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
+    <p style="color: var(--ink-dim);">298 automated checks run headlessly, including both AI sign-in flows against local mock servers. Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
   </div>
 </section>
 
@@ -369,7 +388,7 @@
   <div class="wrap">
     <div class="section-label">Status</div>
     <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 8px; color: var(--ink);">Early, and honest about it</h2>
-    <p style="color: var(--ink-dim); max-width: 640px;">Core editing works end to end. The AI integration — the actual reason this project exists — is still a provider registry waiting for real HTTP calls.</p>
+    <p style="color: var(--ink-dim); max-width: 640px;">Core editing works end to end. Sign in with your ChatGPT plan, or OpenRouter for Claude, GPT and Grok, and the AI writes into your document directly: rewrite a selection or draft at the cursor, as one undo step. Or ask it about the document.</p>
 
     <table class="status-table">
       <tr><th>Area</th><th>State</th></tr>
@@ -377,11 +396,14 @@
       <tr><td><span class="dot dot-done"></span>Text editing — keyboard, mouse, clipboard</td><td>Working</td></tr>
       <tr><td><span class="dot dot-done"></span>Formatting, styles (incl. inherited), lists, tables</td><td>Working</td></tr>
       <tr><td><span class="dot dot-done"></span>Async .docx conversion — doesn't block the UI</td><td>Working</td></tr>
-      <tr><td><span class="dot dot-none"></span>AI integration</td><td>Not started</td></tr>
+        <tr><td><span class="dot dot-done"></span>Open / Save As dialogs, unsaved-changes prompt, word-by-word undo</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>AI sign-in: your ChatGPT plan, or OpenRouter (Claude, GPT, Grok)</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>AI in the document: corrections in place, rewrite selection, draft at cursor; ask about the document</td><td>Working</td></tr>
+        <tr><td><span class="dot dot-none"></span>AI formatting changes by instruction ("bold the names")</td><td>Not started</td></tr>
       <tr><td><span class="dot dot-none"></span>Headers, footers, section breaks, images</td><td>Not started</td></tr>
     </table>
 
-    <p class="honest-note">Some things we tried and couldn't make work — Qt's own ODF writer silently drops a table placed directly after a list, nested tables lose content on export — are documented with the evidence, not hidden. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
+    <p class="honest-note">Problems found along the way are documented with the evidence, not hidden — Qt's ODF writer silently dropping a table placed directly after a list (worked around), and dropping heading levels on save (open), nested tables losing content on export. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
   </div>
 </section>
 
@@ -389,10 +411,10 @@
   <div class="wrap">
     <div class="section-label">Get it</div>
     <h2 style="font-family: var(--serif-display); font-size: 28px; margin: 0 0 8px; color: var(--ink);">Build it yourself</h2>
-    <p style="color: var(--ink-dim);">Arch / Omarchy, with Qt 6 and QuaZip already in the official repos.</p>
+    <p style="color: var(--ink-dim);">Arch / Omarchy: everything is in the official repos. LibreOffice is only needed for .docx/.doc.</p>
 
     <div class="code-block"><span class="comment"># dependencies</span>
-<span class="prompt">$</span> sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libreoffice-fresh
+<span class="prompt">$</span> sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libsecret openssl libreoffice-fresh
 
 <span class="comment"># build</span>
 <span class="prompt">$</span> git clone https://github.com/ninepointlabs/rune.git

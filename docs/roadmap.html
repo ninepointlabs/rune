@@ -174,7 +174,7 @@
       <li><span class="dot dot-done"></span><div>Document I/O: <strong><code>.odt</code></strong> native read/write; <strong><code>.docx</code>/<code>.doc</code></strong> via an async <code>soffice</code> batch-conversion bridge &mdash; verified against real-world files, not just our own writer's output</div></li>
       <li><span class="dot dot-done"></span><div>Full text editing: keyboard, mouse, clipboard &mdash; native <code>TextEdit</code> behavior, not custom-built</div></li>
       <li><span class="dot dot-done"></span><div>File Open / Save / Save As / New with native file dialogs, and a Save / Discard / Cancel prompt before unsaved changes are lost (New, Open, or closing the window)</div></li>
-      <li><span class="dot dot-done"></span><div>Undo/redo (toolbar, Ctrl+Z / Ctrl+Shift+Z) &mdash; every formatting, list and table operation is exactly one step, tested per operation</div></li>
+      <li><span class="dot dot-done"></span><div>Undo/redo (toolbar, Ctrl+Z / Ctrl+Shift+Z) &mdash; every formatting, list and table operation is exactly one step, tested per operation; typing undoes a word at a time, not a paragraph at a time</div></li>
       <li><span class="dot dot-done"></span><div>Formatting: Bold/Italic/Underline, paragraph styles with named/inherited style resolution on import (<code>styles.xml</code> parent-style-name chains), bullet/numbered lists with promote/demote nesting, alignment, font family/size, text color</div></li>
       <li><span class="dot dot-done"></span><div>Tables: insert, insert/delete row, insert/delete column, Tab/Shift+Tab cell navigation</div></li>
       <li><span class="dot dot-done"></span><div>A save-time sanitizer working around a real Qt ODF-writer bug (see below) &mdash; verified with a direct A/B test, not an assumption</div></li>
@@ -190,6 +190,7 @@
       <tr><td>List numbering restart, custom start values, bullet characters, number formats</td><td>Imported lists get the UI's own level styles rather than preserving the source document's exact presentation.</td></tr>
       <tr><td>Table/column widths, cell borders, backgrounds</td><td>Not read or written.</td></tr>
       <tr><td><code>styles.xml</code>'s own automatic-styles and default-style</td><td>Not read &mdash; only named paragraph styles with parent chains.</td></tr>
+      <tr><td>Headings save as bold body text</td><td>Qt's ODF writer drops a block's heading level and relative font size: headings (opened from a file, or written by the AI) come back as bold paragraphs. Pre-existing and affects every saved document; needs post-processing the written XML or our own writer.</td></tr>
     </table>
   </section>
 
@@ -203,27 +204,32 @@
       <tr><td>Tab stops &amp; leader lines</td><td>Needs a ruler widget</td></tr>
       <tr><td>Table of Contents / outline nav</td><td>Builds on existing paragraph styles</td></tr>
       <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Was a documented dead end in the old LibreOfficeKit engine; not yet investigated against <code>QTextBlockFormat</code> directly &mdash; may actually be achievable now that we're not routing through <code>.uno:</code> commands. Worth a fresh look.</td></tr>
-      <tr><td>Find/replace, spell check</td><td>Not built.</td></tr>
+      <tr><td>Find/replace</td><td>Not built.</td></tr>
+      <tr><td>Live spell check</td><td>No underlines as you type. (The AI corrects spelling on request &mdash; see below.)</td></tr>
+      <tr><td>Command palette (Ctrl+K)</td><td>Where rare actions should live instead of permanent toolbar space</td></tr>
+      <tr><td>Pagination</td><td>The editor is one continuous scroll. Whether Rune needs true page layout is an open product question, not just an engineering gap</td></tr>
     </table>
   </section>
 
   <section class="roadmap-section">
-    <h2><span class="dot dot-none"></span> AI integration &mdash; the actual differentiator</h2>
-    <p class="lede">Everything else on this page is table stakes. This is the reason the project exists, and nothing is built yet.</p>
+    <h2><span class="dot dot-done"></span> AI integration &mdash; the actual differentiator</h2>
+    <p class="lede">Everything else on this page is table stakes. This is the reason the project exists. Sign-in, streaming and document editing are built.</p>
     <ul class="checklist">
-      <li><span class="dot dot-none"></span><div>Real OAuth flows for Claude, ChatGPT, Grok</div></li>
-      <li><span class="dot dot-none"></span><div>Streaming HTTP responses into the document or a sidebar</div></li>
-      <li><span class="dot dot-none"></span><div>Three interaction modes per the original architecture plan: inline edit, sidebar chat, draft generation</div></li>
-      <li><span class="dot dot-none"></span><div>A UI dock for AI chat (and potentially a future "inspector" panel for deep formatting controls)</div></li>
+      <li><span class="dot dot-done"></span><div><strong>Sign in with ChatGPT</strong> &mdash; ChatGPT Plus/Pro users use their existing plan (OpenAI's open-source plan-usage program), with verified ID tokens, rotating refresh and revoke on sign-out</div></li>
+      <li><span class="dot dot-done"></span><div><strong>OpenRouter sign-in</strong> (OAuth PKCE) &mdash; Claude, GPT and Grok models on the user's OpenRouter credits</div></li>
+      <li><span class="dot dot-done"></span><div>Streaming responses, model picker, secrets in the desktop keyring, and an AI side panel (toolbar <strong>AI</strong>, or Ctrl+Shift+E to start an edit). No Rune server or account: requests go straight from your machine to your provider</div></li>
+      <li><span class="dot dot-done"></span><div><strong>Edit the document</strong>: corrections applied in place (spelling, grammar, wording, keeping formatting), or new text replacing the selection or written at the cursor, streamed in live and applied as one undo step; <strong>Ask</strong> mode answers questions with the document as context</div></li>
+      <li><span class="dot dot-none"></span><div>Formatting changes by instruction ("bold the names"), and an inline prompt at the selection</div></li>
+      <li><span class="dot dot-none"></span><div>Optional API keys for Anthropic or xAI directly. Direct Claude/Grok <em>sign-in</em> isn't possible: Anthropic's terms prohibit third-party Claude.ai login, and xAI has no third-party OAuth program</div></li>
     </ul>
   </section>
 
   <section class="roadmap-section">
     <h2>Architecture notes for contributors</h2>
-    <div class="note-box">The current app (<code>native/</code>) is a single process built on <code>QTextDocument</code> — no sockets, no protocol, no IPC. <code>DocumentController</code> is the QML-facing editing API; <code>OdfReader</code>/<code>DocxBridge</code> are plain C++ (not QML-exposed) handling ODF import and the .docx conversion bridge respectively.</div>
+    <div class="note-box">The current app (<code>native/</code>) is a single process built on <code>QTextDocument</code> &mdash; no sockets, no protocol, no IPC. <code>DocumentController</code> is the QML-facing editing API (including streamed AI edits as one undo step); <code>OdfReader</code>/<code>DocxBridge</code> are plain C++ handling ODF import and the .docx conversion bridge. <code>native/ai/</code> is the AI layer: <code>AiManager</code> (QML-facing), <code>ChatGptProvider</code>/<code>OpenRouterProvider</code>, the OAuth loopback listener, JWT verification (OpenSSL), the SSE parser and keyring storage (libsecret).</div>
     <div class="note-box">An earlier two-process LibreOfficeKit design (<code>legacy-lok/</code>) is kept for reference, not actively developed. See <code>legacy-lok/README.md</code> and the main README's architecture section for why it was replaced.</div>
-    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 217 checks covering formatting, tables, lists, undo/redo, the file Open/Save flow, and save/load round-trips verified via real <code>soffice</code> conversion, not just a successful-looking return value.</div>
-    <div class="note-box"><strong style="color: var(--ink);">Verify Qt/ODF API behavior against real files before relying on it.</strong> This project has twice found real, silent-failure bugs this way &mdash; Qt's own ODF writer mangling list-then-table structure (confirmed with <code>xmllint</code> plus a direct A/B <code>soffice</code> conversion test), and earlier, the old LOK engine's <code>.uno:</code> commands that returned <code>ok</code> while silently doing nothing (confirmed by diffing rendered tiles). Don't assume an API's documented behavior is what actually happens on disk &mdash; test it.</div>
+    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 298 checks covering formatting, tables, lists, undo/redo, the file Open/Save flow, save/load round-trips verified via real <code>soffice</code> conversion, and both AI sign-in flows plus every AI edit path against local mock servers. A test run never touches the real keyring, settings or browser.</div>
+    <div class="note-box"><strong style="color: var(--ink);">Verify Qt/ODF API behavior against real files and the running app before relying on it.</strong> Silent failures this project has found that way: Qt's ODF writer mangling list-then-table structure (<code>xmllint</code> plus a direct A/B <code>soffice</code> test) and dropping heading levels; <code>QTextDocument::clear()</code> resetting the modified flag and undo history without emitting the signals that say so; Qt 6.11's ahead-of-time compiled QML resolving <code>MessageDialog</code>'s button enums to undefined; and, in the retired LOK engine, <code>.uno:</code> commands that returned <code>ok</code> while doing nothing. Don't assume an API's documented behavior is what actually happens &mdash; test it.</div>
   </section>
 
 </main>
