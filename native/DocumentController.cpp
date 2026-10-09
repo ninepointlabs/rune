@@ -665,7 +665,7 @@ QTextTableCell adjacentCell(QTextTable *table, const QTextTableCell &cell, bool 
 
 } // namespace
 
-void DocumentController::insertTable(int rows, int columns)
+QTextTableFormat DocumentController::tableFormat()
 {
     QTextTableFormat format;
     format.setBorder(1);
@@ -674,7 +674,12 @@ void DocumentController::insertTable(int rows, int columns)
     format.setCellSpacing(0);
     format.setCellPadding(4);
     format.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+    return format;
+}
 
+void DocumentController::insertTable(int rows, int columns)
+{
+    const QTextTableFormat format = tableFormat();
     QTextCursor cursor = selectionCursor();
     cursor.clearSelection();
     QTextTable *table = nullptr;

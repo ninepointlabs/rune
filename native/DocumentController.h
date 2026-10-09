@@ -36,6 +36,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextListFormat>
+#include <QTextTableFormat>
 
 class QTextList;
 
@@ -120,6 +121,13 @@ public:
     // Every ODF save must go through this; see the .cpp for each rule.
     static void sanitizeForOdfExport(QTextDocument *doc);
 
+    // How lists and tables are represented, shared with OdfReader so an
+    // opened document has the structure the UI would have built.
+    enum class ListKind { None, Bullet, Numbered };
+    // The QTextListFormat style for a list of `kind` at nesting `indent` (1-based).
+    static QTextListFormat::Style listStyle(ListKind kind, int indent);
+    static QTextTableFormat tableFormat();
+
 signals:
     void documentChanged();
     void dirtyChanged();
@@ -132,7 +140,6 @@ signals:
 
 private:
     enum class Attr { Bold, Italic, Underline };
-    enum class ListKind { None, Bullet, Numbered };
 
     static bool hasAttr(const QTextCharFormat &f, Attr attr);
     static void setAttr(QTextCharFormat &f, Attr attr, bool on);
@@ -145,7 +152,6 @@ private:
     void onContentsChange(int position, int removed, int added);
 
     static ListKind listKind(const QTextList *list);
-    static QTextListFormat::Style listStyle(ListKind kind, int indent);
     QList<QTextBlock> selectedBlocks() const;
     ListKind currentListKind() const;
     void toggleList(ListKind kind);
