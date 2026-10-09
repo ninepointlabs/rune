@@ -25,6 +25,7 @@
 // at that position. Paragraph formatting (alignment, lists) applies to every
 // block the selection touches, or the cursor's block.
 
+#include <QFuture>
 #include <QObject>
 #include <QQmlEngine>
 #include <QQuickTextDocument>
@@ -47,6 +48,8 @@ class DocumentController : public QObject
     Q_PROPERTY(QQuickTextDocument *document READ qmlDocument WRITE setQmlDocument NOTIFY documentChanged)
     Q_PROPERTY(bool dirty READ isDirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString currentPath READ currentPath NOTIFY currentPathChanged)
+    // A .docx open/save is converting in the background.
+    Q_PROPERTY(bool busy READ isBusy NOTIFY busyChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -58,6 +61,7 @@ public:
 
     bool isDirty() const { return m_document->isModified(); }
     QString currentPath() const { return m_currentPath; }
+    bool isBusy() const { return m_busy; }
 
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool saveToOdf(const QString &path);
@@ -67,12 +71,26 @@ public:
     // Open / save by extension (case-insensitive): .odt goes straight to
     // openOdf() / saveToOdf(); .docx and .doc (open) and .docx (save) go
     // through a temporary .odt converted by LibreOffice (see DocxBridge).
-    // Anything else fails. Signals, dirty state and currentPath (the
-    // .docx's, never the temporary's) end up as openOdf()/saveToOdf()
-    // leave them; on failure the document, its dirty state and
-    // currentPath are unchanged.
-    Q_INVOKABLE bool openFile(const QString &path);
-    Q_INVOKABLE bool saveFile(const QString &path);
+    // Anything else fails.
+    //
+    // Asynchronous: the result arrives as fileOpened() / fileSaved(). For
+    // .odt (and any failure detected up front) that signal is emitted
+    // before the call returns and `busy` never changes. For .docx/.doc the
+    // soffice run happens on Qt's global thread pool: `busy` is true from
+    // the call until just before the signal, which is emitted later from
+    // the event loop. While busy, any further openFile()/saveFile() fails
+    // at once ("already in progress") without touching the operation in
+    // flight.
+    //
+    // Signals, dirty state and currentPath (the .docx's, never the
+    // temporary's) end up as openOdf()/saveToOdf() leave them; on failure
+    // the document, its dirty state and currentPath are unchanged. A .docx
+    // save snapshots the document when called: edits made while it
+    // converts leave the document dirty afterwards. A .docx open replaces
+    // the document when its conversion finishes, edits made meanwhile
+    // included; the UI shouldn't allow editing while busy.
+    Q_INVOKABLE void openFile(const QString &path);
+    Q_INVOKABLE void saveFile(const QString &path);
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     Q_INVOKABLE void setSelection(int cursorPosition, int selectionStart, int selectionEnd);
@@ -141,6 +159,11 @@ signals:
     void documentChanged();
     void dirtyChanged();
     void currentPathChanged();
+    void busyChanged();
+    // Completion of openFile() / saveFile(): `path` as passed, `error` ""
+    // on success.
+    void fileOpened(bool success, const QString &path, const QString &error);
+    void fileSaved(bool success, const QString &path, const QString &error);
     // Cursor moved or formatting changed: refresh toolbar state.
     void formatChanged();
     // The controller moved the cursor (e.g. into a new table cell); the
@@ -173,9 +196,29 @@ private:
     // since `oldPath`/`wasDirty`.
     void finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty);
 
+    // Result of a background soffice run.
+    struct Conversion
+    {
+        QString odt; // convertToOdt()'s output, for an open
+        QString error; // "" on success
+    };
+    void setBusy(bool busy);
+    // Runs `work` on the global thread pool; `done` gets its result back on
+    // this thread unless this controller is destroyed first.
+    template<typename Work, typename Done>
+    QFuture<Conversion> runConversion(Work work, Done done);
+    void finishOpen(const QString &path, const Conversion &result);
+
     QTextDocument *m_document;
     QPointer<QQuickTextDocument> m_qmlDocument;
     QString m_currentPath;
+    bool m_busy = false;
+    // Bumped on every document edit, so a background .docx save can tell
+    // whether what it wrote is still what's in the document.
+    quint64 m_contentRevision = 0;
+    // The open conversion in flight, if any, so the destructor can still
+    // remove its temporary .odt.
+    QFuture<Conversion> m_pendingOpen;
 
     int m_cursorPosition = 0;
     int m_selectionStart = 0;

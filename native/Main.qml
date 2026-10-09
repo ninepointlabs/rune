@@ -70,9 +70,10 @@ Window {
         controller.setSelection(editor.cursorPosition, editor.selectionStart, editor.selectionEnd)
     }
 
+    // Asynchronous: the result arrives in onFileSaved below.
     function save() {
-        statusFlash = controller.saveToOdf(savePath) ? "Saved " + savePath : "Save failed: " + savePath
-        flashTimer.restart()
+        if (controller.busy) return
+        controller.saveFile(savePath)
     }
 
     width: 1000
@@ -94,6 +95,14 @@ Window {
         objectName: "controller"
         onFormatChanged: root.refreshFormat()
         onCursorPositionRequested: position => editor.cursorPosition = position
+    }
+
+    Connections {
+        target: controller
+        function onFileSaved(success, path, error) {
+            root.statusFlash = success ? "Saved " + path : "Save failed: " + error
+            flashTimer.restart()
+        }
     }
 
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
@@ -346,7 +355,8 @@ Window {
             font.family: "monospace"
             font.pixelSize: 12
             elide: Text.ElideRight
-            text: root.statusFlash !== "" ? root.statusFlash
+            text: controller.busy ? "Saving…"
+                  : root.statusFlash !== "" ? root.statusFlash
                   : root.documentName + (controller.dirty ? " ●" : "")
         }
 

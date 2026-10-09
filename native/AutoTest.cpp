@@ -6,6 +6,8 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QKeyEvent>
@@ -18,10 +20,12 @@
 #include <QTextList>
 #include <QTextTable>
 #include <QTextStream>
+#include <QTimer>
 
 #include <quazip.h>
 #include <quazipfile.h>
 
+#include <functional>
 #include <memory>
 
 namespace {
@@ -53,6 +57,8 @@ const QString kStage5TxtPath = QStringLiteral("/tmp/rune-native-stage5-plain.txt
 const QString kStage5NoExtPath = QStringLiteral("/tmp/rune-native-stage5-no-extension");
 const QString kStage5CorruptPath = QStringLiteral("/tmp/rune-native-stage5-corrupt.docx");
 const QString kStage5UnwritablePath = QStringLiteral("/tmp/rune-native-stage5-no-such-dir/out.docx");
+const QString kAsyncOdtPath = QStringLiteral("/tmp/rune-native-async.odt");
+const QString kAsyncEditDocxPath = QStringLiteral("/tmp/rune-native-async-edited.docx");
 const QString kSampleDocx = QStringLiteral(RUNE_SAMPLES_DIR "/test.docx");
 const QString kSampleDoc = QStringLiteral(RUNE_SAMPLES_DIR "/test.doc");
 
@@ -324,6 +330,82 @@ QStringList bridgeTempDirs()
 {
     return QDir(QDir::tempPath()).entryList({QStringLiteral("rune-docx-*"), QStringLiteral("rune-save-*")},
                                             QDir::Dirs | QDir::NoDotAndDotDot);
+}
+
+// How one openFile()/saveFile() call went, as seen from outside.
+struct IoRun
+{
+    bool fired = false;          // fileOpened/fileSaved arrived (before the timeout)
+    bool success = false;
+    QString path;
+    QString error;
+    bool completedInCall = false; // the signal fired before openFile()/saveFile() returned
+    bool busyAfterCall = false;   // controller->isBusy() as the call returned
+    bool busyAtSignal = false;    // ... and as the completion signal fired
+    int busyChanges = 0;          // busyChanged() emissions, call to completion
+    qint64 elapsedMs = 0;         // call to completion
+};
+
+// Generous: one soffice run is bounded by DocxBridge::kTimeoutMs.
+constexpr int kIoTimeoutMs = DocxBridge::kTimeoutMs + 10000;
+
+// Pumps the event loop until `done()` or `timeoutMs` elapses; true if done.
+bool waitUntil(const std::function<bool()> &done, int timeoutMs = kIoTimeoutMs)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (!done() && timer.elapsed() < timeoutMs)
+        QCoreApplication::processEvents(QEventLoop::WaitForMoreEvents, 50);
+    return done();
+}
+
+// Calls `start` (an openFile()/saveFile() on `controller`) and waits for
+// `completion` (&DocumentController::fileOpened or ::fileSaved).
+template<typename Signal>
+IoRun runIo(DocumentController *controller, Signal completion, const std::function<void()> &start)
+{
+    IoRun run;
+    QElapsedTimer timer;
+    bool returned = false;
+    const auto busyConn = QObject::connect(controller, &DocumentController::busyChanged, [&] { ++run.busyChanges; });
+    const auto doneConn = QObject::connect(controller, completion,
+                                           [&](bool success, const QString &path, const QString &error) {
+                                               if (run.fired)
+                                                   return;
+                                               run.fired = true;
+                                               run.success = success;
+                                               run.path = path;
+                                               run.error = error;
+                                               run.completedInCall = !returned;
+                                               run.busyAtSignal = controller->isBusy();
+                                               run.elapsedMs = timer.elapsed();
+                                           });
+    timer.start();
+    start();
+    returned = true;
+    run.busyAfterCall = controller->isBusy();
+    waitUntil([&] { return run.fired; });
+    QObject::disconnect(busyConn);
+    QObject::disconnect(doneConn);
+    return run;
+}
+
+IoRun openAndWait(DocumentController *controller, const QString &path)
+{
+    return runIo(controller, &DocumentController::fileOpened, [=] { controller->openFile(path); });
+}
+
+IoRun saveAndWait(DocumentController *controller, const QString &path)
+{
+    return runIo(controller, &DocumentController::fileSaved, [=] { controller->saveFile(path); });
+}
+
+// " (error: ...)" for a check's label, if there was one.
+QString errorNote(const IoRun &run)
+{
+    if (!run.fired)
+        return QStringLiteral(" (no completion signal within %1 s)").arg(kIoTimeoutMs / 1000);
+    return run.error.isEmpty() ? QString() : QStringLiteral(" (error: %1)").arg(run.error);
 }
 
 // The zip entry names in `path` ("" if not a zip).
@@ -1026,8 +1108,16 @@ bool runAutoTest(QQuickWindow *window)
     QStringList savePaths;
     const auto savePathConn = QObject::connect(controller, &DocumentController::currentPathChanged,
                                                [&] { savePaths << controller->currentPath(); });
-    t.check(controller->isDirty() && controller->saveFile(kStage5DocxPath), "saveFile(" + kStage5DocxPath + ")");
+    const bool dirtyBeforeSave = controller->isDirty();
+    const IoRun docxSave = saveAndWait(controller, kStage5DocxPath);
     QObject::disconnect(savePathConn);
+    t.check(dirtyBeforeSave && docxSave.fired && docxSave.success && docxSave.path == kStage5DocxPath,
+            "saveFile(" + kStage5DocxPath + ") -> fileSaved(true)" + errorNote(docxSave));
+    QTextStream(stdout) << "  saveFile(.docx): fileSaved after " << docxSave.elapsedMs << " ms" << Qt::endl;
+    t.check(docxSave.busyAfterCall && !docxSave.completedInCall && !docxSave.busyAtSignal && !controller->isBusy()
+                && docxSave.busyChanges == 2,
+            QStringLiteral("saveFile(.docx): busy as the call returns, fileSaved later, busy false again by then "
+                           "(busyChanged x%1)").arg(docxSave.busyChanges));
     t.check(!controller->isDirty() && controller->currentPath() == kStage5DocxPath
                 && savePaths == QStringList{kStage5DocxPath},
             "saveFile(.docx): clean, currentPath is the .docx, currentPathChanged once with it (never the temp .odt): "
@@ -1052,7 +1142,14 @@ bool runAutoTest(QQuickWindow *window)
     QStringList openPaths;
     QObject::connect(&docxReader, &DocumentController::currentPathChanged,
                      [&] { openPaths << docxReader.currentPath(); });
-    t.check(docxReader.openFile(kStage5DocxPath), "openFile(" + kStage5DocxPath + ") on a fresh controller");
+    const IoRun docxOpen = openAndWait(&docxReader, kStage5DocxPath);
+    t.check(docxOpen.fired && docxOpen.success && docxOpen.path == kStage5DocxPath,
+            "openFile(" + kStage5DocxPath + ") on a fresh controller -> fileOpened(true)" + errorNote(docxOpen));
+    QTextStream(stdout) << "  openFile(.docx): fileOpened after " << docxOpen.elapsedMs << " ms" << Qt::endl;
+    t.check(docxOpen.busyAfterCall && !docxOpen.completedInCall && !docxOpen.busyAtSignal && !docxReader.isBusy()
+                && docxOpen.busyChanges == 2,
+            QStringLiteral("openFile(.docx): busy as the call returns, fileOpened later, busy false again by then "
+                           "(busyChanged x%1)").arg(docxOpen.busyChanges));
     QTextStream(stdout) << "  .docx read back blocks: " << blocksOf(xdoc) << Qt::endl;
     t.check(xdoc->toPlainText() == docxExpected,
             QStringLiteral(".docx round trip: plain text matches what was written (%1 blocks)").arg(xdoc->blockCount()));
@@ -1084,7 +1181,8 @@ bool runAutoTest(QQuickWindow *window)
     // A real external .docx this pipeline didn't write.
     DocumentController sampleReader;
     QTextDocument *sdocx = sampleReader.textDocument();
-    t.check(QFileInfo::exists(kSampleDocx) && sampleReader.openFile(kSampleDocx), "openFile(" + kSampleDocx + ")");
+    const IoRun sampleOpen = QFileInfo::exists(kSampleDocx) ? openAndWait(&sampleReader, kSampleDocx) : IoRun();
+    t.check(sampleOpen.success, "openFile(" + kSampleDocx + ")" + errorNote(sampleOpen));
     QTextStream(stdout) << "  sample .docx blocks: " << blocksOf(sdocx) << Qt::endl;
     const QString sampleText = sofficeToText(kSampleDocx, kStage5TextDir);
     QTextStream(stdout) << "  soffice test.docx -> txt: \"" << QString(sampleText).replace('\n', '|') << "\"" << Qt::endl;
@@ -1101,7 +1199,7 @@ bool runAutoTest(QQuickWindow *window)
             QStringLiteral("sample .docx: checklist read as a list, table as %1x%2")
                 .arg(sampleTable ? sampleTable->rows() : -1).arg(sampleTable ? sampleTable->columns() : -1));
     DocumentController docReader;
-    const bool docOpened = QFileInfo::exists(kSampleDoc) && docReader.openFile(kSampleDoc);
+    const bool docOpened = QFileInfo::exists(kSampleDoc) && openAndWait(&docReader, kSampleDoc).success;
     const QString docText = sofficeToText(kSampleDoc, kStage5TextDir);
     QTextStream(stdout) << "  sample .doc blocks: " << blocksOf(docReader.textDocument()) << Qt::endl;
     t.check(docOpened && !docText.isEmpty() && wordsOf(docReader.textDocument()->toPlainText()) == wordsOf(docText),
@@ -1111,8 +1209,9 @@ bool runAutoTest(QQuickWindow *window)
     // Failures leave the open document alone, as for openOdf().
     t.check(controller->openOdf(kStage4RoundTripPath) && unchanged(),
             "restored shared controller to the Stage 4a round-trip document");
-    t.check(!controller->openFile(kStage5MissingPath) && unchanged(),
-            "openFile(non-existent .docx) returns false, document and path unchanged");
+    const IoRun missingOpen = openAndWait(controller, kStage5MissingPath);
+    t.check(missingOpen.fired && !missingOpen.success && !missingOpen.error.isEmpty() && unchanged(),
+            "openFile(non-existent .docx) -> fileOpened(false), document and path unchanged: \"" + missingOpen.error + "\"");
     {
         QFile txt(kStage5TxtPath);
         QFile noExt(kStage5NoExtPath);
@@ -1120,17 +1219,21 @@ bool runAutoTest(QQuickWindow *window)
                     && noExt.open(QIODevice::WriteOnly | QIODevice::Truncate) && noExt.write("plain text\n") > 0,
                 "wrote " + kStage5TxtPath + " and " + kStage5NoExtPath);
     }
-    t.check(!controller->openFile(kStage5TxtPath) && unchanged(),
-            "openFile(existing .txt) returns false (unsupported type), document unchanged");
-    t.check(!controller->openFile(kStage5NoExtPath) && unchanged(),
-            "openFile(existing file, no extension) returns false, document unchanged");
+    const IoRun txtOpen = openAndWait(controller, kStage5TxtPath);
+    t.check(txtOpen.fired && !txtOpen.success && txtOpen.completedInCall && txtOpen.busyChanges == 0 && unchanged(),
+            "openFile(existing .txt) -> fileOpened(false) at once (unsupported type), document unchanged: \""
+                + txtOpen.error + "\"");
+    const IoRun noExtOpen = openAndWait(controller, kStage5NoExtPath);
+    t.check(noExtOpen.fired && !noExtOpen.success && noExtOpen.completedInCall && unchanged(),
+            "openFile(existing file, no extension) -> fileOpened(false) at once, document unchanged");
     {
         QFile corrupt(kStage5CorruptPath);
         t.check(corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate) && corrupt.write("PK\x03\x04garbage") > 0,
                 "wrote truncated-zip " + kStage5CorruptPath);
     }
-    t.check(!controller->openFile(kStage5CorruptPath) && unchanged(),
-            "openFile(corrupt .docx, soffice exits non-zero) returns false, document unchanged");
+    const IoRun corruptOpen = openAndWait(controller, kStage5CorruptPath);
+    t.check(corruptOpen.fired && !corruptOpen.success && !controller->isBusy() && unchanged(),
+            "openFile(corrupt .docx, soffice exits non-zero) -> fileOpened(false), not busy, document unchanged");
     QString bridgeError;
     const bool corruptFailed = DocxBridge::convertToOdt(kStage5CorruptPath, &bridgeError).isEmpty();
     t.check(corruptFailed && bridgeError.contains(QStringLiteral("exit")),
@@ -1141,7 +1244,8 @@ bool runAutoTest(QQuickWindow *window)
         qputenv("PATH", "/nonexistent");
         bridgeError.clear();
         const bool notFound = DocxBridge::convertToOdt(kSampleDocx, &bridgeError).isEmpty();
-        const bool openFailed = !controller->openFile(kSampleDocx);
+        const IoRun noSoffice = openAndWait(controller, kSampleDocx);
+        const bool openFailed = noSoffice.fired && !noSoffice.success;
         qputenv("PATH", path);
         t.check(notFound && bridgeError.contains(QStringLiteral("not found")) && openFailed && unchanged(),
                 "soffice not in PATH: conversion and openFile() fail cleanly: \"" + bridgeError + "\"");
@@ -1150,8 +1254,10 @@ bool runAutoTest(QQuickWindow *window)
     // Save failures: unsupported type writes nothing; a failed .docx
     // conversion/write leaves the document dirty and its path unchanged.
     QFile::remove(kStage5TxtPath);
-    t.check(!controller->saveFile(kStage5TxtPath) && !QFileInfo::exists(kStage5TxtPath) && unchanged(),
-            "saveFile(.txt) returns false, writes nothing, document unchanged");
+    const IoRun txtSave = saveAndWait(controller, kStage5TxtPath);
+    t.check(txtSave.fired && !txtSave.success && txtSave.completedInCall && !QFileInfo::exists(kStage5TxtPath)
+                && unchanged(),
+            "saveFile(.txt) -> fileSaved(false) at once, writes nothing, document unchanged");
     {
         DocumentController dirtyDoc;
         dirtyDoc.textDocument()->setPlainText(QStringLiteral("unsaved"));
@@ -1159,10 +1265,180 @@ bool runAutoTest(QQuickWindow *window)
         int signalsSeen = 0;
         QObject::connect(&dirtyDoc, &DocumentController::currentPathChanged, [&] { ++signalsSeen; });
         QObject::connect(&dirtyDoc, &DocumentController::dirtyChanged, [&] { ++signalsSeen; });
-        t.check(!dirtyDoc.saveFile(kStage5UnwritablePath) && dirtyDoc.isDirty() && dirtyDoc.currentPath().isEmpty()
-                    && signalsSeen == 0,
-                "saveFile(.docx in a missing directory) returns false, still dirty, no path, no signals");
+        bool stateDuringSave = false;
+        const IoRun unwritable = runIo(&dirtyDoc, &DocumentController::fileSaved, [&] {
+            dirtyDoc.saveFile(kStage5UnwritablePath);
+            // The temporary .odt is written by now; the state must not show it.
+            stateDuringSave = dirtyDoc.isBusy() && dirtyDoc.isDirty() && dirtyDoc.currentPath().isEmpty();
+        });
+        t.check(stateDuringSave, "saveFile(.docx) in flight: still dirty, no path (temporary .odt state not visible)");
+        t.check(unwritable.fired && !unwritable.success && !dirtyDoc.isBusy() && dirtyDoc.isDirty()
+                    && dirtyDoc.currentPath().isEmpty() && signalsSeen == 0,
+                "saveFile(.docx in a missing directory) -> fileSaved(false), still dirty, no path, no "
+                "dirty/path signals: \"" + unwritable.error + "\"");
     }
+
+    // --- Asynchronous openFile()/saveFile() ---
+
+    // .odt: in-process, done before the call returns, never busy.
+    const IoRun odtSave = saveAndWait(controller, kAsyncOdtPath);
+    t.check(odtSave.success && odtSave.completedInCall && !odtSave.busyAfterCall && odtSave.busyChanges == 0
+                && controller->currentPath() == kAsyncOdtPath && !controller->isDirty(),
+            QStringLiteral("saveFile(.odt): fileSaved(true) before the call returns, busy never set "
+                           "(busyChanged x%1)").arg(odtSave.busyChanges) + errorNote(odtSave));
+    const IoRun odtOpen = openAndWait(controller, kStage4RoundTripPath);
+    t.check(odtOpen.success && odtOpen.completedInCall && !odtOpen.busyAfterCall && odtOpen.busyChanges == 0
+                && unchanged(),
+            QStringLiteral("openFile(.odt): fileOpened(true) before the call returns, busy never set "
+                           "(busyChanged x%1)").arg(odtOpen.busyChanges) + errorNote(odtOpen));
+
+    // Re-entrancy: a second call while busy fails at once and leaves the
+    // first alone.
+    {
+        DocumentController busyDoc;
+        QList<IoRun> opens;
+        QList<IoRun> saves;
+        QObject::connect(&busyDoc, &DocumentController::fileOpened, [&](bool ok, const QString &p, const QString &e) {
+            IoRun r;
+            r.fired = true;
+            r.success = ok;
+            r.path = p;
+            r.error = e;
+            r.busyAtSignal = busyDoc.isBusy();
+            opens << r;
+        });
+        QObject::connect(&busyDoc, &DocumentController::fileSaved, [&](bool ok, const QString &p, const QString &e) {
+            IoRun r;
+            r.fired = true;
+            r.success = ok;
+            r.path = p;
+            r.error = e;
+            saves << r;
+        });
+        QFile::remove(kAsyncEditDocxPath);
+        busyDoc.openFile(kSampleDocx);
+        const bool firstBusy = busyDoc.isBusy() && opens.isEmpty();
+        busyDoc.openFile(kStage5DocxPath);
+        busyDoc.saveFile(kAsyncEditDocxPath);
+        busyDoc.openFile(kAsyncOdtPath); // even the fast path
+        const auto rejected = [](const IoRun &r) {
+            return !r.success && r.error.contains(QStringLiteral("already in progress"));
+        };
+        t.check(firstBusy && opens.size() == 2 && saves.size() == 1 && rejected(opens[0])
+                    && opens[0].path == kStage5DocxPath && rejected(opens[1]) && opens[1].path == kAsyncOdtPath
+                    && rejected(saves[0]) && busyDoc.isBusy() && busyDoc.currentPath().isEmpty()
+                    && busyDoc.textDocument()->isEmpty() && !QFileInfo::exists(kAsyncEditDocxPath),
+                "while busy: second openFile(.docx), saveFile(.docx), openFile(.odt) each fail at once with \""
+                    + (opens.isEmpty() ? QString() : opens[0].error)
+                    + "\"; still busy, document, path and target file untouched");
+        const bool firstDone = waitUntil([&] { return opens.size() == 3; });
+        t.check(firstDone && opens.size() == 3 && opens[2].success && opens[2].path == kSampleDocx
+                    && !opens[2].busyAtSignal && !busyDoc.isBusy()
+                    && busyDoc.currentPath() == QFileInfo(kSampleDocx).absoluteFilePath()
+                    && busyDoc.textDocument()->toPlainText().startsWith(QStringLiteral("Rune Spike Test Document")),
+                "the first openFile(" + kSampleDocx + ") still completes: fileOpened(true), document loaded, not busy");
+    }
+
+    // The main thread is free while soffice converts. A 20 ms ticker plus
+    // two single-shots must all run between openFile() returning and
+    // fileOpened(); for contrast, the same conversion called synchronously
+    // (as openFile() did before) lets no tick through.
+    {
+        QElapsedTimer clock;
+        QStringList timeline;
+        const auto mark = [&](const QString &what) { timeline << QStringLiteral("%1 ms %2").arg(clock.elapsed()).arg(what); };
+        int ticks = 0;
+        qint64 lastTick = 0;
+        qint64 maxGap = 0;
+        QTimer ticker;
+        ticker.setInterval(20);
+        QObject::connect(&ticker, &QTimer::timeout, [&] {
+            const qint64 now = clock.elapsed();
+            maxGap = std::max(maxGap, now - lastTick);
+            lastTick = now;
+            ++ticks;
+        });
+
+        // Synchronous baseline on this thread.
+        clock.start();
+        ticker.start();
+        QString syncError;
+        const QString syncOdt = DocxBridge::convertToOdt(kSampleDocx, &syncError);
+        const qint64 syncMs = clock.elapsed();
+        const int syncTicks = ticks;
+        ticker.stop();
+        DocxBridge::removeConvertedOdt(syncOdt);
+        QTextStream(stdout) << "  synchronous convertToOdt() on the main thread: " << syncMs << " ms, ticks during it: "
+                            << syncTicks << Qt::endl;
+        t.check(!syncOdt.isEmpty() && syncTicks == 0,
+                QStringLiteral("baseline: a synchronous conversion blocks the main thread (%1 ms, %2 ticks)")
+                    .arg(syncMs).arg(syncTicks));
+
+        DocumentController freeDoc;
+        int ticksAtSignal = -1;
+        bool opened = false;
+        bool done = false;
+        QObject::connect(&freeDoc, &DocumentController::fileOpened, [&](bool ok, const QString &, const QString &) {
+            ticksAtSignal = ticks;
+            opened = ok;
+            done = true;
+            mark(QStringLiteral("fileOpened(%1) [%2 ticks so far]").arg(ok ? "true" : "false").arg(ticks));
+        });
+        ticks = 0;
+        maxGap = 0;
+        clock.start();
+        lastTick = 0;
+        ticker.start();
+        mark(QStringLiteral("openFile(test.docx) called"));
+        freeDoc.openFile(kSampleDocx);
+        mark(QStringLiteral("openFile() returned, busy=%1").arg(freeDoc.isBusy() ? "true" : "false"));
+        QTimer::singleShot(0, &freeDoc, [&] { mark(QStringLiteral("singleShot(0) ran, busy=%1 [%2 ticks]")
+                                             .arg(freeDoc.isBusy() ? "true" : "false").arg(ticks)); });
+        QTimer::singleShot(250, &freeDoc, [&] { mark(QStringLiteral("singleShot(250) ran, busy=%1 [%2 ticks]")
+                                               .arg(freeDoc.isBusy() ? "true" : "false").arg(ticks)); });
+        waitUntil([&] { return done; });
+        ticker.stop();
+        QTextStream(stdout) << "  async openFile(.docx) timeline:" << Qt::endl;
+        for (const QString &line : timeline)
+            QTextStream(stdout) << "    " << line << Qt::endl;
+        QTextStream(stdout) << "  ticks before fileOpened: " << ticksAtSignal << ", longest gap between ticks: "
+                            << maxGap << " ms" << Qt::endl;
+        const bool order = timeline.size() == 5 && timeline[1].contains(QStringLiteral("busy=true"))
+            && timeline[2].contains(QStringLiteral("singleShot(0) ran, busy=true"))
+            && timeline[3].contains(QStringLiteral("singleShot(250) ran, busy=true"))
+            && timeline[4].contains(QStringLiteral("fileOpened(true)"));
+        t.check(opened && order,
+                "main thread free during conversion: singleShot(0) and singleShot(250) both ran while busy, "
+                "before fileOpened");
+        // Each tick is 20 ms; a conversion of 1 s or more must let dozens
+        // through, and the event loop must never stall for long (the
+        // follow-up openOdf() on this thread is the longest legitimate gap).
+        t.check(ticksAtSignal >= 10 && maxGap < 500,
+                QStringLiteral("20 ms ticker kept running during the conversion: %1 ticks, longest gap %2 ms")
+                    .arg(ticksAtSignal).arg(maxGap));
+    }
+
+    // Edits made while a .docx save converts aren't in the file, so the
+    // document must stay dirty.
+    {
+        DocumentController editDoc;
+        QTextDocument *edoc = editDoc.textDocument();
+        edoc->setPlainText(QStringLiteral("Snapshot text"));
+        edoc->setModified(true);
+        QFile::remove(kAsyncEditDocxPath);
+        const IoRun editSave = runIo(&editDoc, &DocumentController::fileSaved, [&] {
+            editDoc.saveFile(kAsyncEditDocxPath);
+            QTextCursor(edoc).insertText(QStringLiteral("Typed during save "));
+        });
+        const QString editSavedText = sofficeToText(kAsyncEditDocxPath, kStage5TextDir);
+        t.check(editSave.success && editDoc.isDirty() && editDoc.currentPath() == kAsyncEditDocxPath
+                    && wordsOf(editSavedText) == wordsOf(QStringLiteral("Snapshot text")),
+                "edit during a .docx save: file has the snapshot (\"" + editSavedText.trimmed()
+                    + "\"), document stays dirty, currentPath is the .docx" + errorNote(editSave));
+        const IoRun cleanSave = saveAndWait(&editDoc, kAsyncEditDocxPath);
+        t.check(cleanSave.success && !editDoc.isDirty(), "saving again without edits leaves it clean" + errorNote(cleanSave));
+    }
+
     DocxBridge::removeConvertedOdt(kStage4RoundTripPath);
     t.check(QFileInfo::exists(kStage4RoundTripPath), "removeConvertedOdt() refuses a path outside its temp directories");
     const QStringList tempDirsAfter = bridgeTempDirs();

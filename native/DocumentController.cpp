@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QFutureWatcher>
 #include <QList>
 #include <QScopedValueRollback>
 #include <QSaveFile>
@@ -17,6 +18,7 @@
 #include <QTextFrame>
 #include <QTextList>
 #include <QTextTable>
+#include <QtConcurrent/QtConcurrentRun>
 
 #include <algorithm>
 #include <memory>
@@ -26,10 +28,16 @@ DocumentController::DocumentController(QObject *parent)
 {
     connect(m_document, &QTextDocument::modificationChanged, this, &DocumentController::dirtyChanged);
     connect(m_document, &QTextDocument::contentsChange, this, &DocumentController::onContentsChange);
+    connect(m_document, &QTextDocument::contentsChanged, this, [this] { ++m_contentRevision; });
 }
 
 DocumentController::~DocumentController()
 {
+    // An open still converting won't reach finishOpen(); remove its
+    // temporary .odt whenever it finishes. (A save's temporary directory
+    // is owned by its worker.)
+    if (m_pendingOpen.isValid())
+        m_pendingOpen.then([](const Conversion &result) { DocxBridge::removeConvertedOdt(result.odt); });
     // The TextEdit may outlive us during QML teardown and still points at
     // m_document; hand the document to its wrapper so they die together.
     if (m_qmlDocument)
@@ -123,77 +131,162 @@ bool DocumentController::openOdf(const QString &path)
 // finishConvertedIo() then sets the real path and emits once what openOdf()/
 // saveToOdf() would have for it. (The document's own signals aren't blocked:
 // the TextEdit still sees the content change.)
+//
+// Only the soffice run (DocxBridge::convertToOdt()/convertOdtToDocx()) leaves
+// this thread; everything touching m_document stays here.
 
-bool DocumentController::openFile(const QString &path)
+namespace {
+
+const QString kAlreadyBusy = QStringLiteral("a file operation is already in progress");
+
+} // namespace
+
+void DocumentController::setBusy(bool busy)
 {
+    if (m_busy == busy)
+        return;
+    m_busy = busy;
+    emit busyChanged();
+}
+
+template<typename Work, typename Done>
+QFuture<DocumentController::Conversion> DocumentController::runConversion(Work work, Done done)
+{
+    // Parented to this: if we are destroyed first, so is the watcher, and
+    // `done` (which uses this) never runs.
+    auto *watcher = new QFutureWatcher<Conversion>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [watcher, done] {
+        watcher->deleteLater();
+        done(watcher->result());
+    });
+    const QFuture<Conversion> future = QtConcurrent::run(work);
+    watcher->setFuture(future);
+    return future;
+}
+
+void DocumentController::openFile(const QString &path)
+{
+    if (m_busy) {
+        emit fileOpened(false, path, kAlreadyBusy);
+        return;
+    }
     const QString suffix = QFileInfo(path).suffix().toLower();
-    if (suffix == QLatin1String("odt"))
-        return openOdf(path);
+    if (suffix == QLatin1String("odt")) {
+        const bool opened = openOdf(path);
+        emit fileOpened(opened, path, opened ? QString() : QStringLiteral("cannot read %1 as an OpenDocument text").arg(path));
+        return;
+    }
     if (suffix != QLatin1String("docx") && suffix != QLatin1String("doc")) {
-        qWarning().noquote() << "DocumentController: cannot open" << path
-                             << "- unsupported file type (expected .odt, .docx or .doc)";
-        return false;
+        const QString error = QStringLiteral("unsupported file type (expected .odt, .docx or .doc)");
+        qWarning().noquote() << "DocumentController: cannot open" << path << "-" << error;
+        emit fileOpened(false, path, error);
+        return;
     }
 
-    QString error;
-    const QString odt = DocxBridge::convertToOdt(path, &error);
-    if (odt.isEmpty()) {
-        qWarning().noquote() << "DocumentController: cannot open" << path << "-" << error;
-        return false;
+    setBusy(true);
+    const auto work = [path] {
+        Conversion result;
+        result.odt = DocxBridge::convertToOdt(path, &result.error);
+        return result;
+    };
+    m_pendingOpen = runConversion(work, [this, path](const Conversion &result) {
+        m_pendingOpen = {};
+        finishOpen(path, result);
+    });
+}
+
+void DocumentController::finishOpen(const QString &path, const Conversion &result)
+{
+    if (result.odt.isEmpty()) {
+        qWarning().noquote() << "DocumentController: cannot open" << path << "-" << result.error;
+        setBusy(false);
+        emit fileOpened(false, path, result.error);
+        return;
     }
+    // Captured now, not at openFile(): the state the open replaces.
     const QString oldPath = m_currentPath;
     const bool wasDirty = isDirty();
     bool opened = false;
     {
         const QSignalBlocker blocker(this);
-        opened = openOdf(odt);
+        opened = openOdf(result.odt);
     }
-    DocxBridge::removeConvertedOdt(odt);
-    if (!opened)
-        return false; // openOdf() changed nothing and has said why
-    finishConvertedIo(path, oldPath, wasDirty);
-    emit formatChanged();
-    return true;
+    DocxBridge::removeConvertedOdt(result.odt);
+    if (opened) {
+        finishConvertedIo(path, oldPath, wasDirty);
+        emit formatChanged();
+    } // else openOdf() changed nothing and has said why
+    setBusy(false);
+    emit fileOpened(opened, path,
+                    opened ? QString() : QStringLiteral("cannot read LibreOffice's conversion of %1").arg(path));
 }
 
-bool DocumentController::saveFile(const QString &path)
+void DocumentController::saveFile(const QString &path)
 {
+    if (m_busy) {
+        emit fileSaved(false, path, kAlreadyBusy);
+        return;
+    }
     const QString suffix = QFileInfo(path).suffix().toLower();
-    if (suffix == QLatin1String("odt"))
-        return saveToOdf(path);
+    if (suffix == QLatin1String("odt")) {
+        const bool saved = saveToOdf(path);
+        emit fileSaved(saved, path, saved ? QString() : QStringLiteral("cannot write %1").arg(path));
+        return;
+    }
     if (suffix != QLatin1String("docx")) {
-        qWarning().noquote() << "DocumentController: cannot save" << path
-                             << "- unsupported file type (expected .odt or .docx)";
-        return false;
+        const QString error = QStringLiteral("unsupported file type (expected .odt or .docx)");
+        qWarning().noquote() << "DocumentController: cannot save" << path << "-" << error;
+        emit fileSaved(false, path, error);
+        return;
     }
 
-    QTemporaryDir dir(QDir::tempPath() + QStringLiteral("/rune-save-XXXXXX"));
-    if (!dir.isValid()) {
-        qWarning().noquote() << "DocumentController: cannot save" << path << "- no temporary directory:"
-                             << dir.errorString();
-        return false;
+    // Shared with the worker, which may outlive this controller.
+    auto dir = std::make_shared<QTemporaryDir>(QDir::tempPath() + QStringLiteral("/rune-save-XXXXXX"));
+    if (!dir->isValid()) {
+        const QString error = QStringLiteral("no temporary directory: %1").arg(dir->errorString());
+        qWarning().noquote() << "DocumentController: cannot save" << path << "-" << error;
+        emit fileSaved(false, path, error);
+        return;
     }
-    const QString odt = dir.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
-    const QString oldPath = m_currentPath;
-    const bool wasDirty = isDirty();
-    bool saved = false;
+    const QString odt = dir->filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
     {
         const QSignalBlocker blocker(this);
-        saved = saveToOdf(odt);
-        if (!saved)
-            return false; // saveToOdf() changed nothing and has said why
-        QString error;
-        if (!DocxBridge::convertOdtToDocx(odt, path, &error)) {
-            qWarning().noquote() << "DocumentController: cannot save" << path << "-" << error;
-            // Undo what saveToOdf() did to our state: nothing was saved
-            // where the user asked.
-            m_document->setModified(wasDirty);
-            m_currentPath = oldPath;
-            return false;
+        const QString oldPath = m_currentPath;
+        const bool wasDirty = isDirty();
+        if (!saveToOdf(odt)) {
+            // saveToOdf() changed nothing and has said why
+            emit fileSaved(false, path, QStringLiteral("cannot write the temporary .odt for %1").arg(path));
+            return;
         }
+        // Nothing is saved where the user asked yet: undo what saveToOdf()
+        // did to our state until the conversion succeeds.
+        m_document->setModified(wasDirty);
+        m_currentPath = oldPath;
     }
-    finishConvertedIo(path, oldPath, wasDirty);
-    return true;
+
+    setBusy(true);
+    const quint64 revision = m_contentRevision;
+    const auto work = [dir, odt, path] {
+        Conversion result;
+        if (!DocxBridge::convertOdtToDocx(odt, path, &result.error) && result.error.isEmpty())
+            result.error = QStringLiteral("conversion failed");
+        return result;
+    };
+    runConversion(work, [this, path, revision](const Conversion &result) {
+        if (!result.error.isEmpty()) {
+            qWarning().noquote() << "DocumentController: cannot save" << path << "-" << result.error;
+        } else {
+            const QString oldPath = m_currentPath;
+            const bool wasDirty = isDirty();
+            if (m_contentRevision == revision) {
+                const QSignalBlocker blocker(this);
+                m_document->setModified(false);
+            } // else edited since the snapshot: still dirty
+            finishConvertedIo(path, oldPath, wasDirty);
+        }
+        setBusy(false);
+        emit fileSaved(result.error.isEmpty(), path, result.error);
+    });
 }
 
 void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath, bool wasDirty)
