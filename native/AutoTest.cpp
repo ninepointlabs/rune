@@ -3,10 +3,16 @@
 #include "DocumentController.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QKeyEvent>
+#include <QProcess>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QTextBlock>
+#include <QTextDocumentWriter>
 #include <QTextList>
 #include <QTextTable>
 #include <QTextStream>
@@ -21,6 +27,10 @@ const QString kStage2AlignPath = QStringLiteral("/tmp/rune-native-stage2-align.o
 const QString kStage2ListPath = QStringLiteral("/tmp/rune-native-stage2-list.odt");
 const QString kStage2FontPath = QStringLiteral("/tmp/rune-native-stage2-font.odt");
 const QString kStage2ColorPath = QStringLiteral("/tmp/rune-native-stage2-color.odt");
+const QString kStage3ListTablePath = QStringLiteral("/tmp/rune-native-stage3-list-table.odt");
+const QString kStage3ListTableRawPath = QStringLiteral("/tmp/rune-native-stage3-list-table-unsanitized.odt");
+const QString kStage3TablePath = QStringLiteral("/tmp/rune-native-stage3-table.odt");
+const QString kStage3TabPath = QStringLiteral("/tmp/rune-native-stage3-tab.odt");
 
 class Checker
 {
@@ -81,13 +91,99 @@ QTextBlock blockBeforeFirstTable(QTextDocument *doc)
     return {};
 }
 
+int listIndent(const QTextBlock &block)
+{
+    return block.textList() ? block.textList()->format().indent() : 0;
+}
+
+// A real key press + release through the window.
+void pressKey(QQuickWindow *window, int key, Qt::KeyboardModifiers modifiers, const QString &text)
+{
+    QKeyEvent press(QEvent::KeyPress, key, modifiers, text);
+    QKeyEvent release(QEvent::KeyRelease, key, modifiers, text);
+    QCoreApplication::sendEvent(window, &press);
+    QCoreApplication::sendEvent(window, &release);
+}
+
 // Real Return key, which TextEdit turns into a new paragraph block.
 void pressReturn(QQuickWindow *window)
 {
-    QKeyEvent press(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier, QStringLiteral("\r"));
-    QKeyEvent release(QEvent::KeyRelease, Qt::Key_Return, Qt::NoModifier, QStringLiteral("\r"));
-    QCoreApplication::sendEvent(window, &press);
-    QCoreApplication::sendEvent(window, &release);
+    pressKey(window, Qt::Key_Return, Qt::NoModifier, QStringLiteral("\r"));
+}
+
+void pressTab(QQuickWindow *window)
+{
+    pressKey(window, Qt::Key_Tab, Qt::NoModifier, QStringLiteral("\t"));
+}
+
+void pressBacktab(QQuickWindow *window)
+{
+    pressKey(window, Qt::Key_Backtab, Qt::ShiftModifier, QString());
+}
+
+// The table the TextEdit's cursor is in, if any.
+QTextTable *tableAtCursor(QTextDocument *doc, QQuickItem *editor)
+{
+    QTextCursor cursor(doc);
+    cursor.setPosition(editor->property("cursorPosition").toInt());
+    return cursor.currentTable();
+}
+
+// The TextEdit's cursor cell as "row,column", or "none".
+QString cellAtCursor(QTextDocument *doc, QQuickItem *editor)
+{
+    QTextCursor cursor(doc);
+    cursor.setPosition(editor->property("cursorPosition").toInt());
+    QTextTable *table = cursor.currentTable();
+    if (!table)
+        return QStringLiteral("none");
+    const QTextTableCell cell = table->cellAt(cursor);
+    return QStringLiteral("%1,%2").arg(cell.row()).arg(cell.column());
+}
+
+// Converts `odtPath` to HTML with a real headless LibreOffice and returns the
+// HTML ("" on failure). A private profile keeps it independent of any
+// running LibreOffice.
+QString convertWithSoffice(const QString &odtPath)
+{
+    const QString outDir = QStringLiteral("/tmp/rune-native-html");
+    QDir().mkpath(outDir);
+    const QString htmlPath = outDir + '/' + QFileInfo(odtPath).completeBaseName() + QStringLiteral(".html");
+    QFile::remove(htmlPath);
+    QProcess soffice;
+    soffice.start(QStringLiteral("soffice"),
+                  {QStringLiteral("-env:UserInstallation=file:///tmp/rune-native-lo-profile"),
+                   QStringLiteral("--headless"), QStringLiteral("--convert-to"), QStringLiteral("html"),
+                   QStringLiteral("--outdir"), outDir, odtPath});
+    if (!soffice.waitForFinished(120000) || soffice.exitCode() != 0)
+        return {};
+    QFile html(htmlPath);
+    return html.open(QIODevice::ReadOnly) ? QString::fromUtf8(html.readAll()) : QString();
+}
+
+int countOf(const QString &html, const QString &tag)
+{
+    return int(html.count(QRegularExpression(QStringLiteral("<%1[\\s>]").arg(tag),
+                                             QRegularExpression::CaseInsensitiveOption)));
+}
+
+// The HTML's text content, tags stripped and whitespace collapsed.
+QString textOf(const QString &html)
+{
+    QString body = html.mid(html.indexOf(QLatin1String("<body"), 0, Qt::CaseInsensitive));
+    body.remove(QRegularExpression(QStringLiteral("<[^>]*>")));
+    return body.simplified();
+}
+
+// Reports what soffice made of a saved file, for the log.
+void logConversion(const QString &odtPath, const QString &html)
+{
+    QTextStream(stdout) << "  soffice " << QFileInfo(odtPath).fileName() << " -> html: "
+                        << countOf(html, QStringLiteral("table")) << " table(s), "
+                        << countOf(html, QStringLiteral("tr")) << " <tr>, "
+                        << countOf(html, QStringLiteral("td")) << " <td>, "
+                        << countOf(html, QStringLiteral("li")) << " <li>; text: \"" << textOf(html) << "\""
+                        << Qt::endl;
 }
 
 } // namespace
@@ -235,6 +331,206 @@ bool runAutoTest(QQuickWindow *window)
     // Re-apply color for the saved file so the export check below has something to find.
     controller->setTextColor(QStringLiteral("#cc0000"));
     t.check(controller->saveToOdf(kStage2ColorPath), "saveToOdf(" + kStage2ColorPath + ") [color]");
+
+    // --- Stage 3: tables ---
+
+    // The Stage 1 sanitizer bug through the production path: a bullet list
+    // typed through the UI, then insertTable() straight after its last item
+    // with no paragraph in between.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("Alpha"));
+    controller->toggleBulletList();
+    pressReturn(window);
+    typeText(window, QStringLiteral("Beta"));
+    t.check(doc->toPlainText() == QStringLiteral("Alpha\nBeta") && controller->isInBulletList(),
+            QStringLiteral("2-item bullet list typed: \"%1\"").arg(doc->toPlainText()));
+    controller->insertTable(2, 2);
+    const QTextBlock listEnd = blockBeforeFirstTable(doc);
+    t.check(listEnd.isValid() && listEnd.textList() && listEnd.text() == QStringLiteral("Beta"),
+            "live doc: list item \"Beta\" directly precedes the inserted table (the bug pattern)");
+    t.check(controller->isInTable() && cellAtCursor(doc, editor) == QStringLiteral("0,0"),
+            "insertTable() puts the cursor in cell 0,0: " + cellAtCursor(doc, editor));
+    typeText(window, QStringLiteral("Cell A"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell B"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell C"));
+    pressTab(window);
+    typeText(window, QStringLiteral("Cell D"));
+    const int listTableBlocks = doc->blockCount();
+    t.check(controller->saveToOdf(kStage3ListTablePath), "saveToOdf(" + kStage3ListTablePath + ") [list then table]");
+    t.check(doc->blockCount() == listTableBlocks && blockBeforeFirstTable(doc).textList(),
+            "save left the live list-then-table document unchanged");
+    const QString listTableHtml = convertWithSoffice(kStage3ListTablePath);
+    logConversion(kStage3ListTablePath, listTableHtml);
+    t.check(countOf(listTableHtml, QStringLiteral("table")) == 1 && countOf(listTableHtml, QStringLiteral("td")) == 4
+                && countOf(listTableHtml, QStringLiteral("li")) == 2,
+            "soffice: list-then-table export has the list (2 <li>) and the table (4 <td>)");
+    t.check(textOf(listTableHtml).contains(QStringLiteral("Alpha Beta Cell A Cell B Cell C Cell D")),
+            "soffice: list items and all four cells present, in order");
+    // Control: the same document written without the sanitizer loses the
+    // table, so the check above really went through the bug.
+    {
+        QTextDocumentWriter raw(kStage3ListTableRawPath, QByteArrayLiteral("ODF"));
+        raw.write(doc);
+    }
+    const QString rawHtml = convertWithSoffice(kStage3ListTableRawPath);
+    logConversion(kStage3ListTableRawPath, rawHtml);
+    t.check(!rawHtml.isEmpty() && countOf(rawHtml, QStringLiteral("table")) == 0
+                && !textOf(rawHtml).contains(QStringLiteral("Cell A")),
+            "control: the unsanitized export of the same document loses the table in soffice");
+
+    // Table button, isInTable() and the row/column buttons' availability.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("Intro"));
+    auto *tableButton = window->findChild<QQuickItem *>(QStringLiteral("tableButton"));
+    auto *insertRowButton = window->findChild<QQuickItem *>(QStringLiteral("insertRowButton"));
+    auto *deleteRowButton = window->findChild<QQuickItem *>(QStringLiteral("deleteRowButton"));
+    auto *insertColumnButton = window->findChild<QQuickItem *>(QStringLiteral("insertColumnButton"));
+    auto *deleteColumnButton = window->findChild<QQuickItem *>(QStringLiteral("deleteColumnButton"));
+    t.check(tableButton && insertRowButton && deleteRowButton && insertColumnButton && deleteColumnButton,
+            "found table toolbar buttons");
+    if (!t.ok())
+        return false;
+    const auto rowColumnAvailable = [&] {
+        return insertRowButton->property("available").toBool() && deleteRowButton->property("available").toBool()
+            && insertColumnButton->property("available").toBool() && deleteColumnButton->property("available").toBool();
+    };
+    t.check(!controller->isInTable() && !insertRowButton->property("available").toBool(),
+            "outside a table: isInTable() false, row/column buttons unavailable");
+    QMetaObject::invokeMethod(tableButton, "clicked");
+    QTextTable *table = tableAtCursor(doc, editor);
+    t.check(table && table->rows() == 3 && table->columns() == 3,
+            QStringLiteral("Table button inserted a 3x3 table (%1x%2)")
+                .arg(table ? table->rows() : 0).arg(table ? table->columns() : 0));
+    if (!table)
+        return false;
+    t.check(controller->isInTable() && rowColumnAvailable(), "in a cell: isInTable() true, row/column buttons available");
+    // Fill row by row ("r1c2" = row 1, column 2) so row/column edits show up by content.
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) {
+            typeText(window, QStringLiteral("r%1c%2").arg(r).arg(c));
+            if (r < 2 || c < 2)
+                pressTab(window);
+        }
+    editor->setProperty("cursorPosition", doc->characterCount() - 1);
+    typeText(window, QStringLiteral("Trailing"));
+    t.check(!controller->isInTable() && !rowColumnAvailable(),
+            "in trailing text after the table: isInTable() false, row/column buttons unavailable");
+
+    // +Row / +Col from cell 1,1: one more of each, after the cursor's.
+    editor->setProperty("cursorPosition", table->cellAt(1, 1).firstCursorPosition().position());
+    QMetaObject::invokeMethod(insertRowButton, "clicked");
+    t.check(table->rows() == 4 && table->cellAt(2, 0).firstCursorPosition().block().text().isEmpty()
+                && table->cellAt(3, 0).firstCursorPosition().block().text() == QStringLiteral("r2c0"),
+            QStringLiteral("+Row: 3 -> %1 rows, empty row inserted below row 1").arg(table->rows()));
+    QMetaObject::invokeMethod(insertColumnButton, "clicked");
+    t.check(table->columns() == 4 && table->cellAt(0, 2).firstCursorPosition().block().text().isEmpty()
+                && table->cellAt(0, 3).firstCursorPosition().block().text() == QStringLiteral("r0c2"),
+            QStringLiteral("+Col: 3 -> %1 columns, empty column inserted right of column 1").arg(table->columns()));
+    t.check(controller->saveToOdf(kStage3TablePath), "saveToOdf(" + kStage3TablePath + ") [4x4]");
+    const QString grownHtml = convertWithSoffice(kStage3TablePath);
+    logConversion(kStage3TablePath, grownHtml);
+    t.check(countOf(grownHtml, QStringLiteral("tr")) == 4 && countOf(grownHtml, QStringLiteral("td")) == 16,
+            "soffice: grown table has 4 rows, 16 cells");
+
+    // −Row / −Col at cell 1,1: removes row 1 ("r1c*") and then column 1 ("*c1").
+    t.check(cellAtCursor(doc, editor) == QStringLiteral("1,1"), "cursor still in cell 1,1: " + cellAtCursor(doc, editor));
+    QMetaObject::invokeMethod(deleteRowButton, "clicked");
+    t.check(table->rows() == 3 && controller->isInTable(),
+            QStringLiteral("−Row: 4 -> %1 rows, cursor still in the table").arg(table->rows()));
+    QMetaObject::invokeMethod(deleteColumnButton, "clicked");
+    t.check(table->columns() == 3 && controller->isInTable(),
+            QStringLiteral("−Col: 4 -> %1 columns, cursor still in the table").arg(table->columns()));
+    t.check(controller->saveToOdf(kStage3TablePath), "saveToOdf(" + kStage3TablePath + ") [after deletes]");
+    const QString shrunkHtml = convertWithSoffice(kStage3TablePath);
+    logConversion(kStage3TablePath, shrunkHtml);
+    const QString shrunkText = textOf(shrunkHtml);
+    t.check(countOf(shrunkHtml, QStringLiteral("tr")) == 3 && countOf(shrunkHtml, QStringLiteral("td")) == 9,
+            "soffice: shrunk table has 3 rows, 9 cells");
+    t.check(shrunkText.contains(QStringLiteral("Intro r0c0 r0c2 r2c0 r2c2 Trailing")) && !shrunkText.contains(QStringLiteral("r1c"))
+                && !shrunkText.contains(QStringLiteral("c1")),
+            "soffice: row 1 and column 1 content gone, the rest intact");
+
+    // Bounds: sizes clamp to 1..50; the last row/column is never deleted.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    controller->insertTable(0, 99);
+    table = tableAtCursor(doc, editor);
+    t.check(table && table->rows() == 1 && table->columns() == 50,
+            QStringLiteral("insertTable(0, 99) clamps to 1x50 (%1x%2)")
+                .arg(table ? table->rows() : 0).arg(table ? table->columns() : 0));
+    controller->deleteTableColumn();
+    controller->insertTable(1, 1); // nested in the cell, then removed down to nothing
+    controller->deleteTableRow();
+    controller->deleteTableColumn();
+    QTextTable *inner = tableAtCursor(doc, editor);
+    t.check(inner && inner != table && inner->rows() == 1 && inner->columns() == 1,
+            "deleting the only row/column of a 1x1 table leaves it intact");
+    t.check(table && table->columns() == 49, "−Col on a 1x50 table leaves 49 columns");
+    editor->setProperty("cursorPosition", 0); // the empty paragraph before the table
+    controller->insertTableRow();
+    controller->deleteTableRow();
+    t.check(!controller->isInTable() && table && table->rows() == 1, "row commands outside a table are no-ops");
+
+    // Tab / Shift+Tab move between cells in reading order.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    controller->insertTable(2, 2);
+    table = tableAtCursor(doc, editor);
+    QStringList visited{cellAtCursor(doc, editor)};
+    const QStringList words{QStringLiteral("first"), QStringLiteral("second"), QStringLiteral("third"),
+                            QStringLiteral("fourth")};
+    for (int i = 0; i < words.size(); ++i) {
+        typeText(window, words[i]);
+        if (i + 1 < words.size()) {
+            pressTab(window);
+            visited << cellAtCursor(doc, editor);
+        }
+    }
+    t.check(visited == QStringList{"0,0", "0,1", "1,0", "1,1"}, "Tab visits cells " + visited.join(" -> "));
+    t.check(!doc->toPlainText().contains('\t'), "Tab in a table inserted no tab characters");
+    QStringList back;
+    for (int i = 0; i < 4; ++i) {
+        pressBacktab(window);
+        back << cellAtCursor(doc, editor);
+    }
+    t.check(back == QStringList{"1,0", "0,1", "0,0", "0,0"},
+            "Shift+Tab visits cells " + back.join(" -> ") + " (stops at the first)");
+    t.check(controller->saveToOdf(kStage3TabPath), "saveToOdf(" + kStage3TabPath + ") [Tab fill]");
+    const QString tabHtml = convertWithSoffice(kStage3TabPath);
+    logConversion(kStage3TabPath, tabHtml);
+    t.check(countOf(tabHtml, QStringLiteral("td")) == 4 && textOf(tabHtml).contains(QStringLiteral("first second third fourth")),
+            "soffice: cells filled via Tab read \"first second third fourth\"");
+    editor->setProperty("cursorPosition", table->cellAt(1, 1).lastCursorPosition().position());
+    pressTab(window);
+    t.check(table->rows() == 3 && cellAtCursor(doc, editor) == QStringLiteral("2,0"),
+            "Tab in the last cell appends a row and moves into it: " + cellAtCursor(doc, editor));
+
+    // Tab outside a table keeps its Stage 2 behaviour.
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("Item"));
+    controller->toggleBulletList();
+    pressReturn(window);
+    typeText(window, QStringLiteral("Sub"));
+    pressTab(window);
+    QTextCursor subCursor(doc);
+    subCursor.setPosition(editor->property("cursorPosition").toInt());
+    t.check(listIndent(subCursor.block()) == 2 && !doc->toPlainText().contains('\t'),
+            QStringLiteral("Tab in a list (no table) still demotes: indent %1").arg(listIndent(subCursor.block())));
+    pressBacktab(window);
+    t.check(listIndent(subCursor.block()) == 1, QStringLiteral("Shift+Tab in a list still promotes: indent %1")
+                                                    .arg(listIndent(subCursor.block())));
+    controller->newDocument();
+    editor->forceActiveFocus();
+    typeText(window, QStringLiteral("x"));
+    pressTab(window);
+    typeText(window, QStringLiteral("y"));
+    t.check(doc->toPlainText() == QStringLiteral("x\ty"),
+            QStringLiteral("Tab in plain text still inserts a tab: \"%1\"").arg(doc->toPlainText()));
 
     QTextStream(stdout) << (t.ok() ? "PASS" : "FAIL") << Qt::endl;
     return t.ok();

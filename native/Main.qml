@@ -32,6 +32,7 @@ Window {
     property string fontFamily: ""
     property real fontSize: 12
     property string textColor: "auto"
+    property bool tableActive: false
     readonly property int colorIndex: textColors.findIndex(c => c[1] === textColor)
 
     function refreshFormat() {
@@ -44,6 +45,7 @@ Window {
         fontFamily = controller.currentFontFamily()
         fontSize = controller.currentFontSize()
         textColor = controller.currentTextColor()
+        tableActive = controller.isInTable()
     }
 
     // A family outside the presets (the default font) counts as the first.
@@ -91,6 +93,7 @@ Window {
         id: controller
         objectName: "controller"
         onFormatChanged: root.refreshFormat()
+        onCursorPositionRequested: position => editor.cursorPosition = position
     }
 
     Shortcut { sequence: StandardKey.Save; onActivated: root.save() }
@@ -219,6 +222,43 @@ Window {
                     color: root.textColor === "auto" ? root.theme.foreground : root.textColor
                 }
             }
+
+            ToolSeparator {}
+
+            ToolButton {
+                objectName: "tableButton"
+                appRoot: root
+                label: "⊞ Table"; tip: "Insert 3×3 table"
+                onClicked: controller.insertTable(3, 3)
+            }
+            ToolButton {
+                objectName: "insertRowButton"
+                appRoot: root
+                label: "+Row"; tip: "Insert row below"
+                available: root.tableActive
+                onClicked: controller.insertTableRow()
+            }
+            ToolButton {
+                objectName: "deleteRowButton"
+                appRoot: root
+                label: "−Row"; tip: "Delete row"
+                available: root.tableActive
+                onClicked: controller.deleteTableRow()
+            }
+            ToolButton {
+                objectName: "insertColumnButton"
+                appRoot: root
+                label: "+Col"; tip: "Insert column to the right"
+                available: root.tableActive
+                onClicked: controller.insertTableColumn()
+            }
+            ToolButton {
+                objectName: "deleteColumnButton"
+                appRoot: root
+                label: "−Col"; tip: "Delete column"
+                available: root.tableActive
+                onClicked: controller.deleteTableColumn()
+            }
         }
 
         Rectangle {
@@ -265,16 +305,21 @@ Window {
             onSelectionEndChanged: root.syncSelection()
             onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
 
-            // Tab / Shift+Tab nest list items; outside a list, Tab is left to
-            // the TextEdit, which inserts a tab character.
+            // Tab / Shift+Tab move between table cells, or else nest list
+            // items; elsewhere Tab is left to the TextEdit, which inserts a
+            // tab character.
             Keys.onTabPressed: event => {
-                if (controller.isInBulletList() || controller.isInNumberedList())
+                if (controller.isInTable())
+                    controller.nextTableCell()
+                else if (controller.isInBulletList() || controller.isInNumberedList())
                     controller.demoteListItem()
                 else
                     event.accepted = false
             }
             Keys.onBacktabPressed: event => {
-                if (controller.isInBulletList() || controller.isInNumberedList())
+                if (controller.isInTable())
+                    controller.previousTableCell()
+                else if (controller.isInBulletList() || controller.isInNumberedList())
                     controller.promoteListItem()
                 else
                     event.accepted = false

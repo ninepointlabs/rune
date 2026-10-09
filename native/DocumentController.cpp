@@ -96,7 +96,10 @@ namespace {
 // between, and LibreOffice then silently drops the whole table. Found and
 // verified in native-spike/ (XML inspection plus a real soffice round-trip
 // showing the data loss); the verified fix is an empty paragraph between
-// the list and the table.
+// the list and the table. A table made by QTextCursor::insertTable() at the
+// end of a list item (insertTable() below) has the same shape as one parsed
+// by setHtml(): a root-frame child right after the list block, with the
+// same malformed output when unsanitized.
 //
 // Collects the end-of-text position of every list block that is directly
 // followed by a table, walking nested frames and table cells.
@@ -600,3 +603,134 @@ bool DocumentController::isInBulletList() const { return currentListKind() == Li
 bool DocumentController::isInNumberedList() const { return currentListKind() == ListKind::Numbered; }
 void DocumentController::promoteListItem() { changeListLevel(-1); }
 void DocumentController::demoteListItem() { changeListLevel(+1); }
+
+// --- Tables ----------------------------------------------------------------
+//
+// QTextTable has no "next cell" operation and the TextEdit owns the visible
+// cursor, so these compute the target cell here and ask the TextEdit to
+// move there via cursorPositionRequested().
+
+namespace {
+
+constexpr int kMaxTableSize = 50; // the LibreOfficeKit engine's limit
+
+// The cell after (or before) `cell` in reading order, visiting a spanned
+// cell once, at its top-left; invalid past either end of the table.
+QTextTableCell adjacentCell(QTextTable *table, const QTextTableCell &cell, bool forward)
+{
+    int row = cell.row(), column = cell.column();
+    for (;;) {
+        column += forward ? 1 : -1;
+        if (column >= table->columns()) {
+            column = 0;
+            ++row;
+        } else if (column < 0) {
+            column = table->columns() - 1;
+            --row;
+        }
+        if (row < 0 || row >= table->rows())
+            return {};
+        const QTextTableCell candidate = table->cellAt(row, column);
+        if (candidate.row() == row && candidate.column() == column)
+            return candidate;
+    }
+}
+
+} // namespace
+
+void DocumentController::insertTable(int rows, int columns)
+{
+    QTextTableFormat format;
+    format.setBorder(1);
+    format.setBorderStyle(QTextFrameFormat::BorderStyle_Solid);
+    format.setBorderCollapse(true);
+    format.setCellSpacing(0);
+    format.setCellPadding(4);
+    format.setWidth(QTextLength(QTextLength::PercentageLength, 100));
+
+    QTextCursor cursor = selectionCursor();
+    cursor.clearSelection();
+    QTextTable *table = nullptr;
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        table = cursor.insertTable(std::clamp(rows, 1, kMaxTableSize),
+                                   std::clamp(columns, 1, kMaxTableSize), format);
+    }
+    // The TextEdit's cursor was pushed past the table; start in its first cell.
+    if (table)
+        emit cursorPositionRequested(table->cellAt(0, 0).firstCursorPosition().position());
+    emit formatChanged();
+}
+
+bool DocumentController::isInTable() const
+{
+    return selectionCursor().currentTable() != nullptr;
+}
+
+// Inserts a row/column after the cursor's cell, or deletes the cursor's
+// row/column unless it is the last one: QTextTable::removeRows() and
+// removeColumns() delete the whole table when asked to remove every row or
+// column.
+void DocumentController::editTable(bool rows, bool insert)
+{
+    const QTextCursor cursor = selectionCursor();
+    QTextTable *table = cursor.currentTable();
+    if (!table)
+        return;
+    const QTextTableCell cell = table->cellAt(cursor);
+    if (!cell.isValid() || (!insert && (rows ? table->rows() : table->columns()) <= 1))
+        return;
+    const int row = cell.row(), column = cell.column();
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        if (insert && rows)
+            table->insertRows(row + cell.rowSpan(), 1);
+        else if (insert)
+            table->insertColumns(column + cell.columnSpan(), 1);
+        else if (rows)
+            table->removeRows(row, 1);
+        else
+            table->removeColumns(column, 1);
+    }
+    // The cursor's cell is gone: move to the one that took its place.
+    if (!insert) {
+        const QTextTableCell landing = table->cellAt(std::min(row, table->rows() - 1),
+                                                     std::min(column, table->columns() - 1));
+        emit cursorPositionRequested(landing.firstCursorPosition().position());
+    }
+    emit formatChanged();
+}
+
+void DocumentController::insertTableRow() { editTable(true, true); }
+void DocumentController::deleteTableRow() { editTable(true, false); }
+void DocumentController::insertTableColumn() { editTable(false, true); }
+void DocumentController::deleteTableColumn() { editTable(false, false); }
+
+void DocumentController::nextTableCell()
+{
+    const QTextCursor cursor = selectionCursor();
+    QTextTable *table = cursor.currentTable();
+    if (!table)
+        return;
+    QTextTableCell next = adjacentCell(table, table->cellAt(cursor), true);
+    if (!next.isValid()) {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        table->appendRows(1);
+        next = table->cellAt(table->rows() - 1, 0);
+    }
+    emit cursorPositionRequested(next.firstCursorPosition().position());
+    emit formatChanged();
+}
+
+void DocumentController::previousTableCell()
+{
+    const QTextCursor cursor = selectionCursor();
+    QTextTable *table = cursor.currentTable();
+    if (!table)
+        return;
+    const QTextTableCell previous = adjacentCell(table, table->cellAt(cursor), false);
+    if (!previous.isValid())
+        return;
+    emit cursorPositionRequested(previous.firstCursorPosition().position());
+    emit formatChanged();
+}

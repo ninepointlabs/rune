@@ -17,7 +17,9 @@
 //
 // Selection: QML can't hand C++ a QTextCursor, so the TextEdit reports its
 // cursor/selection via setSelection() and the controller builds a QTextCursor
-// on its own document on demand. Character formatting (toggles, font,
+// on its own document on demand; when an operation must move the cursor
+// (into a new table cell, Tab between cells) the controller emits
+// cursorPositionRequested() for the TextEdit to apply. Character formatting (toggles, font,
 // size, color) with a collapsed cursor inside a word formats that word;
 // elsewhere it arms a pending format that is applied to the next text typed
 // at that position. Paragraph formatting (alignment, lists) applies to every
@@ -95,6 +97,22 @@ public:
     Q_INVOKABLE void setTextColor(const QString &hexColor);
     Q_INVOKABLE QString currentTextColor() const;
 
+    // Tables. insertTable() clamps rows/columns to 1..50 and puts the
+    // cursor in the first cell. Row/column edits act on the cursor's cell
+    // and do nothing outside a table; deleting never removes the last row
+    // or column (Qt would delete the whole table).
+    Q_INVOKABLE void insertTable(int rows, int columns);
+    Q_INVOKABLE bool isInTable() const;
+    Q_INVOKABLE void insertTableRow();
+    Q_INVOKABLE void deleteTableRow();
+    Q_INVOKABLE void insertTableColumn();
+    Q_INVOKABLE void deleteTableColumn();
+    // Tab / Shift+Tab: cursor to the next / previous cell in reading order.
+    // Next from the last cell appends a row; previous from the first does
+    // nothing.
+    Q_INVOKABLE void nextTableCell();
+    Q_INVOKABLE void previousTableCell();
+
     // Rewrites `doc` so QTextDocumentWriter's ODF output is well-formed.
     // Every ODF save must go through this; see the .cpp for each rule.
     static void sanitizeForOdfExport(QTextDocument *doc);
@@ -105,6 +123,9 @@ signals:
     void currentPathChanged();
     // Cursor moved or formatting changed: refresh toolbar state.
     void formatChanged();
+    // The controller moved the cursor (e.g. into a new table cell); the
+    // TextEdit should set its cursorPosition to `position`.
+    void cursorPositionRequested(int position);
 
 private:
     enum class Attr { Bold, Italic, Underline };
@@ -126,6 +147,8 @@ private:
     ListKind currentListKind() const;
     void toggleList(ListKind kind);
     void changeListLevel(int delta);
+
+    void editTable(bool rows, bool insert);
 
     QTextDocument *m_document;
     QPointer<QQuickTextDocument> m_qmlDocument;

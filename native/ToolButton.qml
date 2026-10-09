@@ -1,13 +1,15 @@
 import QtQuick
 
-// A toolbar button: shows `label`, highlighted while `active`, with
-// `tip` shown below it on hover. Same look as app/ToolButton.qml.
+// A toolbar button: shows `label`, highlighted while `active`, dimmed and
+// unclickable while not `available`, with `tip` shown below it on hover.
+// Same look as app/ToolButton.qml.
 Rectangle {
     id: button
     required property var appRoot   // the Main.qml Window instance
     property string label
     property string tip
     property bool active: false
+    property bool available: true
     property bool bold: false
     property bool italic: false
     property bool underline: false
@@ -16,6 +18,7 @@ Rectangle {
     width: Math.max(28, buttonText.implicitWidth + 14)
     height: 28
     radius: 4
+    opacity: available ? 1 : 0.5
     color: active ? appRoot.theme.accent : mouse.containsMouse ? Qt.alpha(appRoot.theme.foreground, 0.1) : "transparent"
 
     Text {
@@ -35,6 +38,7 @@ Rectangle {
         id: mouse
         anchors.fill: parent
         hoverEnabled: true
+        enabled: button.available
         onClicked: button.clicked()
     }
 
