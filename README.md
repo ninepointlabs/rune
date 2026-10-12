@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 298 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 318 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -55,12 +55,32 @@ One process. QML's `TextEdit`, backed directly by a `QTextDocument` — no bitma
 
 Full protocol/implementation notes: [`native/`](native/) source comments (each file documents its own tested limitations) and [TODO.md](TODO.md) for the complete, current feature state.
 
+## Install
+
+Packages for Arch/Omarchy, Debian 13 and Fedora 42 are attached to each [GitHub release](https://github.com/ninepointlabs/rune/releases/latest).
+
+**With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)**, which picks the right package for your system and keeps Rune updated from GitHub Releases:
+
+```sh
+autonomix-cli add https://github.com/ninepointlabs/rune
+```
+
+**Or download the package for your distro** from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and install it:
+
+```sh
+sudo pacman -U rune-*-x86_64.pkg.tar.zst      # Arch / Omarchy
+sudo apt install ./rune_*_amd64.deb           # Debian 13
+sudo dnf install ./rune-*.x86_64.rpm          # Fedora 42
+```
+
+Each package is built against that distro's own Qt, so use the one that matches your system. Install LibreOffice Writer too if you want to open and save `.docx`/`.doc`.
+
 ## Building
 
 Requires Arch/Omarchy with Qt 6.7+, QuaZip, and LibreOffice (for the `.docx` bridge only — not needed to edit native `.odt` files):
 
 ```sh
-sudo pacman -S qt6-base qt6-declarative quazip1-qt6 libsecret openssl libreoffice-fresh
+sudo pacman -S cmake ninja qt6-base qt6-declarative quazip-qt6 libsecret openssl libreoffice-fresh
 
 git clone https://github.com/ninepointlabs/rune.git
 cd rune
@@ -81,7 +101,7 @@ cmake --build build
 QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 ```
 
-298 checks, run headlessly: typing, formatting, tables, lists, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+318 checks, run headlessly: typing, formatting, tables, lists, the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 
