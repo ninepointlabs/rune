@@ -22,6 +22,23 @@ Window {
     // Set once the user has agreed to lose unsaved changes on close.
     property bool closeConfirmed: false
 
+    // Autosave (File → Autosave, on by default): an edited document with a
+    // file Save can write to saves itself once typing pauses, and when the
+    // window loses focus. Untitled documents and .doc files (Save writes
+    // .odt/.docx only) still need Save. .docx waits longer: each save is a
+    // LibreOffice conversion.
+    property alias autosaveEnabled: settings.autosave
+    readonly property bool autosaveActive: settings.autosave && isSavable(controller.currentPath)
+    readonly property int autosaveDelay: suffixOf(controller.currentPath) === "docx" ? 30000 : 5000
+    // A save is in flight (one call to saveTo(), until onFileSaved), and
+    // whether autosave started it.
+    property bool saving: false
+    property bool autosaving: false
+    // The last save to the current document failed, and why; the next
+    // successful save clears it.
+    property bool saveFailed: false
+    property string saveError: ""
+
     // Fixed presets the toolbar cycles/steps through.
     readonly property var fontNames: ["Sans", "Serif", "Monospace"]
     readonly property var fontSizes: [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
@@ -181,7 +198,30 @@ Window {
 
     function saveTo(path) {
         busyText = "Saving…"
+        saving = true
         controller.saveFile(path)
+    }
+
+    // Saves the current document now if autosave applies and it has
+    // unsaved changes; otherwise waits for the next pause.
+    function autosaveNow() {
+        autosaveTimer.stop()
+        if (!autosaveActive || !controller.dirty || controller.streamingEdit)
+            return
+        if (controller.busy) {
+            autosaveTimer.restart() // try again after this operation
+            return
+        }
+        autosaving = true
+        saveTo(controller.currentPath)
+    }
+
+    onActiveChanged: if (!active) autosaveNow()
+    onAutosaveActiveChanged: {
+        if (!autosaveActive)
+            autosaveTimer.stop()
+        else if (controller.dirty)
+            autosaveTimer.restart()
     }
 
     width: 1000
@@ -221,11 +261,43 @@ Window {
         onCursorPositionRequested: position => editor.cursorPosition = position
     }
 
+    Settings {
+        id: settings
+        category: "editor"
+        property bool autosave: true
+    }
+
+    // Restarted by every edit, so it fires once typing pauses.
+    Timer {
+        id: autosaveTimer
+        objectName: "autosaveTimer"
+        interval: root.autosaveDelay
+        onTriggered: root.autosaveNow()
+    }
+
     Connections {
         target: controller
+        function onCurrentPathChanged() {
+            root.saveFailed = false
+            root.saveError = ""
+        }
+        function onStreamingEditChanged() {
+            if (!controller.streamingEdit && root.autosaveActive && controller.dirty)
+                autosaveTimer.restart()
+        }
         function onFileSaved(success, path, error) {
-            root.statusFlash = success ? "Saved " + path : "Save failed: " + error
-            flashTimer.restart()
+            const wasAuto = root.autosaving
+            root.saving = false
+            root.autosaving = false
+            if (success || path === controller.currentPath) {
+                root.saveFailed = !success
+                root.saveError = error
+            }
+            // A successful autosave shows on the Save button, not here.
+            if (!(wasAuto && success)) {
+                root.statusFlash = success ? "Saved " + path : (wasAuto ? "Autosave failed: " : "Save failed: ") + error
+                flashTimer.restart()
+            }
             const action = root.pendingAction
             root.pendingAction = null
             if (success && action)
@@ -276,6 +348,7 @@ Window {
     Shortcut { sequences: [StandardKey.Open]; onActivated: root.requestOpen() }
     Shortcut { sequences: [StandardKey.Save]; onActivated: root.save() }
     Shortcut { sequences: [StandardKey.SaveAs]; onActivated: root.saveAs() }
+    Shortcut { sequences: ["Alt+F"]; onActivated: fileMenu.openMenu() }
     // While the editor has focus it takes these keys itself (see its
     // Keys.onPressed); these cover focus anywhere else in the window.
     Shortcut { sequences: [StandardKey.Undo]; onActivated: controller.undo() }
@@ -304,17 +377,30 @@ Window {
             anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
             spacing: 4
 
-            ToolButton {
-                objectName: "openButton"
+            FileMenu {
+                id: fileMenu
+                objectName: "fileMenuButton"
                 appRoot: root
-                label: "Open"; tip: "Open (Ctrl+O)"
                 available: !controller.busy
-                onClicked: root.requestOpen()
             }
+            // Shows where the document stands: "✓ Saved" (dimmed) once
+            // autosave has written it, "Saving…", or "Save failed" (click to
+            // retry); a plain "Save" when it has unsaved changes or autosave
+            // doesn't apply.
             ToolButton {
                 objectName: "saveButton"
                 appRoot: root
-                label: "Save"; tip: "Save (Ctrl+S) · Save As (Ctrl+Shift+S)"
+                width: 88 // the widest label, so the toolbar doesn't shift
+                label: root.saving && controller.busy ? "Saving…"
+                     : root.saveFailed ? "Save failed"
+                     : root.autosaveActive && !controller.dirty ? "✓ Saved"
+                     : "Save"
+                labelColor: root.saveFailed ? root.theme.red
+                          : label === "Save" ? root.theme.foreground
+                          : Qt.alpha(root.theme.foreground, 0.55)
+                tip: root.saveFailed ? root.saveError + " · click to retry"
+                     : root.autosaveActive ? "Autosave is on · Save now (Ctrl+S)"
+                     : "Save (Ctrl+S)"
                 available: !controller.busy
                 onClicked: root.save()
             }
@@ -325,14 +411,14 @@ Window {
                 objectName: "undoButton"
                 appRoot: root
                 label: "↶"; tip: "Undo (Ctrl+Z)"
-                available: controller.canUndo && !controller.busy
+                available: controller.canUndo && !controller.loading
                 onClicked: controller.undo()
             }
             ToolButton {
                 objectName: "redoButton"
                 appRoot: root
                 label: "↷"; tip: "Redo (Ctrl+Shift+Z)"
-                available: controller.canRedo && !controller.busy
+                available: controller.canRedo && !controller.loading
                 onClicked: controller.redo()
             }
 
@@ -539,7 +625,7 @@ Window {
             // made meanwhile would be lost (see DocumentController::openFile).
             // ... and while the AI writes into it (one undo step, see
             // DocumentController::beginStreamedEdit()).
-            readOnly: controller.busy || controller.streamingEdit
+            readOnly: controller.loading || controller.streamingEdit
             selectByMouse: true
             persistentSelection: true
             textFormat: TextEdit.RichText
@@ -549,6 +635,7 @@ Window {
             selectedTextColor: root.theme.background
             font.pointSize: 12
 
+            onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
             onCursorPositionChanged: root.syncSelection()
             onSelectionStartChanged: root.syncSelection()
             onSelectionEndChanged: root.syncSelection()

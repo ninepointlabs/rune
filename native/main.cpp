@@ -15,6 +15,8 @@
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
 
@@ -79,8 +81,12 @@ int main(int argc, char *argv[])
     QGuiApplication::setDesktopFileName(QStringLiteral("rune"));
     const Options options = parseOptions(app);
 
-    if (options.autoTest)
+    // A test run keeps its settings (e.g. File → Autosave) out of the user's.
+    QTemporaryDir testSettings;
+    if (options.autoTest) {
         AiManager::useTestDefaults();
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testSettings.path());
+    }
 
     QQmlApplicationEngine engine;
     engine.setInitialProperties({{"theme", omarchyTheme()}});

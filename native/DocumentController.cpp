@@ -166,11 +166,12 @@ const QString kAlreadyBusy = QStringLiteral("a file operation is already in prog
 
 } // namespace
 
-void DocumentController::setBusy(bool busy)
+void DocumentController::setBusy(bool busy, bool loading)
 {
     if (m_busy == busy)
         return;
     m_busy = busy;
+    m_loading = busy && loading;
     emit busyChanged();
 }
 
@@ -208,7 +209,7 @@ void DocumentController::openFile(const QString &path)
         return;
     }
 
-    setBusy(true);
+    setBusy(true, true);
     const auto work = [path] {
         Conversion result;
         result.odt = DocxBridge::convertToOdt(path, &result.error);
@@ -401,7 +402,7 @@ void DocumentController::redo() { stepHistory(false); }
 
 void DocumentController::stepHistory(bool undo)
 {
-    if (m_busy || isStreamingEdit() || !(undo ? canUndo() : canRedo()))
+    if (m_loading || isStreamingEdit() || !(undo ? canUndo() : canRedo()))
         return;
     QTextCursor cursor = selectionCursor();
     {
@@ -585,7 +586,7 @@ QTextCharFormat DocumentController::currentCharFormat() const
 
 bool DocumentController::typeText(const QString &text)
 {
-    if (m_busy || isStreamingEdit() || text.isEmpty())
+    if (m_loading || isStreamingEdit() || text.isEmpty())
         return false;
     QTextCursor cursor = selectionCursor();
     const bool pending = m_pendingPosition >= 0 && m_pendingPosition == cursor.position() && !cursor.hasSelection();

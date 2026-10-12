@@ -69,6 +69,9 @@ const QString kUndoPath = QStringLiteral("/tmp/rune-native-undo.odt");
 const QString kDialogBasePath = QStringLiteral("/tmp/rune-native-dialog");
 const QString kDialogOdtPath = kDialogBasePath + QStringLiteral(".odt");
 const QString kDialogDocxPath = QStringLiteral("/tmp/rune-native-dialog.docx");
+const QString kAutosaveDir = QStringLiteral("/tmp/rune-native-autosave");
+const QString kAutosaveOdtPath = kAutosaveDir + QStringLiteral("/autosave.odt");
+const QString kAutosaveDocxPath = kAutosaveDir + QStringLiteral("/autosave.docx");
 const QString kSampleDocx = QStringLiteral(RUNE_SAMPLES_DIR "/test.docx");
 const QString kSampleDoc = QStringLiteral(RUNE_SAMPLES_DIR "/test.doc");
 
@@ -493,6 +496,9 @@ bool runAutoTest(QQuickWindow *window)
     t.check(controller && editor && boldButton, "found controller, editor and Bold button");
     if (!t.ok())
         return false;
+    // Off until the autosave checks: a save firing during another check's
+    // wait would change the state that check is about.
+    window->setProperty("autosaveEnabled", false);
 
     auto *qmlDoc = editor->property("textDocument").value<QQuickTextDocument *>();
     QTextDocument *doc = controller->textDocument();
@@ -1808,6 +1814,151 @@ bool runAutoTest(QQuickWindow *window)
         const IoRun docxRun = waitSaved([&] { callRoot(window, "acceptSave", kDialogDocxPath); });
         t.check(docxRun.success && controller->currentPath() == kDialogDocxPath && !controller->isDirty(),
                 "Save As .docx goes through the bridge and becomes the current path" + errorNote(docxRun));
+
+        // The toolbar's File menu: a real click opens it; its items run the
+        // same functions as the shortcuts, and are off while a file loads.
+        {
+            auto *menuButton = window->findChild<QQuickItem *>(QStringLiteral("fileMenuButton"));
+            QObject *menu = window->findChild<QObject *>(QStringLiteral("fileMenu"));
+            const QStringList itemNames{QStringLiteral("newMenuItem"), QStringLiteral("openMenuItem"),
+                                        QStringLiteral("saveMenuItem"), QStringLiteral("saveAsMenuItem")};
+            QList<QObject *> items;
+            for (const QString &n : itemNames)
+                items.append(window->findChild<QObject *>(n));
+            t.check(menuButton && menu && !items.contains(nullptr), "found the File menu and New/Open/Save/Save As");
+            if (menuButton && menu && !items.contains(nullptr)) {
+                const auto item = [&](const QString &n) { return items.at(itemNames.indexOf(n)); };
+                const auto trigger = [&](const QString &n) {
+                    QMetaObject::invokeMethod(item(n), "click");
+                    QCoreApplication::processEvents();
+                };
+                QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                  menuButton->mapToScene(QPointF(menuButton->width() / 2, menuButton->height() / 2)).toPoint());
+                QCoreApplication::processEvents();
+                t.check(menu->property("visible").toBool(), "clicking the Rune/File button opens the File menu");
+
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                QCoreApplication::processEvents();
+                const bool escClosed = !menu->property("visible").toBool();
+                pressSystemKey(window, Qt::Key_F, Qt::AltModifier);
+                t.check(escClosed && menu->property("visible").toBool() && item(QStringLiteral("newMenuItem"))->property("highlighted").toBool(),
+                        "Escape closes the File menu; Alt+F opens it with New highlighted");
+                auto *saveButton = window->findChild<QQuickItem *>(QStringLiteral("saveButton"));
+                t.check(saveButton && saveButton->isVisible(), "the toolbar keeps a one-click Save button next to the File menu");
+
+                trigger(QStringLiteral("saveAsMenuItem"));
+                t.check(!menu->property("visible").toBool() && dialogVisible(window, QStringLiteral("saveDialog")),
+                        "File → Save As… closes the menu and opens Save As");
+                closeDialog(window, QStringLiteral("saveDialog"));
+
+                trigger(QStringLiteral("openMenuItem"));
+                t.check(dialogVisible(window, QStringLiteral("openDialog")), "File → Open… opens the Open dialog");
+                closeDialog(window, QStringLiteral("openDialog"));
+
+                bool enabledWhileBusy = true;
+                const IoRun busyRun = runIo(controller, &DocumentController::fileOpened, [&] {
+                    controller->openFile(kDialogDocxPath);
+                    enabledWhileBusy = std::any_of(items.begin(), items.end(),
+                                                   [](QObject *i) { return i->property("enabled").toBool(); });
+                });
+                t.check(busyRun.success && busyRun.busyAfterCall && !enabledWhileBusy
+                            && std::all_of(items.begin(), items.end(), [](QObject *i) { return i->property("enabled").toBool(); }),
+                        "File menu items are disabled while a .docx opens, enabled after" + errorNote(busyRun));
+
+                trigger(QStringLiteral("newMenuItem"));
+                t.check(!anyDialog() && doc->isEmpty() && controller->currentPath().isEmpty() && !controller->isDirty(),
+                        "File → New on a saved document: empty and untitled, no prompt");
+            }
+        }
+
+        // Autosave, and the Save button showing where the document stands.
+        // The timer isn't waited out: autosaveNow() is what it calls.
+        {
+            auto *saveButton = window->findChild<QQuickItem *>(QStringLiteral("saveButton"));
+            QObject *timer = window->findChild<QObject *>(QStringLiteral("autosaveTimer"));
+            QObject *autosaveItem = window->findChild<QObject *>(QStringLiteral("autosaveMenuItem"));
+            t.check(saveButton && timer && autosaveItem, "found the Save button, autosave timer and File → Autosave");
+            if (saveButton && timer && autosaveItem) {
+                const auto label = [&] { return saveButton->property("label").toString(); };
+                const auto timerRunning = [&] { return timer->property("running").toBool(); };
+                const auto flash = [&] { return window->property("statusFlash").toString(); };
+                const auto edit = [&](const QString &text) {
+                    editor->forceActiveFocus();
+                    typeText(window, text);
+                    QCoreApplication::processEvents();
+                };
+                const QString saved = QStringLiteral("✓ Saved");
+                QDir(kAutosaveDir).removeRecursively();
+                QDir().mkpath(kAutosaveDir);
+                window->setProperty("autosaveEnabled", true);
+
+                controller->newDocument();
+                edit(QStringLiteral("untitled "));
+                t.check(controller->isDirty() && !timerRunning() && label() == QLatin1String("Save"),
+                        "an untitled document doesn't autosave; the button reads Save (\"" + label() + "\")");
+
+                const IoRun first = waitSaved([&] { callRoot(window, "acceptSave", kAutosaveOdtPath); });
+                t.check(first.success && label() == saved,
+                        "saved as .odt with autosave on: the button reads ✓ Saved (\"" + label() + "\")" + errorNote(first));
+
+                edit(QStringLiteral("more "));
+                t.check(controller->isDirty() && timerRunning() && timer->property("interval").toInt() == 5000
+                            && label() == QLatin1String("Save"),
+                        "an edit starts the 5 s autosave timer; the button reads Save");
+                QFile::remove(kAutosaveOdtPath);
+                window->setProperty("statusFlash", QString());
+                const IoRun odtRun = waitSaved([&] { callRoot(window, "autosaveNow"); });
+                t.check(odtRun.success && odtRun.path == kAutosaveOdtPath && QFileInfo::exists(kAutosaveOdtPath)
+                            && !controller->isDirty() && label() == saved && flash().isEmpty() && !timerRunning(),
+                        "autosave writes the .odt: ✓ Saved, no status-bar message" + errorNote(odtRun));
+
+                // A failed autosave shows on the button, and the next save clears it.
+                QDir(kAutosaveDir).removeRecursively();
+                edit(QStringLiteral("lost "));
+                const IoRun failRun = waitSaved([&] { callRoot(window, "autosaveNow"); });
+                t.check(!failRun.success && controller->isDirty() && label() == QLatin1String("Save failed")
+                            && flash().startsWith(QLatin1String("Autosave failed")),
+                        "a failed autosave: the button reads Save failed, the status bar says why (\"" + flash() + "\")");
+                QDir().mkpath(kAutosaveDir);
+                const IoRun retry = waitSaved([&] { QMetaObject::invokeMethod(saveButton, "clicked"); });
+                t.check(retry.success && !controller->isDirty() && label() == saved,
+                        "clicking Save failed retries; success clears it" + errorNote(retry));
+
+                // .docx: a longer pause, and typing carries on while it converts.
+                const IoRun toDocx = waitSaved([&] { callRoot(window, "acceptSave", kAutosaveDocxPath); });
+                edit(QStringLiteral("docx "));
+                t.check(toDocx.success && timerRunning() && timer->property("interval").toInt() == 30000,
+                        "a .docx document autosaves after a 30 s pause" + errorNote(toDocx));
+                QString labelWhileSaving;
+                bool editableWhileSaving = false, typedWhileSaving = false;
+                const IoRun docxRun = waitSaved([&] {
+                    callRoot(window, "autosaveNow");
+                    labelWhileSaving = label();
+                    editableWhileSaving = !editor->property("readOnly").toBool();
+                    typedWhileSaving = controller->typeText(QStringLiteral("during "));
+                });
+                t.check(docxRun.success && docxRun.busyAfterCall && labelWhileSaving == QStringLiteral("Saving…"),
+                        "autosaving a .docx: the button reads Saving… (\"" + labelWhileSaving + "\")" + errorNote(docxRun));
+                t.check(editableWhileSaving && typedWhileSaving && controller->isDirty()
+                            && doc->toPlainText().contains(QStringLiteral("during")) && label() == QLatin1String("Save"),
+                        "typing works while a .docx autosaves, and leaves the document unsaved afterwards");
+
+                // File → Autosave turns it off and on.
+                QMetaObject::invokeMethod(autosaveItem, "click");
+                QCoreApplication::processEvents();
+                edit(QStringLiteral("off "));
+                t.check(!window->property("autosaveEnabled").toBool() && !timerRunning() && label() == QLatin1String("Save"),
+                        "File → Autosave off: edits start no timer; the button reads Save");
+                QMetaObject::invokeMethod(autosaveItem, "click");
+                QCoreApplication::processEvents();
+                t.check(window->property("autosaveEnabled").toBool() && timerRunning(),
+                        "File → Autosave back on with unsaved changes starts the timer");
+
+                window->setProperty("autosaveEnabled", false);
+                timer->setProperty("running", false);
+                controller->newDocument();
+            }
+        }
 
         // The unsaved-changes guard.
         QTextCursor(doc).insertText(QStringLiteral("Unsaved "));

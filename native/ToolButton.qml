@@ -13,6 +13,7 @@ Rectangle {
     property bool bold: false
     property bool italic: false
     property bool underline: false
+    property color labelColor: active ? appRoot.theme.background : appRoot.theme.foreground
     signal clicked()
 
     width: Math.max(28, buttonText.implicitWidth + 14)
@@ -27,7 +28,7 @@ Rectangle {
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
         text: button.label
-        color: button.active ? button.appRoot.theme.background : button.appRoot.theme.foreground
+        color: button.labelColor
         font.pixelSize: 13
         font.bold: button.bold
         font.italic: button.italic
