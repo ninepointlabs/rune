@@ -52,6 +52,7 @@ Options parseOptions(const QCoreApplication &app)
 {
     QCommandLineParser parser;
     parser.addHelpOption();
+    parser.addVersionOption();
     const QCommandLineOption autoTestOpt(QStringLiteral("auto-test"),
                                          QStringLiteral("Run the headless self-test, then quit."));
     parser.addOption(autoTestOpt);
@@ -73,6 +74,9 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Rune"));
+    QGuiApplication::setApplicationVersion(QStringLiteral(RUNE_VERSION));
+    // Matches packaging/rune.desktop, so the window gets its icon and name.
+    QGuiApplication::setDesktopFileName(QStringLiteral("rune"));
     const Options options = parseOptions(app);
 
     if (options.autoTest)

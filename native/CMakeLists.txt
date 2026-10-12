@@ -50,3 +50,12 @@ target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ai)
 
 # --auto-test opens samples/test.docx from the repo.
 target_compile_definitions(rune PRIVATE RUNE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../samples")
+# The root project's version; "dev" when native/ is built standalone.
+if(CMAKE_PROJECT_VERSION)
+    target_compile_definitions(rune PRIVATE RUNE_VERSION="${CMAKE_PROJECT_VERSION}")
+else()
+    target_compile_definitions(rune PRIVATE RUNE_VERSION="dev")
+endif()
+
+include(GNUInstallDirs)
+install(TARGETS rune RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

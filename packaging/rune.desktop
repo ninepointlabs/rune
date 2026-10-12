@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Rune
+GenericName=Word Processor
+Comment=A word processor that writes with you
+Exec=rune %f
+Icon=rune
+Terminal=false
+Categories=Office;WordProcessor;Qt;
+MimeType=application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;

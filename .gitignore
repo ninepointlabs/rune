@@ -1,3 +1,4 @@
 build/
 .~lock*
 __pycache__/
+dist/

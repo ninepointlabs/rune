@@ -1,0 +1,23 @@
+# Maintainer: Nine Point Labs <tim@ninepointlabs.com>
+pkgname=rune
+pkgver=0.1
+pkgrel=1
+pkgdesc='A word processor that writes with you'
+arch=('x86_64')
+url='https://github.com/ninepointlabs/rune'
+license=('MIT')
+depends=('qt6-base' 'qt6-declarative' 'quazip-qt6' 'openssl' 'libsecret')
+makedepends=('cmake' 'ninja' 'git')
+optdepends=('libreoffice: open and save .docx and .doc files'
+            'gnome-keyring: keep AI sign-ins in the desktop keyring')
+source=("git+https://github.com/ninepointlabs/rune.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+build() {
+  cmake -S rune -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}
