@@ -3,6 +3,7 @@
 #include "DocxBridge.h"
 #include "OdfReader.h"
 
+#include <QAbstractTextDocumentLayout>
 #include <QBuffer>
 #include <QDebug>
 #include <QDir>
@@ -10,6 +11,7 @@
 #include <QFontDatabase>
 #include <QFutureWatcher>
 #include <QList>
+#include <QLocale>
 #include <QScopedValueRollback>
 #include <QSaveFile>
 #include <QSignalBlocker>
@@ -38,6 +40,15 @@ DocumentController::DocumentController(QObject *parent)
     connect(m_document, &QTextDocument::redoAvailable, this, &DocumentController::canRedoChanged);
     connect(m_document, &QTextDocument::contentsChange, this, &DocumentController::onContentsChange);
     connect(m_document, &QTextDocument::contentsChanged, this, [this] { ++m_contentRevision; });
+    connect(m_document, &QTextDocument::contentsChanged, this, &DocumentController::syncPages);
+    connect(m_document->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
+            &DocumentController::syncPages);
+
+    m_defaultLayout = PageLayout::defaultFor(QLocale::system().territory());
+    m_reportedLayout = m_defaultLayout;
+    writePageLayout(m_defaultLayout);
+    m_document->clearUndoRedoStacks();
+    m_document->setModified(false);
 }
 
 DocumentController::~DocumentController()
@@ -63,6 +74,96 @@ void DocumentController::updateDirty()
     emit dirtyChanged();
 }
 
+// --- Page layout -----------------------------------------------------------
+//
+// The root frame format holds the layout twice: its margins in pixels,
+// which the text layout uses, and the exact millimetre values as user
+// properties, which pageLayout() reads. Changing it is an ordinary undoable
+// edit; undo/redo restore both.
+
+namespace {
+
+enum PageProperty {
+    kPageWidthMm = QTextFormat::UserProperty + 100,
+    kPageHeightMm,
+    kPageTopMm,
+    kPageBottomMm,
+    kPageLeftMm,
+    kPageRightMm,
+};
+
+} // namespace
+
+PageLayout DocumentController::pageLayout() const
+{
+    const QTextFrameFormat format = m_document->rootFrame()->frameFormat();
+    if (!format.hasProperty(kPageWidthMm))
+        return m_defaultLayout;
+    PageLayout layout;
+    layout.widthMm = format.doubleProperty(kPageWidthMm);
+    layout.heightMm = format.doubleProperty(kPageHeightMm);
+    layout.topMm = format.doubleProperty(kPageTopMm);
+    layout.bottomMm = format.doubleProperty(kPageBottomMm);
+    layout.leftMm = format.doubleProperty(kPageLeftMm);
+    layout.rightMm = format.doubleProperty(kPageRightMm);
+    return layout;
+}
+
+void DocumentController::writePageLayout(const PageLayout &layout)
+{
+    QTextFrameFormat format = m_document->rootFrame()->frameFormat();
+    const QMarginsF margins = layout.marginsPx();
+    format.setTopMargin(margins.top());
+    format.setBottomMargin(margins.bottom());
+    format.setLeftMargin(margins.left());
+    format.setRightMargin(margins.right());
+    format.setProperty(kPageWidthMm, layout.widthMm);
+    format.setProperty(kPageHeightMm, layout.heightMm);
+    format.setProperty(kPageTopMm, layout.topMm);
+    format.setProperty(kPageBottomMm, layout.bottomMm);
+    format.setProperty(kPageLeftMm, layout.leftMm);
+    format.setProperty(kPageRightMm, layout.rightMm);
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        m_document->rootFrame()->setFrameFormat(format);
+    }
+    syncPages();
+}
+
+void DocumentController::syncPages()
+{
+    const PageLayout layout = pageLayout();
+    const QSizeF size = layout.sizePx();
+    if (m_document->pageSize() != size)
+        m_document->setPageSize(size);
+    if (layout != m_reportedLayout) {
+        m_reportedLayout = layout;
+        emit pageLayoutChanged();
+    }
+    const int pages = std::max(1, m_document->pageCount());
+    if (pages != m_pageCount) {
+        m_pageCount = pages;
+        emit pageCountChanged();
+    }
+}
+
+void DocumentController::setPageLayout(const QVariantMap &layout)
+{
+    const PageLayout current = pageLayout();
+    const PageLayout next = PageLayout::fromMap(layout, current);
+    if (next == current)
+        return;
+    // Its own undo step, not merged into the word being typed.
+    endTypingStep();
+    writePageLayout(next);
+    emit formatChanged();
+}
+
+bool DocumentController::localeUsesLetter() const
+{
+    return PageLayout::usesLetter(QLocale::system().territory());
+}
+
 void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
 {
     if (m_qmlDocument == qmlDocument)
@@ -70,6 +171,10 @@ void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
     m_qmlDocument = qmlDocument;
     if (m_qmlDocument)
         m_qmlDocument->setTextDocument(m_document);
+    // The TextEdit may have set its own layout and margins on the document.
+    connect(m_document->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
+            &DocumentController::syncPages, Qt::UniqueConnection);
+    syncPages();
     emit documentChanged();
     emit formatChanged();
 }
@@ -77,6 +182,9 @@ void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
 void DocumentController::newDocument()
 {
     m_document->clear();
+    // clear() resets the root frame format, where the page layout lives.
+    writePageLayout(m_defaultLayout);
+    m_document->clearUndoRedoStacks();
     m_document->setModified(false);
     updateDirty();
     // clear() also drops the undo history without emitting undoAvailable().
@@ -106,9 +214,14 @@ bool DocumentController::saveToOdf(const QString &path)
         qWarning() << "DocumentController: ODF serialisation failed";
         return false;
     }
+    // Qt's writer leaves out the page layout (it writes no styles.xml).
+    const QByteArray odt = withOdfPageLayout(buffer.data(), pageLayout());
+    if (odt.isEmpty()) {
+        qWarning() << "DocumentController: cannot add the page layout to the ODF archive";
+        return false;
+    }
     QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly) || file.write(buffer.data()) != buffer.data().size()
-        || !file.commit()) {
+    if (!file.open(QIODevice::WriteOnly) || file.write(odt) != odt.size() || !file.commit()) {
         qWarning() << "DocumentController: cannot write" << path << file.errorString();
         return false;
     }
@@ -137,6 +250,11 @@ bool DocumentController::openOdf(const QString &path)
         qWarning().noquote() << "DocumentController: cannot open" << error;
         return false;
     }
+    // The file's own page layout, if it has one: not part of the history.
+    writePageLayout(PageLayout::fromOdtFile(path).value_or(m_defaultLayout));
+    m_document->clearUndoRedoStacks();
+    emit canUndoChanged();
+    emit canRedoChanged();
 
     m_document->setModified(false);
     updateDirty();
@@ -317,6 +435,9 @@ void DocumentController::saveFile(const QString &path)
 
 void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath)
 {
+    // openOdf()/saveToOdf() ran with this object's signals blocked.
+    emit pageLayoutChanged();
+    emit pageCountChanged();
     m_currentPath = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != oldPath)
         emit currentPathChanged();

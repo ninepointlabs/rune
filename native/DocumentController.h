@@ -25,6 +25,8 @@
 // at that position. Paragraph formatting (alignment, lists) applies to every
 // block the selection touches, or the cursor's block.
 
+#include "PageLayout.h"
+
 #include <QFuture>
 #include <QObject>
 #include <QQmlEngine>
@@ -61,6 +63,15 @@ class DocumentController : public QObject
     // A streamed edit (beginStreamedEdit()) is writing into the document;
     // the UI should keep the user from editing meanwhile.
     Q_PROPERTY(bool streamingEdit READ isStreamingEdit NOTIFY streamingEditChanged)
+    // Paper size and margins, in millimetres: {width, height, top, bottom,
+    // left, right} (PageLayout). Kept in the document's root frame format,
+    // so a Page setup change is one undo step like any edit. New documents
+    // get the locale's default; opening a file takes the file's own.
+    Q_PROPERTY(QVariantMap pageLayout READ pageLayoutMap NOTIFY pageLayoutChanged)
+    // The page in pixels (at 96 per inch, the editor's scale), and how many
+    // pages the document fills: the editor's page view.
+    Q_PROPERTY(QSizeF pageSizePx READ pageSizePx NOTIFY pageLayoutChanged)
+    Q_PROPERTY(int pageCount READ pageCount NOTIFY pageCountChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -78,6 +89,16 @@ public:
     bool canRedo() const { return m_document->isRedoAvailable(); }
     bool hasSelection() const { return m_selectionStart != m_selectionEnd; }
     bool isStreamingEdit() const { return m_streaming; }
+    PageLayout pageLayout() const;
+    QVariantMap pageLayoutMap() const { return pageLayout().toMap(); }
+    QSizeF pageSizePx() const { return pageLayout().sizePx(); }
+    int pageCount() const { return m_pageCount; }
+
+    // Page setup: missing values keep the current ones (see
+    // PageLayout::fromMap()). One undo step; marks the document modified.
+    Q_INVOKABLE void setPageLayout(const QVariantMap &layout);
+    // Whether this locale uses Letter paper (Page setup shows inches then).
+    Q_INVOKABLE bool localeUsesLetter() const;
 
     Q_INVOKABLE void newDocument();
     Q_INVOKABLE bool saveToOdf(const QString &path);
@@ -254,6 +275,8 @@ signals:
     void fileSaved(bool success, const QString &path, const QString &error);
     // Cursor moved or formatting changed: refresh toolbar state.
     void formatChanged();
+    void pageLayoutChanged();
+    void pageCountChanged();
     // The controller moved the cursor (e.g. into a new table cell); the
     // TextEdit should set its cursorPosition to `position`.
     void cursorPositionRequested(int position);
@@ -296,6 +319,12 @@ private:
         QString error; // "" on success
     };
     void setBusy(bool busy, bool loading = false);
+    // Writes `layout` into the root frame format (an undo step of its own).
+    void writePageLayout(const PageLayout &layout);
+    // After any change: keeps the document paginated at the page size (the
+    // TextEdit resets the page height whenever its width changes) and
+    // reports layout and page-count changes.
+    void syncPages();
     // Runs `work` on the global thread pool; `done` gets its result back on
     // this thread unless this controller is destroyed first.
     template<typename Work, typename Done>
@@ -307,6 +336,11 @@ private:
     QString m_currentPath;
     bool m_busy = false;
     bool m_loading = false; // m_busy with an open; see the `loading` property
+    // For new documents, and files without a page layout of their own.
+    PageLayout m_defaultLayout;
+    // What pageLayoutChanged()/pageCountChanged() last reported.
+    PageLayout m_reportedLayout;
+    int m_pageCount = 1;
     // The streamed edit in progress (see beginStreamedEdit()): its
     // selection when it began, the text it has written so far (start -1:
     // none yet), where the next replacement search starts, the format new

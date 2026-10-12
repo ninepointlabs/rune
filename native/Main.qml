@@ -9,6 +9,8 @@ Window {
 
     required property var theme
 
+    // A page: a shade lighter than the window behind it.
+    readonly property color pageColor: Qt.tint(theme.background, Qt.alpha(theme.foreground, 0.07))
     readonly property color barColor: theme.lighter_background !== undefined ? theme.lighter_background : theme.background
     readonly property string documentName: controller.currentPath !== ""
         ? controller.currentPath.substring(controller.currentPath.lastIndexOf("/") + 1) : "Untitled"
@@ -65,6 +67,11 @@ Window {
     // The ⋯ button and the separator before it.
     readonly property real overflowWidth: overflowMenu.width + 1 + toolRow.spacing
 
+    // File → Page setup….
+    function openPageSetup() {
+        pageSetup.open()
+    }
+
     // Ctrl+K, and File → Command palette….
     function openCommandPalette() {
         commandPalette.open()
@@ -84,6 +91,7 @@ Window {
             {group: "File", name: "Open…", hint: "Ctrl+O", available: idle, run: () => root.requestOpen()},
             {group: "File", name: "Save", hint: "Ctrl+S", available: idle, run: () => root.save()},
             {group: "File", name: "Save As…", hint: "Ctrl+Shift+S", available: idle, run: () => root.saveAs()},
+            {group: "File", name: "Page setup…", available: always, run: () => root.openPageSetup()},
             {group: "File", name: settings.autosave ? "Turn autosave off" : "Turn autosave on", available: always,
              run: () => settings.autosave = !settings.autosave},
             {group: "Edit", name: "Undo", hint: "Ctrl+Z", available: () => controller.canUndo && !controller.loading,
@@ -866,6 +874,14 @@ Window {
         }
     }
 
+    PageSetup {
+        id: pageSetup
+        objectName: "pageSetup"
+        appRoot: root
+        controller: controller
+        onClosed: editor.forceActiveFocus()
+    }
+
     CommandPalette {
         id: commandPalette
         objectName: "commandPalette"
@@ -889,88 +905,152 @@ Window {
         }
     }
 
+    // The document as pages: sheets the size of the page, with the text
+    // laid out on them by the document itself (it is paginated at the page
+    // size, its margins the page margins). In a window narrower than a page,
+    // everything scales down to fit.
     Flickable {
         id: flick
         anchors { left: parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
                   top: toolbar.bottom; bottom: statusBar.top }
         contentWidth: width
-        contentHeight: editor.implicitHeight
+        contentHeight: pageColumn.height * zoom + 2 * gutter
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
-        // Keep the cursor in view while typing.
+        readonly property real gutter: 24
+        readonly property real zoom: Math.min(1, (width - 2 * gutter) / pageColumn.width)
+
+        // Keep the cursor in view while typing (`r` in the editor's coordinates).
         function ensureVisible(r) {
-            if (contentY >= r.y)
-                contentY = r.y
-            else if (contentY + height <= r.y + r.height)
-                contentY = r.y + r.height - height
+            const rect = editor.mapToItem(flick.contentItem, r.x, r.y, r.width, r.height)
+            if (contentY >= rect.y)
+                contentY = rect.y
+            else if (contentY + height <= rect.y + rect.height)
+                contentY = rect.y + rect.height - height
         }
 
-        TextEdit {
-            id: editor
-            objectName: "editor"
-            width: flick.width
-            height: Math.max(implicitHeight, flick.height)
-            padding: 48
-            focus: true
-            // A .docx open replaces the document when it finishes; edits
-            // made meanwhile would be lost (see DocumentController::openFile).
-            // ... and while the AI writes into it (one undo step, see
-            // DocumentController::beginStreamedEdit()).
-            readOnly: controller.loading || controller.streamingEdit
-            selectByMouse: true
-            persistentSelection: true
-            textFormat: TextEdit.RichText
-            wrapMode: TextEdit.Wrap
-            color: root.theme.foreground
-            selectionColor: root.theme.accent
-            selectedTextColor: root.theme.background
-            font.pointSize: 12
+        Item {
+            id: pageColumn
+            objectName: "pageColumn"
+            readonly property size page: controller.pageSizePx
+            // Between sheets, in the margins on either side of a page break.
+            readonly property real gap: 32
+            x: Math.max(flick.gutter, (flick.width - width * flick.zoom) / 2)
+            y: flick.gutter
+            width: page.width
+            height: Math.max(controller.pageCount * page.height, editor.implicitHeight)
+            scale: flick.zoom
+            transformOrigin: Item.TopLeft
 
-            onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
-            onCursorPositionChanged: root.syncSelection()
-            onSelectionStartChanged: root.syncSelection()
-            onSelectionEndChanged: root.syncSelection()
-            onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
+            Repeater {
+                model: controller.pageCount
+                Rectangle {
+                    required property int index
+                    y: index * pageColumn.page.height + (index > 0 ? pageColumn.gap / 2 : 0)
+                    width: pageColumn.width
+                    height: pageColumn.page.height - (index > 0 ? pageColumn.gap / 2 : 0)
+                            - (index < controller.pageCount - 1 ? pageColumn.gap / 2 : 0)
+                    color: root.pageColor
+                    border.color: Qt.alpha(root.theme.foreground, 0.2)
+                    border.width: 1
 
-            // Undo/redo go through the controller rather than the TextEdit's
-            // built-in handling, which knows nothing of pending formats or
-            // the toolbar. Printable text is inserted by the controller too,
-            // which groups typing into word-sized undo steps; see
-            // DocumentController::typeText(). Return, Backspace, Delete and
-            // input-method text stay with the TextEdit.
-            Keys.onPressed: event => {
-                if (event.matches(StandardKey.Undo))
-                    controller.undo()
-                else if (event.matches(StandardKey.Redo))
-                    controller.redo()
-                else if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
-                         && event.text.length > 0 && event.text >= " " && event.text !== "\x7f"
-                         && controller.typeText(event.text))
-                    ; // inserted
-                else
-                    return
-                event.accepted = true
+                    // A shadow under the sheet's lower edge, so each page
+                    // visibly ends.
+                    Rectangle {
+                        z: -1
+                        x: 3
+                        y: 4
+                        width: parent.width
+                        height: parent.height
+                        color: Qt.alpha("black", 0.35)
+                    }
+                }
             }
 
-            // Tab / Shift+Tab move between table cells, or else nest list
-            // items; elsewhere Tab is left to the TextEdit, which inserts a
-            // tab character.
-            Keys.onTabPressed: event => {
-                if (controller.isInTable())
-                    controller.nextTableCell()
-                else if (controller.isInBulletList() || controller.isInNumberedList())
-                    controller.demoteListItem()
-                else
-                    event.accepted = false
+            // The rest of the last page, below the text: a click there
+            // puts the cursor at the end, as in the text's own margin.
+            MouseArea {
+                objectName: "belowText"
+                y: editor.height
+                width: parent.width
+                height: Math.max(0, parent.height - editor.height)
+                cursorShape: Qt.IBeamCursor
+                onClicked: {
+                    editor.forceActiveFocus()
+                    editor.cursorPosition = editor.length
+                }
             }
-            Keys.onBacktabPressed: event => {
-                if (controller.isInTable())
-                    controller.previousTableCell()
-                else if (controller.isInBulletList() || controller.isInNumberedList())
-                    controller.promoteListItem()
-                else
-                    event.accepted = false
+
+            TextEdit {
+                id: editor
+                objectName: "editor"
+                width: pageColumn.width
+                // Just the text: tying it to the pages would loop (the page
+                // count comes from this layout). Clicks below it are the
+                // MouseArea's above.
+                height: implicitHeight
+                padding: 0 // the margins are the document's (see DocumentController::pageLayout)
+                focus: true
+                // A .docx open replaces the document when it finishes; edits
+                // made meanwhile would be lost (see DocumentController::openFile).
+                // ... and while the AI writes into it (one undo step, see
+                // DocumentController::beginStreamedEdit()).
+                readOnly: controller.loading || controller.streamingEdit
+                selectByMouse: true
+                persistentSelection: true
+                textFormat: TextEdit.RichText
+                wrapMode: TextEdit.Wrap
+                color: root.theme.foreground
+                selectionColor: root.theme.accent
+                selectedTextColor: root.theme.background
+                font.pointSize: 12
+
+                onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
+                onCursorPositionChanged: root.syncSelection()
+                onSelectionStartChanged: root.syncSelection()
+                onSelectionEndChanged: root.syncSelection()
+                onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
+
+                // Undo/redo go through the controller rather than the TextEdit's
+                // built-in handling, which knows nothing of pending formats or
+                // the toolbar. Printable text is inserted by the controller too,
+                // which groups typing into word-sized undo steps; see
+                // DocumentController::typeText(). Return, Backspace, Delete and
+                // input-method text stay with the TextEdit.
+                Keys.onPressed: event => {
+                    if (event.matches(StandardKey.Undo))
+                        controller.undo()
+                    else if (event.matches(StandardKey.Redo))
+                        controller.redo()
+                    else if (!(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+                             && event.text.length > 0 && event.text >= " " && event.text !== "\x7f"
+                             && controller.typeText(event.text))
+                        ; // inserted
+                    else
+                        return
+                    event.accepted = true
+                }
+
+                // Tab / Shift+Tab move between table cells, or else nest list
+                // items; elsewhere Tab is left to the TextEdit, which inserts a
+                // tab character.
+                Keys.onTabPressed: event => {
+                    if (controller.isInTable())
+                        controller.nextTableCell()
+                    else if (controller.isInBulletList() || controller.isInNumberedList())
+                        controller.demoteListItem()
+                    else
+                        event.accepted = false
+                }
+                Keys.onBacktabPressed: event => {
+                    if (controller.isInTable())
+                        controller.previousTableCell()
+                    else if (controller.isInBulletList() || controller.isInNumberedList())
+                        controller.promoteListItem()
+                    else
+                        event.accepted = false
+                }
             }
         }
     }
@@ -989,7 +1069,7 @@ Window {
 
         Text {
             anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 10
-                      right: parent.right; rightMargin: 10 }
+                      right: pageIndicator.left; rightMargin: 10 }
             color: root.theme.foreground
             font.family: "monospace"
             font.pixelSize: 12
@@ -997,6 +1077,19 @@ Window {
             text: controller.busy ? root.busyText
                   : root.statusFlash !== "" ? root.statusFlash
                   : root.documentName + (controller.dirty ? " ●" : "")
+        }
+
+        // The page the cursor is on.
+        Text {
+            id: pageIndicator
+            objectName: "pageIndicator"
+            anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 10 }
+            color: Qt.alpha(root.theme.foreground, 0.7)
+            font.family: "monospace"
+            font.pixelSize: 12
+            text: "Page " + Math.min(controller.pageCount,
+                                     Math.floor(editor.cursorRectangle.y / controller.pageSizePx.height) + 1)
+                  + " of " + controller.pageCount
         }
 
         Timer { id: flashTimer; interval: 2500; onTriggered: root.statusFlash = "" }
