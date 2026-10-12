@@ -39,12 +39,8 @@ Window {
     property bool saveFailed: false
     property string saveError: ""
 
-    // Fixed presets the toolbar cycles/steps through.
-    readonly property var fontNames: ["Sans", "Serif", "Monospace"]
+    // Font sizes the toolbar's − / + step through.
     readonly property var fontSizes: [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
-    // Text color presets: [label, controller value]; "auto" is the default color.
-    readonly property var textColors: [["Automatic", "auto"], ["Black", "#000000"], ["Red", "#cc0000"],
-                                       ["Blue", "#0066cc"], ["Green", "#009933"]]
 
     // Toolbar state, refreshed from the controller on formatChanged.
     property bool boldActive: false
@@ -57,7 +53,6 @@ Window {
     property real fontSize: 12
     property string textColor: "auto"
     property bool tableActive: false
-    readonly property int colorIndex: textColors.findIndex(c => c[1] === textColor)
 
     function refreshFormat() {
         boldActive = controller.isBold()
@@ -72,22 +67,12 @@ Window {
         tableActive = controller.isInTable()
     }
 
-    // A family outside the presets (the default font) counts as the first.
-    function cycleFont() {
-        const i = Math.max(0, fontNames.indexOf(fontFamily))
-        controller.setFontFamily(fontNames[(i + 1) % fontNames.length])
-    }
-
     // Steps the font size to the next preset up (+1) or down (-1).
     function stepFontSize(direction) {
         const next = direction > 0 ? fontSizes.find(s => s > fontSize)
                                    : fontSizes.slice().reverse().find(s => s < fontSize)
         if (next !== undefined)
             controller.setFontSize(next)
-    }
-
-    function cycleColor() {
-        controller.setTextColor(textColors[(colorIndex + 1) % textColors.length][1])
     }
 
     function syncSelection() {
@@ -232,7 +217,7 @@ Window {
             autosaveTimer.restart()
     }
 
-    width: 1000
+    width: 1160 // the whole toolbar, AI button included
     height: 800
     visible: true
     color: theme.background
@@ -490,12 +475,13 @@ Window {
 
             ToolSeparator {}
 
-            ToolButton {
+            FontPicker {
                 objectName: "fontButton"
+                anchors.verticalCenter: parent.verticalCenter
                 appRoot: root
-                label: root.fontFamily + " ▾"
-                tip: "Font: click for next (" + root.fontNames.join(", ") + ")"
-                onClicked: root.cycleFont()
+                controller: controller
+                currentFamily: root.fontFamily
+                onClosed: editor.forceActiveFocus()
             }
             ToolButton {
                 objectName: "fontSmallerButton"
@@ -520,22 +506,13 @@ Window {
 
             ToolSeparator {}
 
-            ToolButton {
-                id: colorButton
+            ColorPicker {
                 objectName: "colorButton"
+                anchors.verticalCenter: parent.verticalCenter
                 appRoot: root
-                label: "A"; bold: true
-                tip: "Text color: " + (root.colorIndex >= 0 ? root.textColors[root.colorIndex][0] : "Custom")
-                     + " (click for next)"
-                active: root.textColor !== "auto"
-                onClicked: root.cycleColor()
-
-                // Swatch of the color at the cursor; automatic shows as the foreground.
-                Rectangle {
-                    anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 4 }
-                    width: 16; height: 3; radius: 1
-                    color: root.textColor === "auto" ? root.theme.foreground : root.textColor
-                }
+                controller: controller
+                currentColor: root.textColor
+                onClosed: editor.forceActiveFocus()
             }
 
             ToolSeparator {}

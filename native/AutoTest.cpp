@@ -12,6 +12,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
@@ -171,6 +172,20 @@ void pressTab(QQuickWindow *window)
 void pressBacktab(QQuickWindow *window)
 {
     pressKey(window, Qt::Key_Backtab, Qt::ShiftModifier, QString());
+}
+
+// The item named `name` under `root` in the visual tree. Unlike findChild(),
+// this finds Repeater-made items, whose QObject parent isn't the window's.
+QQuickItem *findItem(QQuickItem *root, const QString &name)
+{
+    if (!root)
+        return nullptr;
+    if (root->objectName() == name)
+        return root;
+    for (QQuickItem *child : root->childItems())
+        if (QQuickItem *found = findItem(child, name))
+            return found;
+    return nullptr;
 }
 
 // The table the TextEdit's cursor is in, if any.
@@ -1963,6 +1978,111 @@ bool runAutoTest(QQuickWindow *window)
 
                 window->setProperty("autosaveEnabled", false);
                 timer->setProperty("running", false);
+                controller->newDocument();
+            }
+        }
+
+        // The toolbar's font and color pickers, driven with real clicks and keys.
+        {
+            auto *fontButton = window->findChild<QQuickItem *>(QStringLiteral("fontButton"));
+            auto *colorButton = window->findChild<QQuickItem *>(QStringLiteral("colorButton"));
+            QObject *fontPopup = window->findChild<QObject *>(QStringLiteral("fontPopup"));
+            QObject *colorPopup = window->findChild<QObject *>(QStringLiteral("colorPopup"));
+            auto *fontList = window->findChild<QQuickItem *>(QStringLiteral("fontList"));
+            QObject *customField = window->findChild<QObject *>(QStringLiteral("colorCustomField"));
+            t.check(fontButton && colorButton && fontPopup && colorPopup && fontList && customField,
+                    "found the font and color pickers");
+            if (fontButton && colorButton && fontPopup && colorPopup && fontList && customField) {
+                const auto clickItem = [&](QQuickItem *item) {
+                    QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier,
+                                      item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint());
+                    QCoreApplication::processEvents();
+                };
+                const auto shown = [](QObject *popup) { return popup->property("visible").toBool(); };
+                const auto listed = [&] {
+                    QStringList families;
+                    for (const QVariant &f : fontList->property("model").toList())
+                        families.append(f.toMap().value(QStringLiteral("family")).toString());
+                    return families;
+                };
+
+                controller->newDocument();
+                editor->forceActiveFocus();
+                typeText(window, QStringLiteral("Picked words"));
+                QMetaObject::invokeMethod(editor, "select", Q_ARG(int, 0), Q_ARG(int, 6));
+
+                // Fonts: every installed family, each name in its own font.
+                const QStringList installed = QFontDatabase::families();
+                clickItem(fontButton);
+                const QStringList all = listed();
+                t.check(shown(fontPopup) && !installed.isEmpty() && all == installed,
+                        QStringLiteral("the font button lists the system's %1 font families").arg(all.size()));
+                auto *current = fontList->property("currentItem").value<QQuickItem *>();
+                const QQuickItem *name = current && !current->childItems().isEmpty() ? current->childItems().first() : nullptr;
+                t.check(name && name->property("text").toString() == name->property("font").value<QFont>().family(),
+                        "each font's name is written in that font (\"" + (name ? name->property("text").toString() : QString()) + "\")");
+                // Symbol, emoji and non-Latin fonts would draw their own name
+                // as symbols or tofu: those are shown in the UI font.
+                int previews = 0, plain = 0;
+                bool flagsRight = true;
+                for (const QVariant &v : controller->fontFamilies()) {
+                    const QVariantMap f = v.toMap();
+                    const auto systems = QFontDatabase::writingSystems(f.value(QStringLiteral("family")).toString());
+                    const bool latin = systems.contains(QFontDatabase::Latin) && !systems.contains(QFontDatabase::Symbol);
+                    flagsRight = flagsRight && f.value(QStringLiteral("preview")).toBool() == latin;
+                    ++(latin ? previews : plain);
+                }
+                t.check(flagsRight && previews > 0,
+                        QStringLiteral("fonts that can't write their Latin name are listed in the UI font (%1 previewed, %2 not)")
+                            .arg(previews).arg(plain));
+
+                typeText(window, QStringLiteral("mono"));
+                const QStringList monos = listed();
+                const bool allMatch = std::all_of(monos.begin(), monos.end(),
+                                                  [](const QString &f) { return f.contains(QStringLiteral("mono"), Qt::CaseInsensitive); });
+                t.check(!monos.isEmpty() && monos.size() < all.size() && allMatch,
+                        QStringLiteral("typing filters the list: \"mono\" leaves %1").arg(monos.size()));
+                pressKey(window, Qt::Key_Down, Qt::NoModifier, QString());
+                const QString picked = monos.value(qMin(1, int(monos.size()) - 1));
+                pressReturn(window);
+                t.check(!shown(fontPopup) && controller->currentFontFamily() == picked && editor->hasActiveFocus(),
+                        "Down then Enter picks the second match for the selection and returns to the document (\""
+                            + controller->currentFontFamily() + "\")");
+
+                clickItem(fontButton);
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                QCoreApplication::processEvents();
+                t.check(!shown(fontPopup) && controller->currentFontFamily() == picked,
+                        "Escape closes the font list without changing the font");
+
+                // Colors.
+                clickItem(colorButton);
+                auto *paletteItem = colorPopup->property("contentItem").value<QQuickItem *>();
+                auto *red = findItem(paletteItem, QStringLiteral("swatch#cc0000"));
+                t.check(shown(colorPopup) && red, "the color button opens a palette");
+                if (red)
+                    clickItem(red);
+                t.check(!shown(colorPopup) && controller->currentTextColor() == QStringLiteral("#cc0000")
+                            && editor->hasActiveFocus(),
+                        "clicking a swatch colors the selection and closes the palette (\"" + controller->currentTextColor() + "\")");
+
+                clickItem(colorButton);
+                customField->setProperty("text", QStringLiteral("12zz56"));
+                QMetaObject::invokeMethod(customField, "forceActiveFocus");
+                pressReturn(window);
+                t.check(shown(colorPopup) && controller->currentTextColor() == QStringLiteral("#cc0000"),
+                        "an invalid custom color is ignored, the palette stays open");
+                customField->setProperty("text", QStringLiteral("1A2b3C"));
+                pressReturn(window);
+                t.check(!shown(colorPopup) && controller->currentTextColor() == QStringLiteral("#1a2b3c"),
+                        "a custom #RRGGBB (with or without #) colors the selection (\"" + controller->currentTextColor() + "\")");
+
+                clickItem(colorButton);
+                auto *automatic = findItem(paletteItem, QStringLiteral("colorAutomatic"));
+                if (automatic)
+                    clickItem(automatic);
+                t.check(automatic && !shown(colorPopup) && controller->currentTextColor() == QStringLiteral("auto"),
+                        "Automatic removes the color");
                 controller->newDocument();
             }
         }

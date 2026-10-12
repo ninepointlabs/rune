@@ -202,6 +202,10 @@ public:
     // "#RRGGBB", or "auto" to remove any explicit color.
     Q_INVOKABLE void setTextColor(const QString &hexColor);
     Q_INVOKABLE QString currentTextColor() const;
+    // The installed font families, as {family, preview}: preview is false
+    // when the family can't write its own Latin name (symbol, emoji and
+    // non-Latin fonts), so a picker shows that name in the UI font instead.
+    Q_INVOKABLE QVariantList fontFamilies() const;
 
     // Tables. insertTable() clamps rows/columns to 1..50 and puts the
     // cursor in the first cell. Row/column edits act on the cursor's cell

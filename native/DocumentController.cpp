@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QFutureWatcher>
 #include <QList>
 #include <QScopedValueRollback>
@@ -701,6 +702,17 @@ QString DocumentController::currentTextColor() const
     if (!format.hasProperty(QTextFormat::ForegroundBrush) || format.foreground().style() == Qt::NoBrush)
         return QStringLiteral("auto");
     return format.foreground().color().name();
+}
+
+QVariantList DocumentController::fontFamilies() const
+{
+    QVariantList families;
+    for (const QString &family : QFontDatabase::families()) {
+        const QList<QFontDatabase::WritingSystem> systems = QFontDatabase::writingSystems(family);
+        const bool preview = systems.contains(QFontDatabase::Latin) && !systems.contains(QFontDatabase::Symbol);
+        families.append(QVariantMap{{QStringLiteral("family"), family}, {QStringLiteral("preview"), preview}});
+    }
+    return families;
 }
 
 // --- Paragraph formatting --------------------------------------------------
