@@ -25,6 +25,11 @@ Rectangle {
 
     signal closed()
 
+    // Opens the font list, as clicking the button does (the command palette's Font…).
+    function openList() {
+        popup.open()
+    }
+
     function choose(family) {
         controller.setFontFamily(family)
         popup.close()

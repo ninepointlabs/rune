@@ -2232,6 +2232,106 @@ bool runAutoTest(QQuickWindow *window)
             }
         }
 
+        // Ctrl+K: the command palette, driven with real keys from the document.
+        {
+            QObject *palette = window->findChild<QObject *>(QStringLiteral("commandPalette"));
+            auto *paletteList = window->findChild<QQuickItem *>(QStringLiteral("paletteList"));
+            QObject *fontPopup = window->findChild<QObject *>(QStringLiteral("fontPopup"));
+            t.check(palette && paletteList && fontPopup, "found the command palette");
+            if (palette && paletteList && fontPopup) {
+                const auto open = [&] { return palette->property("visible").toBool(); };
+                const auto names = [&] {
+                    QStringList found;
+                    for (const QVariant &r : palette->property("results").toList())
+                        found.append(r.toMap().value(QStringLiteral("command")).toMap().value(QStringLiteral("name")).toString());
+                    return found;
+                };
+                const auto firstAvailable = [&] {
+                    const QVariantList results = palette->property("results").toList();
+                    return !results.isEmpty() && results.first().toMap().value(QStringLiteral("available")).toBool();
+                };
+                const auto settle = [&] {
+                    QElapsedTimer w;
+                    w.start();
+                    while (w.elapsed() < 50)
+                        QCoreApplication::processEvents();
+                };
+
+                controller->newDocument();
+                editor->forceActiveFocus();
+                typeText(window, QStringLiteral("Palette text"));
+                QMetaObject::invokeMethod(editor, "select", Q_ARG(int, 0), Q_ARG(int, 7));
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                const int all = names().size();
+                t.check(open() && all >= 30 && doc->toPlainText() == QStringLiteral("Palette text"),
+                        QStringLiteral("Ctrl+K in the document opens the palette with every command (%1), deleting nothing").arg(all));
+
+                typeText(window, QStringLiteral("bold"));
+                t.check(names().value(0) == QStringLiteral("Bold") && firstAvailable(),
+                        "typing \"bold\" puts Bold first (" + names().join(QStringLiteral(", ")) + ")");
+                pressReturn(window);
+                settle();
+                t.check(!open() && controller->isBold() && editor->hasActiveFocus(),
+                        "Enter runs it: the selection is bold, and typing goes back to the document");
+
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("row above"));
+                t.check(names() == QStringList{QStringLiteral("Insert row above")} && !firstAvailable(),
+                        "outside a table, \"row above\" finds Insert row above, unavailable");
+                pressReturn(window);
+                settle();
+                t.check(open() && !controller->isInTable(), "Enter on an unavailable command does nothing; the palette stays open");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+                t.check(!open() && editor->hasActiveFocus(), "Escape closes the palette");
+
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("tab ins"));
+                const QStringList tableMatches = names();
+                pressKey(window, Qt::Key_Down, Qt::NoModifier, QString());
+                pressReturn(window);
+                settle();
+                t.check(tableMatches.value(0) == QStringLiteral("Insert table") && !controller->isInTable(),
+                        "\"tab ins\" matches across group and name, and Down moves past Insert table to an unavailable command ("
+                            + tableMatches.join(QStringLiteral(", ")) + ")");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("font"));
+                pressReturn(window);
+                settle();
+                t.check(!open() && fontPopup->property("visible").toBool(), "Font… opens the font list");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+
+                const bool autosaveBefore = window->property("autosaveEnabled").toBool();
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("autosave"));
+                pressReturn(window);
+                settle();
+                t.check(window->property("autosaveEnabled").toBool() != autosaveBefore,
+                        "\"autosave\" toggles autosave");
+                window->setProperty("autosaveEnabled", autosaveBefore);
+
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("zzqx"));
+                t.check(names().isEmpty(), "no command matches \"zzqx\"");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+
+                QObject *fileEntry = window->findChild<QObject *>(QStringLiteral("commandPaletteMenuItem"));
+                if (fileEntry)
+                    QMetaObject::invokeMethod(fileEntry, "click");
+                settle();
+                t.check(fileEntry && open() && fileEntry->property("hint").toString() == QStringLiteral("Ctrl+K"),
+                        "File → Command palette… (Ctrl+K) opens the palette");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+                controller->newDocument();
+            }
+        }
+
         // The unsaved-changes guard.
         QTextCursor(doc).insertText(QStringLiteral("Unsaved "));
         callRoot(window, "requestOpen");

@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // The toolbar's first button: the Rune mark and "File", opening a menu with
-// New, Open, Save, Save As and the Autosave toggle. Each item runs the same
-// Main.qml function as its keyboard shortcut (the Shortcut items in
-// Main.qml), so the menu only shows the key as a hint rather than binding
-// it a second time.
+// New, Open, Save, Save As, the Autosave toggle and the command palette.
+// Each item runs the same Main.qml function as its keyboard shortcut (the
+// Shortcut items in Main.qml), so the menu only shows the key as a hint
+// rather than binding it a second time.
 Rectangle {
     id: fileMenu
 
@@ -106,6 +106,12 @@ Rectangle {
             objectName: "autosaveMenuItem"
             text: "Autosave"; hint: fileMenu.appRoot.autosaveEnabled ? "✓" : ""
             onTriggered: fileMenu.appRoot.autosaveEnabled = !fileMenu.appRoot.autosaveEnabled
+        }
+        MenuDivider { theme: fileMenu.theme }
+        MenuEntry {
+            objectName: "commandPaletteMenuItem"
+            text: "Command palette…"; hint: "Ctrl+K"
+            onTriggered: fileMenu.appRoot.openCommandPalette()
         }
     }
 }

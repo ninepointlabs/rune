@@ -65,6 +65,60 @@ Window {
     // The ⋯ button and the separator before it.
     readonly property real overflowWidth: overflowMenu.width + 1 + toolRow.spacing
 
+    // Ctrl+K, and File → Command palette….
+    function openCommandPalette() {
+        commandPalette.open()
+    }
+
+    // Everything the command palette (Ctrl+K) offers, in the order it lists
+    // them when nothing is typed. `available` says whether a command applies
+    // right now; hints match the shortcuts above.
+    readonly property var commands: {
+        const always = () => true
+        const idle = () => !controller.busy
+        const inTable = () => controller.isInTable()
+        const align = (name, value) => ({group: "Format", name: name, available: always,
+                                         run: () => controller.setAlignment(value)})
+        return [
+            {group: "File", name: "New", hint: "Ctrl+N", available: idle, run: () => root.requestNew()},
+            {group: "File", name: "Open…", hint: "Ctrl+O", available: idle, run: () => root.requestOpen()},
+            {group: "File", name: "Save", hint: "Ctrl+S", available: idle, run: () => root.save()},
+            {group: "File", name: "Save As…", hint: "Ctrl+Shift+S", available: idle, run: () => root.saveAs()},
+            {group: "File", name: settings.autosave ? "Turn autosave off" : "Turn autosave on", available: always,
+             run: () => settings.autosave = !settings.autosave},
+            {group: "Edit", name: "Undo", hint: "Ctrl+Z", available: () => controller.canUndo && !controller.loading,
+             run: () => controller.undo()},
+            {group: "Edit", name: "Redo", hint: "Ctrl+Shift+Z", available: () => controller.canRedo && !controller.loading,
+             run: () => controller.redo()},
+            {group: "Format", name: "Bold", hint: "Ctrl+B", available: always, run: () => controller.toggleBold()},
+            {group: "Format", name: "Italic", hint: "Ctrl+I", available: always, run: () => controller.toggleItalic()},
+            {group: "Format", name: "Underline", hint: "Ctrl+U", available: always, run: () => controller.toggleUnderline()},
+            {group: "Format", name: "Font…", available: always, run: () => fontPicker.openList()},
+            {group: "Format", name: "Increase font size", available: always, run: () => root.stepFontSize(1)},
+            {group: "Format", name: "Decrease font size", available: always, run: () => root.stepFontSize(-1)},
+            {group: "Format", name: "Text color…", available: always,
+             run: () => colorPicker.openPalette(colorGroup.visible ? colorPicker : overflowMenu)},
+            {group: "Format", name: "Remove text color", available: () => root.textColor !== "auto",
+             run: () => controller.setTextColor("auto")},
+            align("Align left", Qt.AlignLeft),
+            align("Align center", Qt.AlignHCenter),
+            align("Align right", Qt.AlignRight),
+            {group: "List", name: "Bullet list", available: always, run: () => controller.toggleBulletList()},
+            {group: "List", name: "Numbered list", available: always, run: () => controller.toggleNumberedList()},
+            {group: "Table", name: "Insert table", hint: "3×3", available: always, run: () => controller.insertTable(3, 3)},
+            {group: "Table", name: "Insert row above", available: inTable, run: () => controller.insertTableRowAbove()},
+            {group: "Table", name: "Insert row below", available: inTable, run: () => controller.insertTableRow()},
+            {group: "Table", name: "Delete row", available: inTable, run: () => controller.deleteTableRow()},
+            {group: "Table", name: "Insert column left", available: inTable, run: () => controller.insertTableColumnLeft()},
+            {group: "Table", name: "Insert column right", available: inTable, run: () => controller.insertTableColumn()},
+            {group: "Table", name: "Delete column", available: inTable, run: () => controller.deleteTableColumn()},
+            {group: "Table", name: "Delete table", available: inTable, run: () => controller.deleteTable()},
+            {group: "AI", name: "Edit with AI", hint: "Ctrl+Shift+E", available: always, run: () => aiPanel.startEdit()},
+            {group: "AI", name: aiPanel.visible ? "Hide AI panel" : "Show AI panel", available: always,
+             run: () => aiPanel.visible = !aiPanel.visible}
+        ]
+    }
+
     // Font sizes the toolbar's − / + step through.
     readonly property var fontSizes: [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
 
@@ -372,6 +426,7 @@ Window {
     Shortcut { sequences: [StandardKey.Save]; onActivated: root.save() }
     Shortcut { sequences: [StandardKey.SaveAs]; onActivated: root.saveAs() }
     Shortcut { sequences: ["Alt+F"]; onActivated: fileMenu.openMenu() }
+    Shortcut { sequences: ["Ctrl+K"]; onActivated: root.openCommandPalette() }
     // While the editor has focus it takes these keys itself (see its
     // Keys.onPressed); these cover focus anywhere else in the window.
     Shortcut { sequences: [StandardKey.Undo]; onActivated: controller.undo() }
@@ -542,6 +597,7 @@ Window {
                 spacing: 4
                 ToolSeparator {}
                 FontPicker {
+                    id: fontPicker
                     objectName: "fontButton"
                     anchors.verticalCenter: parent.verticalCenter
                     appRoot: root
@@ -808,6 +864,14 @@ Window {
             height: 1
             color: Qt.alpha(root.theme.muted, 0.5)
         }
+    }
+
+    CommandPalette {
+        id: commandPalette
+        objectName: "commandPalette"
+        appRoot: root
+        commands: root.commands
+        onClosed: editor.forceActiveFocus()
     }
 
     AiPanel {
