@@ -607,6 +607,12 @@ Window {
                     }
                     MenuDivider { theme: root.theme }
                     MenuEntry {
+                        objectName: "insertRowAboveItem"
+                        text: "Insert row above"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableRowAbove()
+                    }
+                    MenuEntry {
                         objectName: "insertRowItem"
                         text: "Insert row below"
                         enabled: root.tableActive
@@ -617,6 +623,13 @@ Window {
                         text: "Delete row"
                         enabled: root.tableActive
                         onTriggered: controller.deleteTableRow()
+                    }
+                    MenuDivider { theme: root.theme }
+                    MenuEntry {
+                        objectName: "insertColumnLeftItem"
+                        text: "Insert column left"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableColumnLeft()
                     }
                     MenuEntry {
                         objectName: "insertColumnItem"
@@ -629,6 +642,13 @@ Window {
                         text: "Delete column"
                         enabled: root.tableActive
                         onTriggered: controller.deleteTableColumn()
+                    }
+                    MenuDivider { theme: root.theme }
+                    MenuEntry {
+                        objectName: "deleteTableItem"
+                        text: "Delete table"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTable()
                     }
                 }
             }
@@ -721,6 +741,13 @@ Window {
                         onTriggered: controller.insertTable(3, 3)
                     }
                     MenuEntry {
+                        objectName: "overflowInsertRowAbove"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Insert row above"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableRowAbove()
+                    }
+                    MenuEntry {
                         objectName: "overflowInsertRow"
                         visible: root.collapsedGroups.includes("table")
                         text: "Insert row below"
@@ -735,6 +762,13 @@ Window {
                         onTriggered: controller.deleteTableRow()
                     }
                     MenuEntry {
+                        objectName: "overflowInsertColumnLeft"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Insert column left"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableColumnLeft()
+                    }
+                    MenuEntry {
                         objectName: "overflowInsertColumn"
                         visible: root.collapsedGroups.includes("table")
                         text: "Insert column right"
@@ -747,6 +781,13 @@ Window {
                         text: "Delete column"
                         enabled: root.tableActive
                         onTriggered: controller.deleteTableColumn()
+                    }
+                    MenuEntry {
+                        objectName: "overflowDeleteTable"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Delete table"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTable()
                     }
                 }
             }

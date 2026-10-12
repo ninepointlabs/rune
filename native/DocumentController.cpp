@@ -985,11 +985,11 @@ bool DocumentController::isInTable() const
     return selectionCursor().currentTable() != nullptr;
 }
 
-// Inserts a row/column after the cursor's cell, or deletes the cursor's
-// row/column unless it is the last one: QTextTable::removeRows() and
-// removeColumns() delete the whole table when asked to remove every row or
-// column.
-void DocumentController::editTable(bool rows, bool insert)
+// Inserts a row/column after the cursor's cell (before it with `before`),
+// or deletes the cursor's row/column unless it is the last one:
+// QTextTable::removeRows() and removeColumns() delete the whole table when
+// asked to remove every row or column.
+void DocumentController::editTable(bool rows, bool insert, bool before)
 {
     const QTextCursor cursor = selectionCursor();
     QTextTable *table = cursor.currentTable();
@@ -1002,9 +1002,9 @@ void DocumentController::editTable(bool rows, bool insert)
     {
         const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
         if (insert && rows)
-            table->insertRows(row + cell.rowSpan(), 1);
+            table->insertRows(before ? row : row + cell.rowSpan(), 1);
         else if (insert)
-            table->insertColumns(column + cell.columnSpan(), 1);
+            table->insertColumns(before ? column : column + cell.columnSpan(), 1);
         else if (rows)
             table->removeRows(row, 1);
         else
@@ -1020,9 +1020,38 @@ void DocumentController::editTable(bool rows, bool insert)
 }
 
 void DocumentController::insertTableRow() { editTable(true, true); }
+void DocumentController::insertTableRowAbove() { editTable(true, true, true); }
 void DocumentController::deleteTableRow() { editTable(true, false); }
 void DocumentController::insertTableColumn() { editTable(false, true); }
+void DocumentController::insertTableColumnLeft() { editTable(false, true, true); }
 void DocumentController::deleteTableColumn() { editTable(false, false); }
+
+void DocumentController::deleteTable()
+{
+    QTextTable *table = selectionCursor().currentTable();
+    if (!table)
+        return;
+    // The table's frame runs from one position before its first cell to one
+    // after its last, and separates the paragraphs either side of it: with
+    // it gone they'd join into one. So in the same undo step, the paragraph
+    // after the table is split off again with its own formats.
+    const int position = table->firstPosition() - 1;
+    const QTextBlock after = m_document->findBlock(table->lastPosition() + 2);
+    {
+        const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
+        QTextCursor cursor(m_document);
+        cursor.beginEditBlock();
+        cursor.setPosition(position);
+        cursor.setPosition(table->lastPosition() + 1, QTextCursor::KeepAnchor);
+        const QTextBlockFormat afterBlock = after.blockFormat();
+        const QTextCharFormat afterChar = after.charFormat();
+        cursor.removeSelectedText();
+        cursor.insertBlock(afterBlock, afterChar);
+        cursor.endEditBlock();
+    }
+    emit cursorPositionRequested(std::clamp(position, 0, m_document->characterCount() - 1));
+    emit formatChanged();
+}
 
 void DocumentController::nextTableCell()
 {

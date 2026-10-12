@@ -209,14 +209,20 @@ public:
 
     // Tables. insertTable() clamps rows/columns to 1..50 and puts the
     // cursor in the first cell. Row/column edits act on the cursor's cell
-    // and do nothing outside a table; deleting never removes the last row
-    // or column (Qt would delete the whole table).
+    // and do nothing outside a table; inserting keeps the cursor in its
+    // cell; deleting never removes the last row or column (that's
+    // deleteTable()). Each is one undo step.
     Q_INVOKABLE void insertTable(int rows, int columns);
     Q_INVOKABLE bool isInTable() const;
-    Q_INVOKABLE void insertTableRow();
+    Q_INVOKABLE void insertTableRow();        // below
+    Q_INVOKABLE void insertTableRowAbove();
     Q_INVOKABLE void deleteTableRow();
-    Q_INVOKABLE void insertTableColumn();
+    Q_INVOKABLE void insertTableColumn();     // to the right
+    Q_INVOKABLE void insertTableColumnLeft();
     Q_INVOKABLE void deleteTableColumn();
+    // The table the cursor is in, contents and all; the cursor goes to
+    // where it was.
+    Q_INVOKABLE void deleteTable();
     // Tab / Shift+Tab: cursor to the next / previous cell in reading order.
     // Next from the last cell appends a row; previous from the first does
     // nothing.
@@ -273,7 +279,7 @@ private:
     void toggleList(ListKind kind);
     void changeListLevel(int delta);
 
-    void editTable(bool rows, bool insert);
+    void editTable(bool rows, bool insert, bool before = false);
     void stepHistory(bool undo);
     // The next typeText() starts a new undo step.
     void endTypingStep() { m_typingEnd = -1; }

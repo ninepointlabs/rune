@@ -770,6 +770,51 @@ bool runAutoTest(QQuickWindow *window)
                 && !shrunkText.contains(QStringLiteral("c1")),
             "soffice: row 1 and column 1 content gone, the rest intact");
 
+    // Row above / column left, from the "r2c0" cell: inserted before it,
+    // with the cursor still in that cell. Then Delete table.
+    auto *insertRowAboveItem = window->findChild<QObject *>(QStringLiteral("insertRowAboveItem"));
+    auto *insertColumnLeftItem = window->findChild<QObject *>(QStringLiteral("insertColumnLeftItem"));
+    auto *deleteTableItem = window->findChild<QObject *>(QStringLiteral("deleteTableItem"));
+    t.check(insertRowAboveItem && insertColumnLeftItem && deleteTableItem
+                && insertRowAboveItem->property("enabled").toBool() && deleteTableItem->property("enabled").toBool(),
+            "found Insert row above, Insert column left and Delete table, available in a cell");
+    if (!t.ok())
+        return false;
+    const auto cellText = [&](int r, int c) { return table->cellAt(r, c).firstCursorPosition().block().text(); };
+    editor->setProperty("cursorPosition", table->cellAt(2, 0).firstCursorPosition().position());
+    QMetaObject::invokeMethod(insertRowAboveItem, "click");
+    t.check(table->rows() == 4 && cellText(2, 0).isEmpty() && cellText(3, 0) == QStringLiteral("r2c0")
+                && cellAtCursor(doc, editor) == QStringLiteral("3,0"),
+            QStringLiteral("Insert row above: %1 rows, empty row above \"r2c0\", cursor still in it (%2)")
+                .arg(table->rows()).arg(cellAtCursor(doc, editor)));
+    QMetaObject::invokeMethod(insertColumnLeftItem, "click");
+    t.check(table->columns() == 4 && cellText(3, 0).isEmpty() && cellText(3, 1) == QStringLiteral("r2c0")
+                && cellAtCursor(doc, editor) == QStringLiteral("3,1"),
+            QStringLiteral("Insert column left: %1 columns, empty column left of \"r2c0\", cursor still in it (%2)")
+                .arg(table->columns()).arg(cellAtCursor(doc, editor)));
+    {
+        // The paragraph after the table, centered: it must stay so.
+        QTextCursor trailing(doc->lastBlock());
+        QTextBlockFormat centered = trailing.blockFormat();
+        centered.setAlignment(Qt::AlignHCenter);
+        trailing.setBlockFormat(centered);
+    }
+    QMetaObject::invokeMethod(deleteTableItem, "click");
+    table = nullptr; // deleted with the table
+    bool anyTable = false;
+    for (auto it = doc->rootFrame()->begin(); !it.atEnd(); ++it)
+        anyTable = anyTable || qobject_cast<QTextTable *>(it.currentFrame());
+    QStringList blocks;
+    for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+        blocks.append(b.text());
+    t.check(!anyTable && !controller->isInTable() && !deleteTableItem->property("enabled").toBool()
+                && blocks == QStringList{QStringLiteral("Intro"), QStringLiteral("Trailing")}
+                && doc->firstBlock().blockFormat().alignment() != Qt::AlignHCenter
+                && doc->lastBlock().blockFormat().alignment() == Qt::AlignHCenter,
+            "Delete table removes the table and its contents; the paragraphs around it stay separate, "
+            "each with its own alignment: ["
+                + blocks.join(QStringLiteral("] [")) + "]");
+
     // Bounds: sizes clamp to 1..50; the last row/column is never deleted.
     controller->newDocument();
     editor->forceActiveFocus();
@@ -1607,7 +1652,10 @@ bool runAutoTest(QQuickWindow *window)
         oneStep(QStringLiteral("inserting a table"), [&] { select(end, end); controller->insertTable(2, 2); });
         oneStep(QStringLiteral("inserting a table row"), [&] { inLastCell(); controller->insertTableRow(); });
         oneStep(QStringLiteral("deleting a table column"), [&] { inLastCell(); controller->deleteTableColumn(); });
+        oneStep(QStringLiteral("inserting a table row above"), [&] { inLastCell(); controller->insertTableRowAbove(); });
+        oneStep(QStringLiteral("inserting a table column left"), [&] { inLastCell(); controller->insertTableColumnLeft(); });
         oneStep(QStringLiteral("Tab off the last cell (appends a row)"), [&] { inLastCell(); controller->nextTableCell(); });
+        oneStep(QStringLiteral("deleting the table"), [&] { inLastCell(); controller->deleteTable(); });
 
         // A pending format is applied to the typed text in a second edit;
         // undoing the typing must take it in the same step.
