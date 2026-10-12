@@ -196,6 +196,14 @@ Window {
         saveTo(path)
     }
 
+    // After a file dialog closes. Qt's own (non-native) file dialog is a
+    // popup window, and Qt 6.8-6.10 leave keyboard focus with it once
+    // hidden: typing went nowhere until the document was clicked.
+    function refocusEditor() {
+        root.requestActivate()
+        editor.forceActiveFocus()
+    }
+
     function saveTo(path) {
         busyText = "Saving…"
         saving = true
@@ -320,6 +328,7 @@ Window {
         nameFilters: ["Documents (*.odt *.docx *.doc)", "OpenDocument Text (*.odt)",
                       "Word Document (*.docx *.doc)", "All files (*)"]
         onAccepted: root.openPath(root.urlToPath(selectedFile))
+        onVisibleChanged: if (!visible) root.refocusEditor()
     }
 
     FileDialog {
@@ -333,6 +342,7 @@ Window {
         defaultSuffix: selectedNameFilter.extensions[0]
         onAccepted: root.acceptSave(root.urlToPath(selectedFile))
         onRejected: root.pendingAction = null
+        onVisibleChanged: if (!visible) root.refocusEditor()
     }
 
     UnsavedChangesDialog {

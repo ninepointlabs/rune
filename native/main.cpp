@@ -70,22 +70,42 @@ Options parseOptions(const QCoreApplication &app)
     return options;
 }
 
+// Rune 0.1 set no organization name, so its settings (AI sign-in state,
+// the chosen model) went to ~/.config/Unknown Organization/Rune.conf.
+// Copied, not moved, the first time the current file doesn't exist yet.
+void migrateSettings()
+{
+    const QString current = QSettings().fileName();
+    const QString old = QSettings(QStringLiteral("Unknown Organization"), QStringLiteral("Rune")).fileName();
+    if (QFileInfo::exists(current) || !QFileInfo::exists(old))
+        return;
+    QDir().mkpath(QFileInfo(current).absolutePath());
+    QFile::copy(old, current);
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationName(QStringLiteral("Rune"));
+    // QML's Settings refuses to work without these (Qt 6.8-6.10 at least).
+    // Settings live in ~/.config/Rune/Rune.conf; see migrateSettings().
+    QGuiApplication::setOrganizationName(QStringLiteral("Rune"));
+    QGuiApplication::setOrganizationDomain(QStringLiteral("ninepointlabs.com"));
     QGuiApplication::setApplicationVersion(QStringLiteral(RUNE_VERSION));
     // Matches packaging/rune.desktop, so the window gets its icon and name.
     QGuiApplication::setDesktopFileName(QStringLiteral("rune"));
     const Options options = parseOptions(app);
 
-    // A test run keeps its settings (e.g. File → Autosave) out of the user's.
+    // A test run keeps its settings (e.g. File → Autosave) out of the
+    // user's. QSettings() and QML's Settings use NativeFormat.
     QTemporaryDir testSettings;
     if (options.autoTest) {
         AiManager::useTestDefaults();
-        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testSettings.path());
+        QSettings::setPath(QSettings::NativeFormat, QSettings::UserScope, testSettings.path());
+    } else {
+        migrateSettings();
     }
 
     QQmlApplicationEngine engine;
