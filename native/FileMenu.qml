@@ -70,82 +70,39 @@ Rectangle {
         onClicked: menu.visible ? menu.close() : menu.open()
     }
 
-    component Entry: MenuItem {
-        id: item
-        property string hint   // the keyboard shortcut, shown right-aligned
-        implicitWidth: 220
-        implicitHeight: 28
-        contentItem: Item {
-            Text {
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                text: item.text
-                color: item.highlighted ? fileMenu.theme.background : fileMenu.theme.foreground
-                font.pixelSize: 13
-            }
-            Text {
-                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                text: item.hint
-                color: item.highlighted ? fileMenu.theme.background : Qt.alpha(fileMenu.theme.foreground, 0.6)
-                font.pixelSize: 12
-            }
-        }
-        background: Rectangle {
-            radius: 3
-            color: item.highlighted ? fileMenu.theme.accent : "transparent"
-        }
-        opacity: enabled ? 1 : 0.5
-    }
-
-    Menu {
+    ThemedMenu {
         id: menu
         objectName: "fileMenu"
+        theme: fileMenu.theme
         y: fileMenu.height + 4
-        padding: 4
-        background: Rectangle {
-            implicitWidth: 220
-            color: fileMenu.theme.background
-            border.color: fileMenu.theme.muted
-            border.width: 1
-            radius: 4
-        }
 
-        Entry {
+        MenuEntry {
             objectName: "newMenuItem"
             text: "New"; hint: "Ctrl+N"
             enabled: fileMenu.available
             onTriggered: fileMenu.appRoot.requestNew()
         }
-        Entry {
+        MenuEntry {
             objectName: "openMenuItem"
             text: "Open…"; hint: "Ctrl+O"
             enabled: fileMenu.available
             onTriggered: fileMenu.appRoot.requestOpen()
         }
-        MenuSeparator {
-            contentItem: Rectangle {
-                implicitHeight: 1
-                color: Qt.alpha(fileMenu.theme.muted, 0.6)
-            }
-        }
-        Entry {
+        MenuDivider { theme: fileMenu.theme }
+        MenuEntry {
             objectName: "saveMenuItem"
             text: "Save"; hint: "Ctrl+S"
             enabled: fileMenu.available
             onTriggered: fileMenu.appRoot.save()
         }
-        Entry {
+        MenuEntry {
             objectName: "saveAsMenuItem"
             text: "Save As…"; hint: "Ctrl+Shift+S"
             enabled: fileMenu.available
             onTriggered: fileMenu.appRoot.saveAs()
         }
-        MenuSeparator {
-            contentItem: Rectangle {
-                implicitHeight: 1
-                color: Qt.alpha(fileMenu.theme.muted, 0.6)
-            }
-        }
-        Entry {
+        MenuDivider { theme: fileMenu.theme }
+        MenuEntry {
             objectName: "autosaveMenuItem"
             text: "Autosave"; hint: fileMenu.appRoot.autosaveEnabled ? "✓" : ""
             onTriggered: fileMenu.appRoot.autosaveEnabled = !fileMenu.appRoot.autosaveEnabled

@@ -39,6 +39,32 @@ Window {
     property bool saveFailed: false
     property string saveError: ""
 
+    // Toolbar groups that move into the ⋯ menu when the window is too
+    // narrow, first to go first. The rest always stay on the toolbar.
+    readonly property var collapseOrder: ["table", "color", "align", "lists", "history"]
+    // The groups in the ⋯ menu now: as many from collapseOrder as it takes
+    // for the toolbar (with the ⋯ button) to fit left of the AI button.
+    readonly property var collapsedGroups: {
+        const groups = {history: historyGroup, lists: listsGroup, align: alignGroup, color: colorGroup, table: tableGroup}
+        const gap = toolRow.spacing
+        const room = toolbar.width - toolRow.anchors.leftMargin - aiButton.width - aiButton.anchors.rightMargin - gap
+        let used = fileGroup.width + styleGroup.width + fontGroup.width + 2 * gap
+        for (const name of collapseOrder)
+            used += groups[name].width + gap
+        const collapsed = []
+        for (const name of collapseOrder) {
+            if (used <= room)
+                break
+            if (collapsed.length === 0)
+                used += overflowWidth + gap
+            used -= groups[name].width + gap
+            collapsed.push(name)
+        }
+        return collapsed
+    }
+    // The ⋯ button and the separator before it.
+    readonly property real overflowWidth: overflowMenu.width + 1 + toolRow.spacing
+
     // Font sizes the toolbar's − / + step through.
     readonly property var fontSizes: [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48]
 
@@ -217,7 +243,9 @@ Window {
             autosaveTimer.restart()
     }
 
-    width: 1160 // the whole toolbar, AI button included
+    width: 1000
+    // File, Save, B/I/U, the font controls, ⋯ and AI: what never collapses.
+    minimumWidth: fileGroup.width + styleGroup.width + fontGroup.width + overflowWidth + aiButton.width + 30
     height: 800
     visible: true
     color: theme.background
@@ -368,192 +396,364 @@ Window {
         z: 2 // tooltips overlap the document view
         color: root.barColor
 
+        // The toolbar, in groups. When the window is too narrow for all of
+        // them, the lowest-priority groups (root.collapseOrder) move into
+        // the ⋯ menu instead of running under the AI button; File, Save,
+        // B/I/U and the font controls always stay.
         Row {
+            id: toolRow
             anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 4 }
             spacing: 4
 
-            FileMenu {
-                id: fileMenu
-                objectName: "fileMenuButton"
-                appRoot: root
-                available: !controller.busy
-            }
-            // Shows where the document stands: "✓ Saved" (dimmed) once
-            // autosave has written it, "Saving…", or "Save failed" (click to
-            // retry); a plain "Save" when it has unsaved changes or autosave
-            // doesn't apply.
-            ToolButton {
-                objectName: "saveButton"
-                appRoot: root
-                width: 88 // the widest label, so the toolbar doesn't shift
-                label: root.saving && controller.busy ? "Saving…"
-                     : root.saveFailed ? "Save failed"
-                     : root.autosaveActive && !controller.dirty ? "✓ Saved"
-                     : "Save"
-                labelColor: root.saveFailed ? root.theme.red
-                          : label === "Save" ? root.theme.foreground
-                          : Qt.alpha(root.theme.foreground, 0.55)
-                tip: root.saveFailed ? root.saveError + " · click to retry"
-                     : root.autosaveActive ? "Autosave is on · Save now (Ctrl+S)"
-                     : "Save (Ctrl+S)"
-                available: !controller.busy
-                onClicked: root.save()
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                objectName: "undoButton"
-                appRoot: root
-                label: "↶"; tip: "Undo (Ctrl+Z)"
-                available: controller.canUndo && !controller.loading
-                onClicked: controller.undo()
-            }
-            ToolButton {
-                objectName: "redoButton"
-                appRoot: root
-                label: "↷"; tip: "Redo (Ctrl+Shift+Z)"
-                available: controller.canRedo && !controller.loading
-                onClicked: controller.redo()
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                objectName: "boldButton"
-                appRoot: root
-                label: "B"; bold: true; tip: "Bold (Ctrl+B)"
-                active: root.boldActive
-                onClicked: controller.toggleBold()
-            }
-            ToolButton {
-                appRoot: root
-                label: "I"; italic: true; tip: "Italic (Ctrl+I)"
-                active: root.italicActive
-                onClicked: controller.toggleItalic()
-            }
-            ToolButton {
-                appRoot: root
-                label: "U"; underline: true; tip: "Underline (Ctrl+U)"
-                active: root.underlineActive
-                onClicked: controller.toggleUnderline()
-            }
-
-            ToolSeparator {}
-
-            ToolButton {
-                objectName: "bulletButton"
-                appRoot: root
-                label: "•"; tip: "Bullet list (Tab / Shift+Tab to nest)"
-                active: root.bulletActive
-                onClicked: controller.toggleBulletList()
-            }
-            ToolButton {
-                objectName: "numberedButton"
-                appRoot: root
-                label: "1."; tip: "Numbered list (Tab / Shift+Tab to nest)"
-                active: root.numberedActive
-                onClicked: controller.toggleNumberedList()
-            }
-
-            ToolSeparator {}
-
-            Repeater {
-                model: [["L", Qt.AlignLeft, "Align left", "alignLeftButton"],
-                        ["C", Qt.AlignHCenter, "Align center", "alignCenterButton"],
-                        ["R", Qt.AlignRight, "Align right", "alignRightButton"]]
-                ToolButton {
-                    required property var modelData
-                    objectName: modelData[3]
+            Row {
+                id: fileGroup
+                spacing: 4
+                FileMenu {
+                    id: fileMenu
+                    objectName: "fileMenuButton"
                     appRoot: root
-                    label: modelData[0]
-                    tip: modelData[2]
-                    active: root.alignment === modelData[1]
-                    onClicked: controller.setAlignment(modelData[1])
+                    available: !controller.busy
+                }
+                // Shows where the document stands: "✓ Saved" (dimmed) once
+                // autosave has written it, "Saving…", or "Save failed" (click
+                // to retry); a plain "Save" when it has unsaved changes or
+                // autosave doesn't apply.
+                ToolButton {
+                    objectName: "saveButton"
+                    appRoot: root
+                    width: 88 // the widest label, so the toolbar doesn't shift
+                    label: root.saving && controller.busy ? "Saving…"
+                         : root.saveFailed ? "Save failed"
+                         : root.autosaveActive && !controller.dirty ? "✓ Saved"
+                         : "Save"
+                    labelColor: root.saveFailed ? root.theme.red
+                              : label === "Save" ? root.theme.foreground
+                              : Qt.alpha(root.theme.foreground, 0.55)
+                    tip: root.saveFailed ? root.saveError + " · click to retry"
+                         : root.autosaveActive ? "Autosave is on · Save now (Ctrl+S)"
+                         : "Save (Ctrl+S)"
+                    available: !controller.busy
+                    onClicked: root.save()
                 }
             }
 
-            ToolSeparator {}
-
-            FontPicker {
-                objectName: "fontButton"
-                anchors.verticalCenter: parent.verticalCenter
-                appRoot: root
-                controller: controller
-                currentFamily: root.fontFamily
-                onClosed: editor.forceActiveFocus()
-            }
-            ToolButton {
-                objectName: "fontSmallerButton"
-                appRoot: root
-                label: "−"; tip: "Decrease font size"
-                onClicked: root.stepFontSize(-1)
-            }
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 40
-                horizontalAlignment: Text.AlignHCenter
-                text: root.fontSize + "pt"
-                color: root.theme.foreground
-                font.pixelSize: 13
-            }
-            ToolButton {
-                objectName: "fontLargerButton"
-                appRoot: root
-                label: "+"; tip: "Increase font size"
-                onClicked: root.stepFontSize(1)
+            Row {
+                id: historyGroup
+                objectName: "historyGroup"
+                spacing: 4
+                visible: !root.collapsedGroups.includes("history")
+                ToolSeparator {}
+                ToolButton {
+                    objectName: "undoButton"
+                    appRoot: root
+                    label: "↶"; tip: "Undo (Ctrl+Z)"
+                    available: controller.canUndo && !controller.loading
+                    onClicked: controller.undo()
+                }
+                ToolButton {
+                    objectName: "redoButton"
+                    appRoot: root
+                    label: "↷"; tip: "Redo (Ctrl+Shift+Z)"
+                    available: controller.canRedo && !controller.loading
+                    onClicked: controller.redo()
+                }
             }
 
-            ToolSeparator {}
-
-            ColorPicker {
-                objectName: "colorButton"
-                anchors.verticalCenter: parent.verticalCenter
-                appRoot: root
-                controller: controller
-                currentColor: root.textColor
-                onClosed: editor.forceActiveFocus()
+            Row {
+                id: styleGroup
+                spacing: 4
+                ToolSeparator {}
+                ToolButton {
+                    objectName: "boldButton"
+                    appRoot: root
+                    label: "B"; bold: true; tip: "Bold (Ctrl+B)"
+                    active: root.boldActive
+                    onClicked: controller.toggleBold()
+                }
+                ToolButton {
+                    appRoot: root
+                    label: "I"; italic: true; tip: "Italic (Ctrl+I)"
+                    active: root.italicActive
+                    onClicked: controller.toggleItalic()
+                }
+                ToolButton {
+                    appRoot: root
+                    label: "U"; underline: true; tip: "Underline (Ctrl+U)"
+                    active: root.underlineActive
+                    onClicked: controller.toggleUnderline()
+                }
             }
 
-            ToolSeparator {}
+            Row {
+                id: listsGroup
+                objectName: "listsGroup"
+                spacing: 4
+                visible: !root.collapsedGroups.includes("lists")
+                ToolSeparator {}
+                ToolButton {
+                    objectName: "bulletButton"
+                    appRoot: root
+                    label: "•"; tip: "Bullet list (Tab / Shift+Tab to nest)"
+                    active: root.bulletActive
+                    onClicked: controller.toggleBulletList()
+                }
+                ToolButton {
+                    objectName: "numberedButton"
+                    appRoot: root
+                    label: "1."; tip: "Numbered list (Tab / Shift+Tab to nest)"
+                    active: root.numberedActive
+                    onClicked: controller.toggleNumberedList()
+                }
+            }
 
-            ToolButton {
-                objectName: "tableButton"
-                appRoot: root
-                label: "⊞ Table"; tip: "Insert 3×3 table"
-                onClicked: controller.insertTable(3, 3)
+            Row {
+                id: alignGroup
+                objectName: "alignGroup"
+                spacing: 4
+                visible: !root.collapsedGroups.includes("align")
+                ToolSeparator {}
+                // Shows the alignment at the cursor; the menu sets it.
+                ToolMenu {
+                    objectName: "alignButton"
+                    menuName: "alignMenu"
+                    appRoot: root
+                    icon: AlignIcon { alignment: root.alignment; color: root.theme.foreground }
+                    onClosed: editor.forceActiveFocus()
+                    MenuEntry {
+                        objectName: "alignLeftItem"
+                        text: "Align left"; hint: root.alignment === Qt.AlignLeft ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignLeft)
+                    }
+                    MenuEntry {
+                        objectName: "alignCenterItem"
+                        text: "Align center"; hint: root.alignment === Qt.AlignHCenter ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignHCenter)
+                    }
+                    MenuEntry {
+                        objectName: "alignRightItem"
+                        text: "Align right"; hint: root.alignment === Qt.AlignRight ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignRight)
+                    }
+                }
             }
-            ToolButton {
-                objectName: "insertRowButton"
-                appRoot: root
-                label: "+Row"; tip: "Insert row below"
-                available: root.tableActive
-                onClicked: controller.insertTableRow()
+
+            Row {
+                id: fontGroup
+                spacing: 4
+                ToolSeparator {}
+                FontPicker {
+                    objectName: "fontButton"
+                    anchors.verticalCenter: parent.verticalCenter
+                    appRoot: root
+                    controller: controller
+                    currentFamily: root.fontFamily
+                    onClosed: editor.forceActiveFocus()
+                }
+                ToolButton {
+                    objectName: "fontSmallerButton"
+                    appRoot: root
+                    label: "−"; tip: "Decrease font size"
+                    onClicked: root.stepFontSize(-1)
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 40
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.fontSize + "pt"
+                    color: root.theme.foreground
+                    font.pixelSize: 13
+                }
+                ToolButton {
+                    objectName: "fontLargerButton"
+                    appRoot: root
+                    label: "+"; tip: "Increase font size"
+                    onClicked: root.stepFontSize(1)
+                }
             }
-            ToolButton {
-                objectName: "deleteRowButton"
-                appRoot: root
-                label: "−Row"; tip: "Delete row"
-                available: root.tableActive
-                onClicked: controller.deleteTableRow()
+
+            Row {
+                id: colorGroup
+                objectName: "colorGroup"
+                spacing: 4
+                visible: !root.collapsedGroups.includes("color")
+                ToolSeparator {}
+                ColorPicker {
+                    id: colorPicker
+                    objectName: "colorButton"
+                    anchors.verticalCenter: parent.verticalCenter
+                    appRoot: root
+                    controller: controller
+                    currentColor: root.textColor
+                    onClosed: editor.forceActiveFocus()
+                }
             }
-            ToolButton {
-                objectName: "insertColumnButton"
-                appRoot: root
-                label: "+Col"; tip: "Insert column to the right"
-                available: root.tableActive
-                onClicked: controller.insertTableColumn()
+
+            Row {
+                id: tableGroup
+                objectName: "tableGroup"
+                spacing: 4
+                visible: !root.collapsedGroups.includes("table")
+                ToolSeparator {}
+                ToolMenu {
+                    objectName: "tableButton"
+                    menuName: "tableMenu"
+                    appRoot: root
+                    label: "⊞ Table"
+                    onClosed: editor.forceActiveFocus()
+                    MenuEntry {
+                        objectName: "insertTableItem"
+                        text: "Insert table"; hint: "3×3"
+                        onTriggered: controller.insertTable(3, 3)
+                    }
+                    MenuDivider { theme: root.theme }
+                    MenuEntry {
+                        objectName: "insertRowItem"
+                        text: "Insert row below"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableRow()
+                    }
+                    MenuEntry {
+                        objectName: "deleteRowItem"
+                        text: "Delete row"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTableRow()
+                    }
+                    MenuEntry {
+                        objectName: "insertColumnItem"
+                        text: "Insert column right"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableColumn()
+                    }
+                    MenuEntry {
+                        objectName: "deleteColumnItem"
+                        text: "Delete column"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTableColumn()
+                    }
+                }
             }
-            ToolButton {
-                objectName: "deleteColumnButton"
-                appRoot: root
-                label: "−Col"; tip: "Delete column"
-                available: root.tableActive
-                onClicked: controller.deleteTableColumn()
+
+            // The groups that didn't fit, as menu entries, in toolbar order.
+            Row {
+                spacing: 4
+                visible: root.collapsedGroups.length > 0
+                ToolSeparator {}
+                ToolMenu {
+                    id: overflowMenu
+                    objectName: "overflowButton"
+                    menuName: "overflowMenu"
+                    appRoot: root
+                    label: "⋯"
+                    caret: false
+                    onClosed: if (!colorPicker.paletteOpen) editor.forceActiveFocus()
+
+                    MenuEntry {
+                        objectName: "overflowUndo"
+                        visible: root.collapsedGroups.includes("history")
+                        text: "Undo"; hint: "Ctrl+Z"
+                        enabled: controller.canUndo && !controller.loading
+                        onTriggered: controller.undo()
+                    }
+                    MenuEntry {
+                        objectName: "overflowRedo"
+                        visible: root.collapsedGroups.includes("history")
+                        text: "Redo"; hint: "Ctrl+Shift+Z"
+                        enabled: controller.canRedo && !controller.loading
+                        onTriggered: controller.redo()
+                    }
+                    MenuDivider {
+                        theme: root.theme
+                        visible: root.collapsedGroups.includes("lists") && root.collapsedGroups.includes("history")
+                    }
+                    MenuEntry {
+                        objectName: "overflowBullet"
+                        visible: root.collapsedGroups.includes("lists")
+                        text: "Bullet list"; hint: root.bulletActive ? "✓" : ""
+                        onTriggered: controller.toggleBulletList()
+                    }
+                    MenuEntry {
+                        objectName: "overflowNumbered"
+                        visible: root.collapsedGroups.includes("lists")
+                        text: "Numbered list"; hint: root.numberedActive ? "✓" : ""
+                        onTriggered: controller.toggleNumberedList()
+                    }
+                    MenuDivider {
+                        theme: root.theme
+                        visible: root.collapsedGroups.includes("align")
+                                 && (root.collapsedGroups.includes("history") || root.collapsedGroups.includes("lists"))
+                    }
+                    MenuEntry {
+                        objectName: "overflowAlignLeft"
+                        visible: root.collapsedGroups.includes("align")
+                        text: "Align left"; hint: root.alignment === Qt.AlignLeft ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignLeft)
+                    }
+                    MenuEntry {
+                        objectName: "overflowAlignCenter"
+                        visible: root.collapsedGroups.includes("align")
+                        text: "Align center"; hint: root.alignment === Qt.AlignHCenter ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignHCenter)
+                    }
+                    MenuEntry {
+                        objectName: "overflowAlignRight"
+                        visible: root.collapsedGroups.includes("align")
+                        text: "Align right"; hint: root.alignment === Qt.AlignRight ? "✓" : ""
+                        onTriggered: controller.setAlignment(Qt.AlignRight)
+                    }
+                    MenuDivider {
+                        theme: root.theme
+                        visible: root.collapsedGroups.includes("color") && root.collapsedGroups.length > 1
+                    }
+                    MenuEntry {
+                        objectName: "overflowColor"
+                        visible: root.collapsedGroups.includes("color")
+                        text: "Text color…"
+                        onTriggered: colorPicker.openPalette(overflowMenu)
+                    }
+                    MenuDivider {
+                        theme: root.theme
+                        visible: root.collapsedGroups.includes("table") && root.collapsedGroups.length > 1
+                    }
+                    MenuEntry {
+                        objectName: "overflowInsertTable"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Insert table"; hint: "3×3"
+                        onTriggered: controller.insertTable(3, 3)
+                    }
+                    MenuEntry {
+                        objectName: "overflowInsertRow"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Insert row below"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableRow()
+                    }
+                    MenuEntry {
+                        objectName: "overflowDeleteRow"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Delete row"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTableRow()
+                    }
+                    MenuEntry {
+                        objectName: "overflowInsertColumn"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Insert column right"
+                        enabled: root.tableActive
+                        onTriggered: controller.insertTableColumn()
+                    }
+                    MenuEntry {
+                        objectName: "overflowDeleteColumn"
+                        visible: root.collapsedGroups.includes("table")
+                        text: "Delete column"
+                        enabled: root.tableActive
+                        onTriggered: controller.deleteTableColumn()
+                    }
+                }
             }
         }
 
         ToolButton {
+            id: aiButton
             objectName: "aiButton"
             anchors { verticalCenter: parent.verticalCenter; right: parent.right; rightMargin: 6 }
             appRoot: root

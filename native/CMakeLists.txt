@@ -35,7 +35,8 @@ set_source_files_properties(UnsavedChangesDialog.qml PROPERTIES QT_QML_SKIP_CACH
 qt_add_qml_module(rune
     URI Rune
     VERSION 1.0
-    QML_FILES Main.qml ToolButton.qml FileMenu.qml FontPicker.qml ColorPicker.qml UnsavedChangesDialog.qml AiPanel.qml
+    QML_FILES Main.qml ToolButton.qml ToolMenu.qml ThemedMenu.qml MenuEntry.qml MenuDivider.qml AlignIcon.qml
+              FileMenu.qml FontPicker.qml ColorPicker.qml UnsavedChangesDialog.qml AiPanel.qml
     SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp
             DocxBridge.h DocxBridge.cpp
             ai/AiManager.h ai/AiManager.cpp ai/AiProvider.h ai/AiProvider.cpp

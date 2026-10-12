@@ -13,6 +13,7 @@ Rectangle {
     readonly property var theme: appRoot.theme
     // "#rrggbb", or "auto" (the controller's currentTextColor()).
     property string currentColor: "auto"
+    readonly property bool paletteOpen: popup.visible
 
     // Rows of swatches: grays, then each hue bright, light, medium, dark,
     // darker (the palette word processors commonly use). Not `palette`:
@@ -27,6 +28,13 @@ Rectangle {
     ]
 
     signal closed()
+
+    // Opens the palette under `anchor` instead of this button (the
+    // toolbar's ⋯ menu, when this button has moved into it).
+    function openPalette(anchor) {
+        popup.parent = anchor
+        popup.open()
+    }
 
     function choose(color) {
         controller.setTextColor(color)
@@ -78,12 +86,15 @@ Rectangle {
     Popup {
         id: popup
         objectName: "colorPopup"
-        y: picker.height + 4
+        y: parent ? parent.height + 4 : 0
         margins: 6 // kept inside the window, moved left if need be
         padding: 8
         focus: true
         onOpened: customField.text = picker.currentColor === "auto" ? "" : picker.currentColor
-        onClosed: picker.closed()
+        onClosed: {
+            popup.parent = picker
+            picker.closed()
+        }
         background: Rectangle {
             color: picker.theme.background
             border.color: picker.theme.muted

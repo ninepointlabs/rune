@@ -696,33 +696,34 @@ bool runAutoTest(QQuickWindow *window)
                 && !textOf(rawHtml).contains(QStringLiteral("Cell A")),
             "control: the unsanitized export of the same document loses the table in soffice");
 
-    // Table button, isInTable() and the row/column buttons' availability.
+    // The toolbar's Table menu, isInTable() and its row/column entries'
+    // availability. Entries are clicked as a menu click does (click()).
     controller->newDocument();
     editor->forceActiveFocus();
     typeText(window, QStringLiteral("Intro"));
-    auto *tableButton = window->findChild<QQuickItem *>(QStringLiteral("tableButton"));
-    auto *insertRowButton = window->findChild<QQuickItem *>(QStringLiteral("insertRowButton"));
-    auto *deleteRowButton = window->findChild<QQuickItem *>(QStringLiteral("deleteRowButton"));
-    auto *insertColumnButton = window->findChild<QQuickItem *>(QStringLiteral("insertColumnButton"));
-    auto *deleteColumnButton = window->findChild<QQuickItem *>(QStringLiteral("deleteColumnButton"));
-    t.check(tableButton && insertRowButton && deleteRowButton && insertColumnButton && deleteColumnButton,
-            "found table toolbar buttons");
+    auto *insertTableItem = window->findChild<QObject *>(QStringLiteral("insertTableItem"));
+    auto *insertRowItem = window->findChild<QObject *>(QStringLiteral("insertRowItem"));
+    auto *deleteRowItem = window->findChild<QObject *>(QStringLiteral("deleteRowItem"));
+    auto *insertColumnItem = window->findChild<QObject *>(QStringLiteral("insertColumnItem"));
+    auto *deleteColumnItem = window->findChild<QObject *>(QStringLiteral("deleteColumnItem"));
+    t.check(insertTableItem && insertRowItem && deleteRowItem && insertColumnItem && deleteColumnItem,
+            "found the Table menu's entries");
     if (!t.ok())
         return false;
     const auto rowColumnAvailable = [&] {
-        return insertRowButton->property("available").toBool() && deleteRowButton->property("available").toBool()
-            && insertColumnButton->property("available").toBool() && deleteColumnButton->property("available").toBool();
+        return insertRowItem->property("enabled").toBool() && deleteRowItem->property("enabled").toBool()
+            && insertColumnItem->property("enabled").toBool() && deleteColumnItem->property("enabled").toBool();
     };
-    t.check(!controller->isInTable() && !insertRowButton->property("available").toBool(),
-            "outside a table: isInTable() false, row/column buttons unavailable");
-    QMetaObject::invokeMethod(tableButton, "clicked");
+    t.check(!controller->isInTable() && !insertRowItem->property("enabled").toBool(),
+            "outside a table: isInTable() false, row/column entries unavailable");
+    QMetaObject::invokeMethod(insertTableItem, "click");
     QTextTable *table = tableAtCursor(doc, editor);
     t.check(table && table->rows() == 3 && table->columns() == 3,
-            QStringLiteral("Table button inserted a 3x3 table (%1x%2)")
+            QStringLiteral("Table → Insert table inserted a 3x3 table (%1x%2)")
                 .arg(table ? table->rows() : 0).arg(table ? table->columns() : 0));
     if (!table)
         return false;
-    t.check(controller->isInTable() && rowColumnAvailable(), "in a cell: isInTable() true, row/column buttons available");
+    t.check(controller->isInTable() && rowColumnAvailable(), "in a cell: isInTable() true, row/column entries available");
     // Fill row by row ("r1c2" = row 1, column 2) so row/column edits show up by content.
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c) {
@@ -733,15 +734,15 @@ bool runAutoTest(QQuickWindow *window)
     editor->setProperty("cursorPosition", doc->characterCount() - 1);
     typeText(window, QStringLiteral("Trailing"));
     t.check(!controller->isInTable() && !rowColumnAvailable(),
-            "in trailing text after the table: isInTable() false, row/column buttons unavailable");
+            "in trailing text after the table: isInTable() false, row/column entries unavailable");
 
     // +Row / +Col from cell 1,1: one more of each, after the cursor's.
     editor->setProperty("cursorPosition", table->cellAt(1, 1).firstCursorPosition().position());
-    QMetaObject::invokeMethod(insertRowButton, "clicked");
+    QMetaObject::invokeMethod(insertRowItem, "click");
     t.check(table->rows() == 4 && table->cellAt(2, 0).firstCursorPosition().block().text().isEmpty()
                 && table->cellAt(3, 0).firstCursorPosition().block().text() == QStringLiteral("r2c0"),
             QStringLiteral("+Row: 3 -> %1 rows, empty row inserted below row 1").arg(table->rows()));
-    QMetaObject::invokeMethod(insertColumnButton, "clicked");
+    QMetaObject::invokeMethod(insertColumnItem, "click");
     t.check(table->columns() == 4 && table->cellAt(0, 2).firstCursorPosition().block().text().isEmpty()
                 && table->cellAt(0, 3).firstCursorPosition().block().text() == QStringLiteral("r0c2"),
             QStringLiteral("+Col: 3 -> %1 columns, empty column inserted right of column 1").arg(table->columns()));
@@ -753,10 +754,10 @@ bool runAutoTest(QQuickWindow *window)
 
     // −Row / −Col at cell 1,1: removes row 1 ("r1c*") and then column 1 ("*c1").
     t.check(cellAtCursor(doc, editor) == QStringLiteral("1,1"), "cursor still in cell 1,1: " + cellAtCursor(doc, editor));
-    QMetaObject::invokeMethod(deleteRowButton, "clicked");
+    QMetaObject::invokeMethod(deleteRowItem, "click");
     t.check(table->rows() == 3 && controller->isInTable(),
             QStringLiteral("−Row: 4 -> %1 rows, cursor still in the table").arg(table->rows()));
-    QMetaObject::invokeMethod(deleteColumnButton, "clicked");
+    QMetaObject::invokeMethod(deleteColumnItem, "click");
     t.check(table->columns() == 3 && controller->isInTable(),
             QStringLiteral("−Col: 4 -> %1 columns, cursor still in the table").arg(table->columns()));
     t.check(controller->saveToOdf(kStage3TablePath), "saveToOdf(" + kStage3TablePath + ") [after deletes]");
@@ -2083,6 +2084,96 @@ bool runAutoTest(QQuickWindow *window)
                     clickItem(automatic);
                 t.check(automatic && !shown(colorPopup) && controller->currentTextColor() == QStringLiteral("auto"),
                         "Automatic removes the color");
+                controller->newDocument();
+            }
+        }
+
+        // The toolbar at different window widths: groups move into the ⋯
+        // menu (and back) so nothing runs under the AI button.
+        {
+            auto *aiButton = window->findChild<QQuickItem *>(QStringLiteral("aiButton"));
+            auto *historyGroup = window->findChild<QQuickItem *>(QStringLiteral("historyGroup"));
+            auto *toolRow = historyGroup ? historyGroup->parentItem() : nullptr;
+            auto *overflowButton = window->findChild<QQuickItem *>(QStringLiteral("overflowButton"));
+            QObject *overflowMenu = window->findChild<QObject *>(QStringLiteral("overflowMenu"));
+            QObject *alignCenter = window->findChild<QObject *>(QStringLiteral("alignCenterItem"));
+            QObject *colorPopup = window->findChild<QObject *>(QStringLiteral("colorPopup"));
+            t.check(aiButton && toolRow && overflowButton && overflowMenu && alignCenter && colorPopup,
+                    "found the toolbar groups, ⋯ menu and alignment menu");
+            if (aiButton && toolRow && overflowButton && overflowMenu && alignCenter && colorPopup) {
+                const auto collapsed = [&] { return window->property("collapsedGroups").toStringList(); };
+                const auto rightEdge = [&] {
+                    qreal right = 0;
+                    for (QQuickItem *group : toolRow->childItems())
+                        if (group->isVisible())
+                            right = qMax(right, group->mapToScene(QPointF(group->width(), 0)).x());
+                    return right;
+                };
+                const auto fits = [&] { return rightEdge() <= aiButton->mapToScene(QPointF(0, 0)).x(); };
+                // Whether a ⋯ entry is listed (an entry only counts as visible
+                // while its menu is open).
+                const auto shown = [&](const char *name) {
+                    QMetaObject::invokeMethod(overflowButton, "openMenu");
+                    QCoreApplication::processEvents();
+                    QObject *o = window->findChild<QObject *>(QLatin1String(name));
+                    const bool visible = o && o->property("visible").toBool();
+                    QMetaObject::invokeMethod(overflowMenu, "close");
+                    QCoreApplication::processEvents();
+                    return visible;
+                };
+                const auto resize = [&](int width) {
+                    window->setWidth(width);
+                    QElapsedTimer settle;
+                    settle.start();
+                    while (settle.elapsed() < 100)
+                        QCoreApplication::processEvents();
+                };
+                const auto edges = [&] {
+                    return QStringLiteral("toolbar ends at %1, AI starts at %2")
+                        .arg(rightEdge()).arg(aiButton->mapToScene(QPointF(0, 0)).x());
+                };
+                const int originalWidth = window->width();
+
+                controller->newDocument();
+                editor->forceActiveFocus();
+                typeText(window, QStringLiteral("Aligned"));
+                QMetaObject::invokeMethod(alignCenter, "click");
+                t.check(controller->currentAlignment() == int(Qt::AlignHCenter)
+                            && window->property("alignment").toInt() == int(Qt::AlignHCenter)
+                            && alignCenter->property("hint").toString() == QStringLiteral("✓"),
+                        "the alignment menu centers the paragraph and ticks Align center");
+
+                resize(1000);
+                t.check(collapsed().isEmpty() && !overflowButton->isVisible() && fits(),
+                        "at 1000 px every group fits and there's no ⋯ button (" + edges() + ")");
+
+                resize(860);
+                const QStringList at860 = collapsed();
+                t.check(!at860.isEmpty() && at860.first() == QStringLiteral("table") && overflowButton->isVisible() && fits()
+                            && shown("overflowInsertTable") && !shown("overflowUndo"),
+                        "at 860 px the lowest-priority groups move into ⋯ (" + at860.join(QStringLiteral(", ")) + "; " + edges() + ")");
+
+                resize(window->minimumWidth());
+                const QStringList atMin = collapsed();
+                t.check(atMin.size() == 5 && fits() && window->findChild<QQuickItem *>(QStringLiteral("boldButton"))->isVisible()
+                            && window->findChild<QQuickItem *>(QStringLiteral("fontButton"))->isVisible()
+                            && window->findChild<QQuickItem *>(QStringLiteral("saveButton"))->isVisible(),
+                        QStringLiteral("at the minimum width (%1 px) all five groups are in ⋯; File, Save, B/I/U and font stay (%2)")
+                            .arg(window->minimumWidth()).arg(edges()));
+
+                QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("overflowNumbered")), "click");
+                t.check(controller->isInNumberedList() && shown("overflowUndo") && shown("overflowAlignRight"),
+                        "⋯ → Numbered list works, and ⋯ lists every collapsed group's actions");
+                QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("overflowColor")), "click");
+                QCoreApplication::processEvents();
+                t.check(colorPopup->property("visible").toBool(), "⋯ → Text color… opens the palette");
+                QMetaObject::invokeMethod(colorPopup, "close");
+                QCoreApplication::processEvents();
+
+                resize(1000);
+                t.check(collapsed().isEmpty() && !overflowButton->isVisible() && fits(),
+                        "widening the window again puts every group back on the toolbar (" + edges() + ")");
+                resize(originalWidth);
                 controller->newDocument();
             }
         }
