@@ -2143,15 +2143,21 @@ bool runAutoTest(QQuickWindow *window)
                             && alignCenter->property("hint").toString() == QStringLiteral("✓"),
                         "the alignment menu centers the paragraph and ticks Align center");
 
-                resize(1000);
+                // How much fits depends on the fonts installed; 1400 px fits
+                // everything with any of them.
+                resize(1400);
                 t.check(collapsed().isEmpty() && !overflowButton->isVisible() && fits(),
-                        "at 1000 px every group fits and there's no ⋯ button (" + edges() + ")");
+                        "at 1400 px every group fits and there's no ⋯ button (" + edges() + ")");
+                resize(1000);
+                t.check(fits() && overflowButton->isVisible() == !collapsed().isEmpty(),
+                        "at 1000 px nothing runs under the AI button (in ⋯: " + collapsed().join(QStringLiteral(", "))
+                            + "; " + edges() + ")");
 
-                resize(860);
-                const QStringList at860 = collapsed();
-                t.check(!at860.isEmpty() && at860.first() == QStringLiteral("table") && overflowButton->isVisible() && fits()
-                            && shown("overflowInsertTable") && !shown("overflowUndo"),
-                        "at 860 px the lowest-priority groups move into ⋯ (" + at860.join(QStringLiteral(", ")) + "; " + edges() + ")");
+                resize(760);
+                const QStringList at760 = collapsed();
+                t.check(!at760.isEmpty() && at760.first() == QStringLiteral("table") && overflowButton->isVisible() && fits()
+                            && shown("overflowInsertTable") && shown("overflowUndo") == at760.contains(QStringLiteral("history")),
+                        "at 760 px the lowest-priority groups move into ⋯ (" + at760.join(QStringLiteral(", ")) + "; " + edges() + ")");
 
                 resize(window->minimumWidth());
                 const QStringList atMin = collapsed();
@@ -2170,7 +2176,7 @@ bool runAutoTest(QQuickWindow *window)
                 QMetaObject::invokeMethod(colorPopup, "close");
                 QCoreApplication::processEvents();
 
-                resize(1000);
+                resize(1400);
                 t.check(collapsed().isEmpty() && !overflowButton->isVisible() && fits(),
                         "widening the window again puts every group back on the toolbar (" + edges() + ")");
                 resize(originalWidth);
