@@ -1304,11 +1304,18 @@ bool runAutoTest(QQuickWindow *window)
     }
     const IoRun corruptOpen = openAndWait(controller, kStage5CorruptPath);
     t.check(corruptOpen.fired && !corruptOpen.success && !controller->isBusy() && unchanged(),
-            "openFile(corrupt .docx, soffice exits non-zero) -> fileOpened(false), not busy, document unchanged");
+            "openFile(corrupt .docx) -> fileOpened(false), not busy, document unchanged");
     QString bridgeError;
     const bool corruptFailed = DocxBridge::convertToOdt(kStage5CorruptPath, &bridgeError).isEmpty();
-    t.check(corruptFailed && bridgeError.contains(QStringLiteral("exit")),
-            "DocxBridge::convertToOdt(corrupt): \"" + bridgeError + "\"");
+    // LibreOffice versions differ on a corrupt file: some exit non-zero
+    // (26.x), others exit 0 having written nothing (25.x, e.g. Debian 13,
+    // Fedora 42). Either way the bridge must fail and say which.
+    const bool exitedNonZero = bridgeError.startsWith(QStringLiteral("LibreOffice failed converting"))
+        && bridgeError.contains(QStringLiteral("(exit "));
+    const bool wroteNothing = bridgeError.startsWith(QStringLiteral("LibreOffice reported success but wrote no .odt"));
+    t.check(corruptFailed && (exitedNonZero || wroteNothing),
+            "DocxBridge::convertToOdt(corrupt) fails, saying LibreOffice exited non-zero or wrote nothing: \""
+                + bridgeError + "\"");
     {
         // soffice not installed: an empty PATH.
         const QByteArray path = qgetenv("PATH");
