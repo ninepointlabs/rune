@@ -380,7 +380,7 @@
         </div>
       </div>
 
-    <p style="color: var(--ink-dim);">318 automated checks run headlessly, including both AI sign-in flows against local mock servers. Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
+    <p style="color: var(--ink-dim);">398 automated checks run headlessly, including both AI sign-in flows against local mock servers. Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
   </div>
 </section>
 
@@ -399,8 +399,9 @@
         <tr><td><span class="dot dot-done"></span>Open / Save As dialogs, unsaved-changes prompt, word-by-word undo</td><td>Working</td></tr>
       <tr><td><span class="dot dot-done"></span>AI sign-in: your ChatGPT plan, or OpenRouter (Claude, GPT, Grok)</td><td>Working</td></tr>
       <tr><td><span class="dot dot-done"></span>AI in the document: corrections in place, rewrite selection, draft at cursor; ask about the document</td><td>Working</td></tr>
+      <tr><td><span class="dot dot-done"></span>Pages, Page setup, headers and footers with page numbers</td><td>Working</td></tr>
         <tr><td><span class="dot dot-none"></span>AI formatting changes by instruction ("bold the names")</td><td>Not started</td></tr>
-      <tr><td><span class="dot dot-none"></span>Headers, footers, section breaks, images</td><td>Not started</td></tr>
+      <tr><td><span class="dot dot-none"></span>Section breaks, images</td><td>Not started</td></tr>
     </table>
 
     <p class="honest-note">Problems found along the way are documented with the evidence, not hidden — Qt's ODF writer silently dropping a table placed directly after a list (worked around), and dropping heading levels on save (open), nested tables losing content on export. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>

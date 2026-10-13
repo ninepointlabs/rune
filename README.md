@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 318 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 398 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -20,11 +20,14 @@ Early and moving fast. Core editing — open, type, format, save, tables, lists,
 | Text editing (keyboard, mouse, clipboard) | ✅ Working |
 | Formatting (styles, B/I/U, lists w/ nesting, alignment, color, font) | ✅ Working |
 | Tables (insert, row/column ops) | ✅ Working |
+| Pages: paper size by locale, margins, orientation (File → Page setup) | ✅ Working |
+| Headers and footers, with page number and page count fields | ✅ Working |
+| Command palette (Ctrl+K) | ✅ Working |
 | Named/inherited paragraph styles on import (`styles.xml`) | ✅ Working |
 | Async `.docx` conversion (doesn't block the UI) | ✅ Working |
 | AI sign-in (ChatGPT plan, OpenRouter) + streaming chat panel | ✅ Working |
 | AI editing in the document (corrections in place, rewrite selection, write at cursor; one undo step) | ✅ Working |
-| Headers/footers, section breaks, images, tab stops | ❌ Not started |
+| Section breaks, different first/odd/even page headers, images, tab stops | ❌ Not started |
 
 ## Architecture
 
@@ -50,6 +53,8 @@ One process. QML's `TextEdit`, backed directly by a `QTextDocument` — no bitma
 **Qt has no built-in ODF reader**, public or private — only a writer. `OdfReader` (in `native/`) is a from-scratch ODF importer: unzips via `QuaZip`, parses `content.xml`/`styles.xml` via `QXmlStreamReader`, resolves named/inherited paragraph styles, and builds the document via `QTextCursor`. Verified against real LibreOffice-authored files, not just round-tripped through our own writer.
 
 **`.docx` is a batch conversion at the boundary, not a live format.** Opening a `.docx` runs `soffice --headless --convert-to odt` once, then loads the result with the same `OdfReader`; saving does the reverse. LibreOffice never touches the interactive editing path, and the conversion runs on a background thread (`QtConcurrent`) so it never blocks the UI — empirically verified, not just assumed (a synchronous baseline blocked the main thread completely; the async version let other work run throughout an equivalent-length conversion).
+
+**Pages come from `QTextDocument` itself.** The body is paginated at the paper size, with the margins as the root frame's, so text never runs into a margin; the page sheets in the view are drawn behind it. The header and footer are documents of their own, drawn on every page with that page's number. Qt's writer produces no `styles.xml`, so Rune adds one holding the page layout and the master page's header and footer, with real page-number fields; LibreOffice's `.docx` conversion of it is checked in the tests (page size, margins, header text, `PAGE`/`NUMPAGES` fields).
 
 **Qt's own ODF writer has a real bug**, found and worked around: a table immediately following a list produces structurally broken ODF (not malformed XML — `xmllint` passes it — but a table nested inside the preceding list and split across its own rows), and LibreOffice silently drops the table on import. Fixed with a save-time sanitizer that inserts a separating paragraph; verified with a direct A/B test (identical document, sanitizer on vs. off) showing the unsanitized version genuinely loses the table.
 
@@ -101,7 +106,9 @@ cmake --build build
 QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 ```
 
-318 checks, run headlessly: typing, formatting, tables, lists, the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+On Arch, Qt sends its warnings to the systemd journal when stderr isn't a terminal; add `QT_FORCE_STDERR_LOGGING=1` to see QML warnings in the test output.
+
+398 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 
