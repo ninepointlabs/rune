@@ -67,7 +67,7 @@ Window {
         if (partEditing)
             controller.fitPageParts()
         // The toolbar now formats the header or footer.
-        controller.setEditTarget(part === "footer" ? DocumentController.Footer : DocumentController.Header)
+        controller.setEditTarget(part)
         editingPart = part
         editingPage = Math.max(1, Math.min(page, controller.pageCount))
         controller.setPartEditing(editingPage, theme.foreground)
@@ -85,7 +85,7 @@ Window {
         if (!partEditing)
             return
         editingPart = ""
-        controller.setEditTarget(DocumentController.Body)
+        controller.setEditTarget("")
         controller.fitPageParts()
         focusEditor()
         if (position !== undefined)
@@ -108,7 +108,7 @@ Window {
         const partEditor = activePartEditor()
         if (partEditor.selectedText !== "")
             partEditor.remove(partEditor.selectionStart, partEditor.selectionEnd)
-        partEditor.cursorPosition = controller.insertPageField(editingPart === "footer", partEditor.cursorPosition, count)
+        partEditor.cursorPosition = controller.insertPageField(editingPart, partEditor.cursorPosition, count)
     }
 
     // Ctrl+K → Page numbers: a centred page number in the footer if it is
@@ -342,8 +342,8 @@ Window {
     // DocumentController.h for why this isn't a binding.
     Component.onCompleted: {
         controller.document = pageView.editor.textDocument
-        controller.setPartDocument(false, pageView.headerEditor.textDocument)
-        controller.setPartDocument(true, pageView.footerEditor.textDocument)
+        controller.setPartDocument("header", pageView.headerEditor.textDocument)
+        controller.setPartDocument("footer", pageView.footerEditor.textDocument)
         controller.newDocument()
         syncSelection()
     }

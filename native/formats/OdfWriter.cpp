@@ -1,9 +1,12 @@
 #include "OdfWriter.h"
 
-#include "PageLayout.h"
+#include "Package.h"
 
 #include <QBuffer>
 #include <QDebug>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QList>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -79,7 +82,12 @@ void sanitize(QTextDocument *doc)
     }
 }
 
-QByteArray write(const QTextDocument *body, const QByteArray &stylesXml)
+QString dataEntryName(const QString &store)
+{
+    return QStringLiteral("Rune/") + store + QStringLiteral(".json");
+}
+
+QByteArray write(const QTextDocument *body, const QByteArray &stylesXml, const DocumentData::Stores &data)
 {
     // Sanitize a copy: the export workarounds must not rewrite what the
     // user is editing.
@@ -94,11 +102,38 @@ QByteArray write(const QTextDocument *body, const QByteArray &stylesXml)
         qWarning() << "OdfWriter: ODF serialisation failed";
         return {};
     }
-    // Qt's writer leaves out the page layout, header and footer (it writes
-    // no styles.xml).
-    const QByteArray odt = withOdfStyles(buffer.data(), stylesXml);
+
+    std::optional<QList<Package::Entry>> entries = Package::read(buffer.data());
+    const Package::Entry *found = entries ? Package::find(*entries, QStringLiteral("META-INF/manifest.xml")) : nullptr;
+    if (!found || !found->data.contains("</manifest:manifest>")) {
+        qWarning() << "OdfWriter: cannot read back Qt's ODF archive";
+        return {};
+    }
+    QByteArray manifest = found->data;
+    // Added at the end, each listed in the manifest. Qt's writer leaves out
+    // styles.xml (the page layout, header and footer).
+    QByteArray manifestEntries;
+    const auto add = [&](const QString &name, const QByteArray &bytes, const char *mediaType) {
+        if (Package::Entry *existing = Package::find(*entries, name))
+            existing->data = bytes;
+        else
+            entries->append({name, bytes});
+        const QByteArray listing = "manifest:full-path=\"" + name.toUtf8() + '"';
+        if (!manifest.contains(listing))
+            manifestEntries += "<manifest:file-entry manifest:media-type=\"" + QByteArray(mediaType) + "\" " + listing + "/>";
+    };
+    add(QStringLiteral("styles.xml"), stylesXml, "text/xml");
+    for (auto it = data.cbegin(); it != data.cend(); ++it) {
+        const QJsonDocument json = it.value().isArray() ? QJsonDocument(it.value().toArray())
+                                                        : QJsonDocument(it.value().toObject());
+        add(dataEntryName(it.key()), json.toJson(QJsonDocument::Indented), "application/json");
+    }
+    manifest.insert(manifest.lastIndexOf("</manifest:manifest>"), manifestEntries);
+    Package::find(*entries, QStringLiteral("META-INF/manifest.xml"))->data = manifest;
+
+    const QByteArray odt = Package::write(*entries);
     if (odt.isEmpty())
-        qWarning() << "OdfWriter: cannot add the page layout to the ODF archive";
+        qWarning() << "OdfWriter: cannot write the ODF archive";
     return odt;
 }
 

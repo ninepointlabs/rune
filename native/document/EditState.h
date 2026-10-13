@@ -22,7 +22,6 @@ struct EditState
     // The document being edited: the body, or the header or footer while
     // one is edited in place (see DocumentController::setEditTarget()).
     QTextDocument *target;
-    bool editingBody() const { return target == body; }
 
     // Mirror of the TextEdit's cursorPosition/selectionStart/selectionEnd.
     int cursorPosition = 0;

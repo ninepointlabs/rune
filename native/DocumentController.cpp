@@ -1,6 +1,7 @@
 #include "DocumentController.h"
 
 #include "DocxBridge.h"
+#include "DocxData.h"
 #include "HeaderFooter.h"
 #include "OdfReader.h"
 #include "OdfWriter.h"
@@ -37,34 +38,33 @@ QFont defaultFont(const QTextDocument &doc, qreal pointSize)
 } // namespace
 
 DocumentController::DocumentController(QObject *parent)
-    : QObject(parent), m_document(new QTextDocument(this)),
-      m_parts(new HeaderFooter(defaultFont(*m_document, kDefaultPointSize), this)), m_edit(m_document),
+    : QObject(parent), m_parts(new DocumentParts(defaultFont(QTextDocument(), kDefaultPointSize), this)),
+      m_document(m_parts->body()), m_margins(new HeaderFooter(*m_parts, this)), m_data(new DocumentData(this)),
+      m_edit(m_document),
       m_format(m_edit), m_stream(m_edit)
 {
-    m_document->setDefaultFont(m_parts->document(false)->defaultFont());
-    connect(m_parts, &HeaderFooter::changed, this, &DocumentController::pagePartsChanged);
+    connect(m_margins, &HeaderFooter::changed, this, &DocumentController::pagePartsChanged);
 
     // Not wired straight to dirtyChanged(): QTextDocument::clear() resets
     // the modified flag without emitting modificationChanged(), so loads
     // and newDocument() also call updateDirty(). (It drops the undo history
     // just as silently; newDocument() covers that too.) Undo, redo and
-    // typing are routed to whichever document is being edited.
-    for (QTextDocument *doc : {m_document, m_parts->document(false), m_parts->document(true)}) {
-        connect(doc, &QTextDocument::modificationChanged, this, &DocumentController::updateDirty);
-        connect(doc, &QTextDocument::undoAvailable, this, [this, doc] {
-            if (m_edit.target == doc)
-                emit canUndoChanged();
-        });
-        connect(doc, &QTextDocument::redoAvailable, this, [this, doc] {
-            if (m_edit.target == doc)
-                emit canRedoChanged();
-        });
-        connect(doc, &QTextDocument::contentsChange, this, [this, doc](int position, int removed, int added) {
-            if (m_edit.target == doc)
-                onContentsChange(position, removed, added);
-        });
-        connect(doc, &QTextDocument::contentsChanged, this, [this] { ++m_edit.contentRevision; });
-    }
+    // typing are routed to whichever part is being edited.
+    connect(m_parts, &DocumentParts::modificationChanged, this, &DocumentController::updateDirty);
+    connect(m_parts, &DocumentParts::undoRedoAvailabilityChanged, this, [this](QTextDocument *doc) {
+        if (m_edit.target != doc)
+            return;
+        emit canUndoChanged();
+        emit canRedoChanged();
+    });
+    connect(m_parts, &DocumentParts::contentsChange, this,
+            [this](QTextDocument *doc, int position, int removed, int added) {
+                if (m_edit.target == doc)
+                    onContentsChange(position, removed, added);
+            });
+    connect(m_parts, &DocumentParts::contentsChanged, this, [this] { ++m_edit.contentRevision; });
+    connect(m_data, &DocumentData::modificationChanged, this, &DocumentController::updateDirty);
+    connect(m_data, &DocumentData::changed, this, [this] { ++m_edit.contentRevision; });
     connect(m_document, &QTextDocument::contentsChanged, this, &DocumentController::syncPages);
     connect(m_document->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
             &DocumentController::syncPages);
@@ -91,7 +91,7 @@ DocumentController::~DocumentController()
 
 bool DocumentController::isDirty() const
 {
-    return m_document->isModified() || m_parts->isModified();
+    return m_parts->isModified() || m_data->isModified();
 }
 
 void DocumentController::updateDirty()
@@ -133,7 +133,7 @@ void DocumentController::syncPages()
     const QSizeF size = layout.sizePx();
     if (m_document->pageSize() != size)
         m_document->setPageSize(size);
-    m_parts->syncWidths(layout);
+    m_margins->syncWidths(layout);
     if (layout != m_reportedLayout) {
         m_reportedLayout = layout;
         emit pageLayoutChanged();
@@ -142,7 +142,7 @@ void DocumentController::syncPages()
     const int pages = std::max(1, m_document->pageCount());
     if (pages != m_pageCount) {
         m_pageCount = pages;
-        m_parts->setPageCount(pages);
+        m_margins->setPageCount(pages);
         emit pageCountChanged();
         emit pagePartsChanged();
     }
@@ -151,7 +151,7 @@ void DocumentController::syncPages()
 void DocumentController::setPageLayout(const QVariantMap &layout)
 {
     const PageLayout current = pageLayout();
-    const PageLayout next = m_parts->withRoom(PageLayout::fromMap(layout, current));
+    const PageLayout next = m_margins->withRoom(PageLayout::fromMap(layout, current));
     if (next == current)
         return;
     // Its own undo step, not merged into the word being typed.
@@ -167,28 +167,36 @@ bool DocumentController::localeUsesLetter() const
 
 // --- Header and footer -----------------------------------------------------
 
-QTextDocument *DocumentController::partDocument(bool footer) const { return m_parts->document(footer); }
-bool DocumentController::hasHeader() const { return m_parts->has(false); }
-bool DocumentController::hasFooter() const { return m_parts->has(true); }
-qreal DocumentController::headerHeightPx() const { return m_parts->heightPx(false); }
-qreal DocumentController::footerHeightPx() const { return m_parts->heightPx(true); }
-qreal DocumentController::headerYPx() const { return m_parts->headerYPx(pageLayout()); }
-qreal DocumentController::footerYPx() const { return m_parts->footerYPx(pageLayout()); }
+QTextDocument *DocumentController::partDocument(const QString &part) const { return m_parts->document(part); }
+bool DocumentController::hasHeader() const { return m_margins->has(false); }
+bool DocumentController::hasFooter() const { return m_margins->has(true); }
+qreal DocumentController::headerHeightPx() const { return m_margins->heightPx(false); }
+qreal DocumentController::footerHeightPx() const { return m_margins->heightPx(true); }
+qreal DocumentController::headerYPx() const { return m_margins->headerYPx(pageLayout()); }
+qreal DocumentController::footerYPx() const { return m_margins->footerYPx(pageLayout()); }
 
-void DocumentController::setPartDocument(bool footer, QQuickTextDocument *qmlDocument)
+void DocumentController::setPartDocument(const QString &part, QQuickTextDocument *qmlDocument)
 {
-    m_parts->install(footer, qmlDocument, pageLayout());
+    if (HeaderFooter::isPart(part))
+        m_margins->install(HeaderFooter::isFooter(part), qmlDocument, pageLayout());
 }
 
-int DocumentController::insertPageField(bool footer, int position, bool count)
+int DocumentController::insertPageField(const QString &part, int position, bool count)
 {
-    return m_parts->insertPageField(footer, position, count);
+    if (!HeaderFooter::isPart(part))
+        return position;
+    return m_margins->insertPageField(HeaderFooter::isFooter(part), position, count);
 }
 
-void DocumentController::setEditTarget(int target)
+bool DocumentController::allows(DocumentParts::Capability capability) const
 {
-    QTextDocument *next = target == Header ? partDocument(false) : target == Footer ? partDocument(true) : m_document;
-    if (next == m_edit.target)
+    return DocumentParts::capabilities(m_parts->kind(m_parts->idOf(m_edit.target))) & capability;
+}
+
+void DocumentController::setEditTarget(const QString &part)
+{
+    QTextDocument *next = m_parts->document(part);
+    if (!next || next == m_edit.target)
         return;
     m_edit.target = next;
     m_format.clearPending();
@@ -202,13 +210,13 @@ void DocumentController::setEditTarget(int target)
 
 void DocumentController::setPartEditing(int page, const QColor &color)
 {
-    m_parts->setEditing(page, color);
+    m_margins->setEditing(page, color);
 }
 
 void DocumentController::fitPageParts()
 {
     const PageLayout current = pageLayout();
-    const PageLayout next = m_parts->withRoom(current);
+    const PageLayout next = m_margins->withRoom(current);
     if (next == current)
         return;
     m_format.endTypingStep();
@@ -216,15 +224,16 @@ void DocumentController::fitPageParts()
     emit formatChanged();
 }
 
-void DocumentController::paintPart(QPainter *painter, bool footer, int page, const QColor &color)
+void DocumentController::paintPart(QPainter *painter, const QString &part, int page, const QColor &color)
 {
-    m_parts->paint(painter, footer, page, color);
+    if (HeaderFooter::isPart(part))
+        m_margins->paint(painter, HeaderFooter::isFooter(part), page, color);
 }
 
 void DocumentController::setAllModified(bool modified)
 {
-    m_document->setModified(modified);
     m_parts->setModified(modified);
+    m_data->setModified(modified);
 }
 
 // --- New, open, save -------------------------------------------------------
@@ -246,9 +255,10 @@ void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
 
 void DocumentController::newDocument()
 {
-    setEditTarget(Body);
+    setEditTarget(QString());
     m_document->clear();
-    m_parts->clear();
+    m_margins->clear();
+    m_data->replace({});
     // clear() resets the root frame format, where the page layout lives.
     writePageLayout(m_defaultLayout);
     m_document->clearUndoRedoStacks();
@@ -267,7 +277,7 @@ void DocumentController::newDocument()
 
 bool DocumentController::saveToOdf(const QString &path)
 {
-    const QByteArray odt = OdfWriter::write(m_document, m_parts->odfStyles(pageLayout()));
+    const QByteArray odt = OdfWriter::write(m_document, m_margins->odfStyles(pageLayout()), m_data->stores());
     if (odt.isEmpty())
         return false;
     // Committed atomically: a failed write leaves any existing file as it was.
@@ -292,7 +302,7 @@ bool DocumentController::openOdf(const QString &path)
 {
     QString error;
     bool read = false;
-    setEditTarget(Body);
+    setEditTarget(QString());
     {
         // Not typing: keep a pending format from being applied to the load.
         const auto selfEdit = m_edit.selfEditing();
@@ -305,16 +315,23 @@ bool DocumentController::openOdf(const QString &path)
     // Its header and footer, if any.
     for (const bool footer : {false, true}) {
         QString partError;
-        if (!OdfReader::readPagePart(partDocument(footer), path, footer, &partError)) {
+        QTextDocument *part = m_margins->document(footer);
+        if (!OdfReader::readPagePart(part, path, footer, &partError)) {
             qWarning().noquote() << "DocumentController: cannot read the" << (footer ? "footer:" : "header:") << partError;
-            partDocument(footer)->clear();
+            part->clear();
         }
     }
+    // Its data stores, if any.
+    DocumentData::Stores stores;
+    QString dataError;
+    if (!OdfReader::readData(path, &stores, &dataError))
+        qWarning().noquote() << "DocumentController: cannot read the data stores:" << dataError;
+    m_data->replace(stores);
     // The file's own page layout, if it has one, with room for the header
     // and footer as laid out here: not part of the history.
     const PageLayout layout = PageLayout::fromOdtFile(path).value_or(m_defaultLayout);
-    m_parts->syncWidths(layout);
-    writePageLayout(m_parts->withRoom(layout));
+    m_margins->syncWidths(layout);
+    writePageLayout(m_margins->withRoom(layout));
     m_document->clearUndoRedoStacks();
     emit canUndoChanged();
     emit canRedoChanged();
@@ -395,6 +412,9 @@ void DocumentController::openFile(const QString &path)
     const auto work = [path] {
         Conversion result;
         result.odt = DocxBridge::convertToOdt(path, &result.error);
+        // LibreOffice's conversion drops them: from the .docx itself.
+        if (!result.odt.isEmpty())
+            result.data = DocxData::read(path);
         return result;
     };
     m_pendingOpen = runConversion(work, [this, path](const Conversion &result) {
@@ -417,6 +437,8 @@ void DocumentController::finishOpen(const QString &path, const Conversion &resul
     {
         const QSignalBlocker blocker(this);
         opened = openOdf(result.odt);
+        if (opened)
+            m_data->replace(result.data);
     }
     DocxBridge::removeConvertedOdt(result.odt);
     if (opened) {
@@ -459,8 +481,11 @@ void DocumentController::saveFile(const QString &path)
     {
         const QSignalBlocker blocker(this);
         const QString oldPath = m_currentPath;
-        const bool wasModified[] = {m_document->isModified(), partDocument(false)->isModified(),
-                                    partDocument(true)->isModified()};
+        const QList<QTextDocument *> docs = m_parts->documents();
+        QList<bool> wasModified;
+        for (QTextDocument *doc : docs)
+            wasModified.append(doc->isModified());
+        const bool dataWasModified = m_data->isModified();
         if (!saveToOdf(odt)) {
             // saveToOdf() changed nothing and has said why
             emit fileSaved(false, path, QStringLiteral("cannot write the temporary .odt for %1").arg(path));
@@ -468,17 +493,20 @@ void DocumentController::saveFile(const QString &path)
         }
         // Nothing is saved where the user asked yet: undo what saveToOdf()
         // did to our state until the conversion succeeds.
-        m_document->setModified(wasModified[0]);
-        partDocument(false)->setModified(wasModified[1]);
-        partDocument(true)->setModified(wasModified[2]);
+        for (qsizetype i = 0; i < docs.size(); ++i)
+            docs[i]->setModified(wasModified[i]);
+        m_data->setModified(dataWasModified);
         m_currentPath = oldPath;
     }
 
     setBusy(true);
     const quint64 revision = m_edit.contentRevision;
-    const auto work = [dir, odt, path] {
+    // LibreOffice's conversion drops the data stores: added to its output.
+    const DocumentData::Stores stores = m_data->stores();
+    const auto work = [dir, odt, path, stores] {
         Conversion result;
-        if (!DocxBridge::convertOdtToDocx(odt, path, &result.error) && result.error.isEmpty())
+        const auto withData = [&stores](const QByteArray &docx) { return DocxData::add(docx, stores); };
+        if (!DocxBridge::convertOdtToDocx(odt, path, &result.error, withData) && result.error.isEmpty())
             result.error = QStringLiteral("conversion failed");
         return result;
     };
@@ -544,7 +572,7 @@ void DocumentController::stepHistory(bool undo)
 
 bool DocumentController::typeText(const QString &text)
 {
-    if (m_loading || isStreamingEdit() || text.isEmpty() || !m_edit.editingBody())
+    if (m_loading || isStreamingEdit() || text.isEmpty() || !allows(DocumentParts::WordUndoSteps))
         return false;
     moved(m_format.typeText(text));
     return true;
@@ -620,7 +648,7 @@ int DocumentController::currentAlignment() const
 
 void DocumentController::toggleList(Lists::Kind kind)
 {
-    if (!editsBody())
+    if (!allows(DocumentParts::Lists))
         return;
     const QList<QTextBlock> blocks = m_edit.selectedBlocks();
     {
@@ -635,7 +663,7 @@ void DocumentController::toggleList(Lists::Kind kind)
 
 void DocumentController::changeListLevel(int delta)
 {
-    if (!editsBody())
+    if (!allows(DocumentParts::Lists))
         return;
     {
         const auto selfEdit = m_edit.selfEditing();
@@ -661,7 +689,7 @@ void DocumentController::demoteListItem() { changeListLevel(+1); }
 
 void DocumentController::insertTable(int rows, int columns)
 {
-    if (!editsBody())
+    if (!allows(DocumentParts::Tables))
         return;
     int position = -1;
     {
@@ -679,7 +707,7 @@ bool DocumentController::isInTable() const
 
 void DocumentController::editTable(bool rows, bool insert, bool before)
 {
-    if (!editsBody() || !isInTable())
+    if (!allows(DocumentParts::Tables) || !isInTable())
         return;
     int position = -1;
     {
@@ -698,7 +726,7 @@ void DocumentController::deleteTableColumn() { editTable(false, false); }
 
 void DocumentController::deleteTable()
 {
-    if (!editsBody() || !isInTable())
+    if (!allows(DocumentParts::Tables) || !isInTable())
         return;
     int position = -1;
     {
@@ -710,7 +738,7 @@ void DocumentController::deleteTable()
 
 void DocumentController::nextTableCell()
 {
-    if (!editsBody() || !isInTable())
+    if (!allows(DocumentParts::Tables) || !isInTable())
         return;
     int position = -1;
     {
@@ -722,7 +750,7 @@ void DocumentController::nextTableCell()
 
 void DocumentController::previousTableCell()
 {
-    if (!editsBody() || !isInTable())
+    if (!allows(DocumentParts::Tables) || !isInTable())
         return;
     const int position = Tables::adjacentCell(m_edit.selectionCursor(), false);
     if (position >= 0)
@@ -733,7 +761,7 @@ void DocumentController::previousTableCell()
 
 bool DocumentController::beginStreamedEdit()
 {
-    if (m_busy || !m_edit.editingBody() || !m_stream.begin())
+    if (m_busy || !allows(DocumentParts::Ai) || !m_stream.begin())
         return false;
     m_format.clearPending();
     emit streamingEditChanged();

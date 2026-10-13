@@ -5,7 +5,7 @@
 // footer document. Not editable; the page view puts a TextEdit over it
 // while it is edited.
 //
-//   PagePartView { documentController: controller; footer: false; page: index + 1; color: ... }
+//   PagePartView { documentController: controller; part: "header"; page: index + 1; color: ... }
 
 #include <QColor>
 #include <QPointer>
@@ -18,7 +18,8 @@ class PagePartView : public QQuickPaintedItem
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(DocumentController *documentController READ controller WRITE setController NOTIFY controllerChanged)
-    Q_PROPERTY(bool footer READ isFooter WRITE setFooter NOTIFY footerChanged)
+    // "header" or "footer" (see DocumentController::partDocument()).
+    Q_PROPERTY(QString part READ part WRITE setPart NOTIFY partChanged)
     Q_PROPERTY(int page READ page WRITE setPage NOTIFY pageChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
 
@@ -27,8 +28,8 @@ public:
 
     DocumentController *controller() const { return m_controller; }
     void setController(DocumentController *controller);
-    bool isFooter() const { return m_footer; }
-    void setFooter(bool footer);
+    QString part() const { return m_part; }
+    void setPart(const QString &part);
     int page() const { return m_page; }
     void setPage(int page);
     QColor color() const { return m_color; }
@@ -38,13 +39,13 @@ public:
 
 signals:
     void controllerChanged();
-    void footerChanged();
+    void partChanged();
     void pageChanged();
     void colorChanged();
 
 private:
     QPointer<DocumentController> m_controller;
-    bool m_footer = false;
+    QString m_part;
     int m_page = 1;
     QColor m_color = Qt::black;
 };

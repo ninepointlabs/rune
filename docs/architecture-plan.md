@@ -1,6 +1,6 @@
 # Rune — Modularity Plan
 
-**Status:** Stages 1 and 4 done; stages 2 and 3 not started
+**Status:** Stages 1, 2 and 4 done; stage 3 not started
 **Date:** 2026-10-13
 
 Rune will grow features that cut across the whole editor: citations and a
@@ -94,21 +94,55 @@ of it the open/save/conversion lifecycle. New: `document/EditState`,
 change is `sanitizeForOdfExport()` → `OdfWriter::sanitize()`. 399/399 on
 Arch and in Debian 13.
 
-### 2. Generalise sub-documents and inline objects
+### 2. Generalise sub-documents, inline objects and document data (done)
 
-- **Parts registry.** Replace `m_header`/`m_footer`/`EditTarget` with a
-  list of named parts (`header`, `footer`, later `footnote:<id>`,
-  `endnote:<id>`), each a `QTextDocument` with a kind. The edit target
-  becomes a part id; dirty state, undo routing and "body only" rules
-  (lists, tables, AI) are per-kind properties rather than `if`s.
-- **Inline object registry.** One table of object kinds (page number, page
-  count; later note anchor, citation mark, cross-reference), each with its
-  `QTextObjectInterface`, its text for Markdown/AI context, and its ODF
-  reader and writer. Allocates the `UserObject`/`UserProperty` numbers in
-  one place.
+- **Parts registry** (`document/DocumentParts`). The document's texts:
+  the body (`""`) and named parts (`header`, `footer`; later
+  `footnote:<id>`, `endnote:<id>`), each a `QTextDocument` with a kind.
+  The edit target is a part id (`setEditTarget("header")`), and what acts
+  there comes from the kind's capabilities (lists, tables, AI, word-sized
+  typing undo steps), not from `if (target != body)`. Dirty state and
+  undo/redo routing go through the registry. `HeaderFooter` is the module
+  for the `PageMargin` kind: it adds its two parts and owns their
+  geometry.
+- **Inline object registry** (`document/InlineObjects`). Each kind (the
+  page fields now) registers its object type, the kinds of part it may
+  appear in, its drawing, and its ODF writer and reader. `PageParts::toOdf()`
+  and `OdfReader` dispatch through it. `document/FormatIds.h` allocates
+  every `UserObject`/`UserProperty` number.
+- **Document data** (`document/DocumentData`). Named JSON stores (an
+  object or array each) the document carries: the story notes and the
+  sources list will be two. They count in the modified state and are saved
+  in the file:
+  - in `.odt` as `Rune/<name>.json` package entries listed in the manifest
+    (`OdfWriter`, `OdfReader::readData()`);
+  - in `.docx` as one custom XML part (`formats/DocxData`), added to
+    LibreOffice's output and read from the `.docx` before converting.
+  `formats/Package` reads and writes the zip archives; it replaced
+  `withOdfStyles()`.
 
-QML API changes here (`setPartDocument(footer, …)` → by part id), so
-`Main.qml` and the tests move with it.
+QML API changes: `setEditTarget()`, `setPartDocument()` and
+`insertPageField()` take part ids, `paintPart()` too, and `PagePartView`
+has `part: "header"` instead of `footer: false`.
+
+Result: 421 checks (22 new) on Arch and in Debian 13. The new checks
+cover the registries and the data stores: saved and reopened in both
+formats, LibreOffice still opening both files, a store that isn't JSON
+skipped. Found on the way: a new controller reported its header and footer
+as modified (setting their margin is a recorded format change). It never
+showed in the app, which calls `newDocument()` at startup; new parts now
+start clean.
+
+Not yet, by design:
+- **Markdown for the AI** in the inline object registry arrives with the
+  first kind that appears in the body (citations, `[@key]`), together with
+  the parsing of replies.
+- **Data stores aren't in the undo history.** Changing one is not a text
+  edit. Revisit if a UI makes accidental changes likely.
+- **Not verified:** whether LibreOffice keeps `Rune/*.json` when *it*
+  re-saves an `.odt` (likely not, since it rewrites the package), and
+  whether Word keeps the custom XML part (documented to). Rune itself
+  keeps both.
 
 ### 3. Own the ODF output
 

@@ -19,6 +19,8 @@
 // column widths, cell borders and backgrounds; images, notes and
 // annotations (skipped).
 
+#include "DocumentData.h"
+
 #include <QHash>
 #include <QString>
 #include <QTextFormat>
@@ -66,5 +68,11 @@ bool readInto(QTextDocument *doc, const QString &path, QString *error = nullptr)
 // fields become PageParts fields. A file without one leaves `doc` empty and
 // succeeds; on failure `doc` is not touched. Clears the undo history.
 bool readPagePart(QTextDocument *doc, const QString &path, bool footer, QString *error = nullptr);
+
+// The data stores (DocumentData) of the .odt at `path`: its
+// "Rune/<name>.json" entries (OdfWriter::dataEntryName()). One that isn't a
+// JSON object or array, or has an invalid name, is left out with a
+// warning. False (with `*error`) only if `path` isn't a readable zip.
+bool readData(const QString &path, DocumentData::Stores *stores, QString *error = nullptr);
 
 } // namespace OdfReader

@@ -1,6 +1,7 @@
 #pragma once
 
-// HeaderFooter: the header and footer, documents of their own, the same on
+// HeaderFooter: the header and footer, documents of their own (parts
+// "header" and "footer" of DocumentParts, kind PageMargin), the same on
 // every page but for their page number fields (PageParts).
 //
 // PagePartView draws them on each page (paint()); a TextEdit each edits them
@@ -10,13 +11,13 @@
 // ways). Saving writes those distances (odfStyles()), so other word
 // processors place them the same.
 
+#include "DocumentParts.h"
 #include "PageLayout.h"
 
 #include <QByteArray>
 #include <QColor>
 #include <QObject>
 
-class QFont;
 class QPainter;
 class QQuickTextDocument;
 class QTextDocument;
@@ -26,8 +27,14 @@ class HeaderFooter : public QObject
     Q_OBJECT
 
 public:
-    // Both start empty, their unformatted text in `font`.
-    HeaderFooter(const QFont &font, QObject *parent = nullptr);
+    // Adds the header and footer, empty, to `parts`.
+    explicit HeaderFooter(DocumentParts &parts, QObject *parent = nullptr);
+
+    // Their part ids.
+    static QString id(bool footer) { return footer ? QStringLiteral("footer") : QStringLiteral("header"); }
+    // Whether `part` is the header or footer, and which.
+    static bool isPart(const QString &part) { return part == id(false) || part == id(true); }
+    static bool isFooter(const QString &part) { return part == id(true); }
 
     // The header (`footer` false) or footer document.
     QTextDocument *document(bool footer) const { return footer ? m_footer : m_header; }
@@ -59,8 +66,6 @@ public:
 
     // Empties both, unmodified with no history.
     void clear();
-    bool isModified() const;
-    void setModified(bool modified);
 
     // A styles.xml for `layout` with the header and footer where they are
     // drawn (see PageLayout::odfStyles()).

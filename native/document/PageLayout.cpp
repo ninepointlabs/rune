@@ -1,5 +1,7 @@
 #include "PageLayout.h"
 
+#include "FormatIds.h"
+
 #include <QBuffer>
 #include <QHash>
 #include <QTextDocument>
@@ -8,7 +10,6 @@
 
 #include <quazip.h>
 #include <quazipfile.h>
-#include <quazipnewinfo.h>
 
 #include <algorithm>
 #include <cmath>
@@ -134,7 +135,7 @@ QMarginsF PageLayout::marginsPx() const
 namespace {
 
 enum PageProperty {
-    kPageWidthMm = QTextFormat::UserProperty + 100,
+    kPageWidthMm = FormatIds::kPageLayout,
     kPageHeightMm,
     kPageTopMm,
     kPageBottomMm,
@@ -339,61 +340,4 @@ QByteArray PageLayout::odfStyles(const OdfParts &parts) const
                           "</office:master-styles>"
                           "</office:document-styles>\n");
     return xml.toUtf8();
-}
-
-QByteArray withOdfStyles(const QByteArray &odt, const QByteArray &stylesXml)
-{
-    // Every member but styles.xml, in order.
-    QList<QPair<QString, QByteArray>> members;
-    {
-        QBuffer in;
-        in.setData(odt);
-        QuaZip zip(&in);
-        if (!zip.open(QuaZip::mdUnzip))
-            return {};
-        for (bool more = zip.goToFirstFile(); more; more = zip.goToNextFile()) {
-            const QString name = zip.getCurrentFileName();
-            QuaZipFile file(&zip);
-            if (!file.open(QIODevice::ReadOnly))
-                return {};
-            const QByteArray data = file.readAll();
-            file.close();
-            if (name != QLatin1String("styles.xml"))
-                members.append({name, data});
-        }
-        zip.close();
-    }
-
-    // The manifest lists every member; add styles.xml to it.
-    for (auto &member : members) {
-        if (member.first != QLatin1String("META-INF/manifest.xml") || member.second.contains("\"styles.xml\""))
-            continue;
-        const qsizetype end = member.second.lastIndexOf("</manifest:manifest>");
-        if (end < 0)
-            return {};
-        member.second.insert(end, "<manifest:file-entry manifest:media-type=\"text/xml\" manifest:full-path=\"styles.xml\"/>");
-    }
-    members.append({QStringLiteral("styles.xml"), stylesXml});
-
-    QBuffer out; // QuaZip opens it
-    QuaZip zip(&out);
-    if (!zip.open(QuaZip::mdCreate))
-        return {};
-    for (const auto &[name, data] : members) {
-        QuaZipFile file(&zip);
-        // ODF requires the mimetype member first and stored uncompressed;
-        // Qt's writer already puts it first.
-        const bool stored = name == QLatin1String("mimetype");
-        if (!file.open(QIODevice::WriteOnly, QuaZipNewInfo(name), nullptr, 0, stored ? 0 : Z_DEFLATED,
-                       stored ? 0 : Z_DEFAULT_COMPRESSION)
-            || file.write(data) != data.size())
-            return {};
-        file.close();
-        if (file.getZipError() != ZIP_OK)
-            return {};
-    }
-    zip.close();
-    if (zip.getZipError() != ZIP_OK)
-        return {};
-    return out.data();
 }

@@ -17,16 +17,14 @@ constexpr qreal kMmPerPx = 25.4 / 96.0;
 constexpr qreal kPartPaddingMm = 3.0;
 } // namespace
 
-HeaderFooter::HeaderFooter(const QFont &font, QObject *parent)
-    : QObject(parent), m_header(new QTextDocument(this)), m_footer(new QTextDocument(this))
+HeaderFooter::HeaderFooter(DocumentParts &parts, QObject *parent)
+    : QObject(parent), m_header(parts.add(id(false), DocumentParts::Kind::PageMargin)),
+      m_footer(parts.add(id(true), DocumentParts::Kind::PageMargin))
 {
     for (QTextDocument *part : {m_header, m_footer}) {
-        part->setDefaultFont(font);
-        part->setDocumentMargin(0);
         connect(part, &QTextDocument::contentsChanged, this, &HeaderFooter::changed);
         connect(part->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
                 &HeaderFooter::changed);
-        PageFieldHandler::install(part);
     }
 }
 
@@ -60,6 +58,7 @@ void HeaderFooter::install(bool footer, QQuickTextDocument *qmlDocument, const P
     // The TextEdit may have given the document a layout of its own.
     connect(part->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
             &HeaderFooter::changed, Qt::UniqueConnection);
+    InlineObjects::installAll(part, DocumentParts::Kind::PageMargin);
     PageFieldHandler *handler = PageFieldHandler::install(part);
     handler->pageCount = m_pageCount;
     handler->page = m_editPage;
@@ -155,17 +154,6 @@ void HeaderFooter::clear()
         part->clearUndoRedoStacks();
         part->setModified(false);
     }
-}
-
-bool HeaderFooter::isModified() const
-{
-    return m_header->isModified() || m_footer->isModified();
-}
-
-void HeaderFooter::setModified(bool modified)
-{
-    m_header->setModified(modified);
-    m_footer->setModified(modified);
 }
 
 QByteArray HeaderFooter::odfStyles(PageLayout layout) const

@@ -103,7 +103,7 @@ Flickable {
                 PagePartView {
                     objectName: "headerView"
                     documentController: flick.controller
-                    footer: false
+                    part: "header"
                     page: pageParts.index + 1
                     x: flick.appRoot.mmToPx(pageParts.layout.left)
                     y: flick.controller.headerYPx
@@ -115,7 +115,7 @@ Flickable {
                 PagePartView {
                     objectName: "footerView"
                     documentController: flick.controller
-                    footer: true
+                    part: "footer"
                     page: pageParts.index + 1
                     x: flick.appRoot.mmToPx(pageParts.layout.left)
                     y: flick.controller.footerYPx

@@ -269,9 +269,9 @@ void testPages(Env &env)
         };
         controller->newDocument();
         QTextCursor(doc).insertText(QStringLiteral("Unformatted"));
-        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("Header"));
+        QTextCursor(controller->partDocument(QStringLiteral("header"))).insertText(QStringLiteral("Header"));
         QCoreApplication::processEvents();
-        const bool fresh = laidOutAt(doc, 12) && laidOutAt(controller->partDocument(false), 12)
+        const bool fresh = laidOutAt(doc, 12) && laidOutAt(controller->partDocument(QStringLiteral("header")), 12)
             && controller->currentFontSize() == 12 && window->property("fontSize").toDouble() == 12;
         QFile::remove(kFontSizePath);
         controller->saveToOdf(kFontSizePath);
@@ -296,7 +296,7 @@ void testPages(Env &env)
         controller->newDocument();
         controller->openOdf(kFontSizePath);
         QCoreApplication::processEvents();
-        t.check(fresh && named && laidOutAt(doc, 12) && laidOutAt(controller->partDocument(false), 12) && controller->currentFontSize() == 12,
+        t.check(fresh && named && laidOutAt(doc, 12) && laidOutAt(controller->partDocument(QStringLiteral("header")), 12) && controller->currentFontSize() == 12,
                 "unformatted text is 12 pt " + family + ", as the toolbar says, in the body and the header; the file says so, and reopens the same");
         controller->newDocument();
     }

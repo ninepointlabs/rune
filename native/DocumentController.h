@@ -29,6 +29,8 @@
 // selection touches, or the cursor's block.
 
 #include "CharFormatter.h"
+#include "DocumentData.h"
+#include "DocumentParts.h"
 #include "EditState.h"
 #include "Lists.h"
 #include "PageLayout.h"
@@ -124,8 +126,9 @@ public:
     // step; marks the document modified.
     Q_INVOKABLE void setPageLayout(const QVariantMap &layout);
 
-    // The header (`footer` false) or footer document.
-    QTextDocument *partDocument(bool footer) const;
+    // A part's document (see DocumentParts): "" the body, "header",
+    // "footer"; nullptr for no such part.
+    QTextDocument *partDocument(const QString &part) const;
     bool hasHeader() const;
     bool hasFooter() const;
     qreal headerHeightPx() const;
@@ -134,19 +137,19 @@ public:
     qreal footerYPx() const;
     // Installs the header or footer document into a TextEdit's document
     // wrapper, as `document` does for the body.
-    Q_INVOKABLE void setPartDocument(bool footer, QQuickTextDocument *qmlDocument);
+    Q_INVOKABLE void setPartDocument(const QString &part, QQuickTextDocument *qmlDocument);
     // Inserts a page number (or with `count`, page count) field at
     // `position` in the header or footer, formatted like the text there;
     // returns the position after it.
-    Q_INVOKABLE int insertPageField(bool footer, int position, bool count);
-    // Which document the selection (setSelection()), character and
-    // alignment formatting, undo/redo and canUndo/canRedo act on: the body
-    // (Body), or the header or footer while one is edited in place. Lists,
-    // tables, typeText() and streamed edits are the body's only, and do
-    // nothing meanwhile. newDocument() and opening go back to the body.
-    enum EditTarget { Body, Header, Footer };
-    Q_ENUM(EditTarget)
-    Q_INVOKABLE void setEditTarget(int target);
+    Q_INVOKABLE int insertPageField(const QString &part, int position, bool count);
+    // Which part (see partDocument()) the selection (setSelection()),
+    // character and alignment formatting, undo/redo and canUndo/canRedo act
+    // on: the body (""), or the header or footer while one is edited in
+    // place. Lists, tables, typeText() and streamed edits act only where the
+    // part's kind allows them (DocumentParts::capabilities(); the body
+    // only), and do nothing elsewhere. newDocument() and opening go back to
+    // the body. An unknown part changes nothing.
+    Q_INVOKABLE void setEditTarget(const QString &part);
     // What fields show in the TextEdits: `page`'s numbers, in `color`.
     Q_INVOKABLE void setPartEditing(int page, const QColor &color);
     // Where the header or footer has grown too tall for its margin (less
@@ -155,7 +158,12 @@ public:
     Q_INVOKABLE void fitPageParts();
     // Draws the header or footer as on `page` (1-based), text in `color`
     // unless formatted otherwise; for PagePartView.
-    void paintPart(QPainter *painter, bool footer, int page, const QColor &color);
+    void paintPart(QPainter *painter, const QString &part, int page, const QColor &color);
+    // What the document carries besides its text: named JSON stores (see
+    // DocumentData), saved in the file. Changing one marks the document
+    // modified; opening a file replaces them, newDocument() empties them.
+    DocumentData *data() const { return m_data; }
+
     // Whether this locale uses Letter paper (Page setup shows inches then).
     Q_INVOKABLE bool localeUsesLetter() const;
 
@@ -313,9 +321,9 @@ private:
     void onContentsChange(int position, int removed, int added);
     // Emits dirtyChanged() when isDirty() differs from what was last reported.
     void updateDirty();
-    // Whether list and table edits act: only on the body (see
+    // Whether the edit target's kind allows `capability` (see
     // setEditTarget()).
-    bool editsBody() const { return m_edit.editingBody(); }
+    bool allows(DocumentParts::Capability capability) const;
     void toggleList(Lists::Kind kind);
     void changeListLevel(int delta);
     void editTable(bool rows, bool insert, bool before = false);
@@ -330,6 +338,7 @@ private:
     struct Conversion
     {
         QString odt; // convertToOdt()'s output, for an open
+        DocumentData::Stores data; // the .docx's data stores, for an open
         QString error; // "" on success
     };
     void setBusy(bool busy, bool loading = false);
@@ -347,8 +356,10 @@ private:
     QFuture<Conversion> runConversion(Work work, Done done);
     void finishOpen(const QString &path, const Conversion &result);
 
-    QTextDocument *m_document;
-    HeaderFooter *m_parts;
+    DocumentParts *m_parts;
+    QTextDocument *m_document; // the body
+    HeaderFooter *m_margins;
+    DocumentData *m_data;
     EditState m_edit;
     CharFormatter m_format;
     StreamedEdit m_stream;

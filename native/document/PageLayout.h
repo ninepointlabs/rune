@@ -5,7 +5,7 @@
 //
 // In an .odt the layout lives in styles.xml: a <style:page-layout> in its
 // automatic styles, used by the master page. Qt's ODF writer produces no
-// styles.xml at all, so withOdfStyles() adds one (and its manifest
+// styles.xml at all, so OdfWriter::write() adds one (and its manifest
 // entry) to what the writer wrote. fromOdfStyles() reads it back from the
 // master page named "Standard", or the first master page if none is.
 //
@@ -92,7 +92,3 @@ struct PageLayout
     QByteArray odfStyles(const OdfParts &parts = {}) const;
 };
 
-// `odt` (a whole .odt file, as Qt's writer produced it) with `stylesXml` as
-// its styles.xml, listed in the manifest; replaces any styles.xml it had.
-// Empty if `odt` can't be read as a zip.
-QByteArray withOdfStyles(const QByteArray &odt, const QByteArray &stylesXml);

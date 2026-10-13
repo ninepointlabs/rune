@@ -14,10 +14,10 @@ void testHeaderFooter(Env &env)
 
     // --- Headers and footers ---
     {
-        const auto partText = [&](bool footer) { return controller->partDocument(footer)->toPlainText(); };
+        const auto partText = [&](bool footer) { return controller->partDocument(footer ? QStringLiteral("footer") : QStringLiteral("header"))->toPlainText(); };
         // How many fields of `kind` the header or footer has.
         const auto fieldCount = [&](bool footer, PageParts::Field kind) {
-            QTextDocument *part = controller->partDocument(footer);
+            QTextDocument *part = controller->partDocument(footer ? QStringLiteral("footer") : QStringLiteral("header"));
             int count = 0;
             for (int pos = 0; pos < part->characterCount() - 1; ++pos) {
                 QTextCursor c(part);
@@ -35,7 +35,7 @@ void testHeaderFooter(Env &env)
             return a == b;
         };
         const auto partAlignment = [&](bool footer) {
-            return controller->partDocument(footer)->begin().blockFormat().alignment() & Qt::AlignHorizontal_Mask;
+            return controller->partDocument(footer ? QStringLiteral("footer") : QStringLiteral("header"))->begin().blockFormat().alignment() & Qt::AlignHorizontal_Mask;
         };
         const auto readZipMember = [](const QString &path, const QString &name) {
             QuaZip zip(path);
@@ -107,14 +107,14 @@ void testHeaderFooter(Env &env)
 
         // A header and footer through the controller.
         controller->newDocument();
-        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("Quarterly report"));
+        QTextCursor(controller->partDocument(QStringLiteral("header"))).insertText(QStringLiteral("Quarterly report"));
         {
-            QTextCursor c(controller->partDocument(true));
+            QTextCursor c(controller->partDocument(QStringLiteral("footer")));
             c.insertText(QStringLiteral("Page "));
-            int pos = controller->insertPageField(true, c.position(), false);
+            int pos = controller->insertPageField(QStringLiteral("footer"), c.position(), false);
             c.setPosition(pos);
             c.insertText(QStringLiteral(" of "));
-            controller->insertPageField(true, c.position(), true);
+            controller->insertPageField(QStringLiteral("footer"), c.position(), true);
             QTextBlockFormat centred;
             centred.setAlignment(Qt::AlignHCenter);
             c.mergeBlockFormat(centred);
@@ -132,7 +132,7 @@ void testHeaderFooter(Env &env)
                 QImage image(400, 40, QImage::Format_ARGB32);
                 image.fill(Qt::white);
                 QPainter painter(&image);
-                controller->paintPart(&painter, true, page, Qt::black);
+                controller->paintPart(&painter, QStringLiteral("footer"), page, Qt::black);
                 return image;
             };
             const QImage first = render(1), twelfth = render(12);
@@ -145,7 +145,7 @@ void testHeaderFooter(Env &env)
         {
             const qreal top = controller->pageLayout().marginsPx().top();
             const qreal centre = controller->headerYPx() + controller->headerHeightPx() / 2;
-            QTextCursor all(controller->partDocument(false));
+            QTextCursor all(controller->partDocument(QStringLiteral("header")));
             all.select(QTextCursor::Document);
             QTextCharFormat big;
             big.setFontPointSize(24);
@@ -158,7 +158,7 @@ void testHeaderFooter(Env &env)
                         && qAbs(footerCentre - (controller->pageSizePx().height() - bottom / 2)) < 0.5,
                     QStringLiteral("the header sits centred in the top margin, at 12 and at 24 pt (centre %1 and %2 px of %3), the footer in the bottom one")
                         .arg(centre).arg(bigCentre).arg(top));
-            controller->partDocument(false)->undo();
+            controller->partDocument(QStringLiteral("header"))->undo();
         }
 
         QFile::remove(kPartsPath);
@@ -286,7 +286,7 @@ void testHeaderFooter(Env &env)
             }
             QCoreApplication::processEvents();
 
-            QTextDocument *header = controller->partDocument(false);
+            QTextDocument *header = controller->partDocument(QStringLiteral("header"));
             const int headerLength = header->characterCount() - 1;
             QTextCursor last(header);
             last.setPosition(headerLength);
@@ -347,7 +347,7 @@ void testHeaderFooter(Env &env)
         // body down, as one undo step.
         controller->newDocument();
         QMetaObject::invokeMethod(window, "editPart", Q_ARG(QVariant, QStringLiteral("header")), Q_ARG(QVariant, 1));
-        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("One\nTwo\nThree\nFour\nFive\nSix\nSeven\nEight"));
+        QTextCursor(controller->partDocument(QStringLiteral("header"))).insertText(QStringLiteral("One\nTwo\nThree\nFour\nFive\nSix\nSeven\nEight"));
         QCoreApplication::processEvents();
         const qreal tallHeader = controller->headerHeightPx() * 25.4 / 96;
         const PageLayout before = layoutOf();

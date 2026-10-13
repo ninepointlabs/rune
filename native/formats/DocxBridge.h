@@ -15,7 +15,10 @@
 // and the second soffice may hand its job to the first instance (it still
 // completes, but the timeouts no longer apply independently).
 
+#include <QByteArray>
 #include <QString>
+
+#include <functional>
 
 namespace DocxBridge {
 
@@ -42,7 +45,10 @@ void removeConvertedOdt(const QString &odtPath);
 // Converts the .odt at `odtPath` to Word 2007+ .docx at `targetPath`.
 // Returns true on success; on failure returns false with `*error` set and
 // `targetPath` untouched (it is replaced atomically, only once soffice has
-// produced the output).
-bool convertOdtToDocx(const QString &odtPath, const QString &targetPath, QString *error = nullptr);
+// produced the output). `finish`, if given, takes LibreOffice's .docx and
+// returns what is written instead (what LibreOffice can't add, e.g.
+// DocxData::add()); empty fails the conversion.
+bool convertOdtToDocx(const QString &odtPath, const QString &targetPath, QString *error = nullptr,
+                      const std::function<QByteArray(const QByteArray &)> &finish = {});
 
 } // namespace DocxBridge

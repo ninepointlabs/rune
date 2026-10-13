@@ -131,7 +131,8 @@ void removeConvertedOdt(const QString &odtPath)
     dir.removeRecursively();
 }
 
-bool convertOdtToDocx(const QString &odtPath, const QString &targetPath, QString *error)
+bool convertOdtToDocx(const QString &odtPath, const QString &targetPath, QString *error,
+                      const std::function<QByteArray(const QByteArray &)> &finish)
 {
     const QFileInfo source(odtPath);
     if (!source.isFile()) {
@@ -159,7 +160,14 @@ bool convertOdtToDocx(const QString &odtPath, const QString &targetPath, QString
         setError(error, QStringLiteral("cannot read converted file %1: %2").arg(docx, in.errorString()));
         return false;
     }
-    const QByteArray bytes = in.readAll();
+    QByteArray bytes = in.readAll();
+    if (finish) {
+        bytes = finish(bytes);
+        if (bytes.isEmpty()) {
+            setError(error, QStringLiteral("cannot add Rune's data to LibreOffice's .docx of %1").arg(source.fileName()));
+            return false;
+        }
+    }
     QSaveFile out(targetPath);
     if (!out.open(QIODevice::WriteOnly) || out.write(bytes) != bytes.size() || !out.commit()) {
         setError(error, QStringLiteral("cannot write %1: %2").arg(targetPath, out.errorString()));

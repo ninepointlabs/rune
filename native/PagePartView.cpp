@@ -18,13 +18,13 @@ void PagePartView::setController(DocumentController *controller)
     emit controllerChanged();
 }
 
-void PagePartView::setFooter(bool footer)
+void PagePartView::setPart(const QString &part)
 {
-    if (m_footer == footer)
+    if (m_part == part)
         return;
-    m_footer = footer;
+    m_part = part;
     update();
-    emit footerChanged();
+    emit partChanged();
 }
 
 void PagePartView::setPage(int page)
@@ -48,5 +48,5 @@ void PagePartView::setColor(const QColor &color)
 void PagePartView::paint(QPainter *painter)
 {
     if (m_controller)
-        m_controller->paintPart(painter, m_footer, m_page, m_color);
+        m_controller->paintPart(painter, m_part, m_page, m_color);
 }

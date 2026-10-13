@@ -558,6 +558,8 @@ void testAsyncIo(Env &env, const QString &roundTripText);
 void testUndo(Env &env);
 void testPages(Env &env);
 void testHeaderFooter(Env &env);
+void testRegistries(Env &env);
+void testDocumentData(Env &env);
 void testWindow(Env &env);
 
 } // namespace TestSupport

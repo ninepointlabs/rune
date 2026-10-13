@@ -1,10 +1,16 @@
 #include "OdfReader.h"
-#include "PageParts.h"
+#include "InlineObjects.h"
+#include "Package.h"
 
 #include "Lists.h"
 #include "Tables.h"
 
 #include <QColor>
+#include <QDebug>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include <QFileInfo>
 #include <QList>
 #include <QSet>
@@ -177,9 +183,9 @@ struct Context
     QHash<QString, QStringList> fontFaces; // <style:font-face> name -> families
     QHash<QString, ListStyle> listStyles;
     int lists = 0; // top-level <text:list>s seen, numbering their ids
-    // Page number and page count fields become PageParts fields (headers
-    // and footers); elsewhere they keep their text.
-    bool pageFields = false;
+    // The kind of part being read: which inline objects (InlineObjects)
+    // its elements become. Elsewhere those elements keep their text.
+    DocumentParts::Kind part = DocumentParts::Kind::Body;
 };
 
 // Where a block sits in a list: nesting level (0: not in a list), the list
@@ -372,11 +378,9 @@ void readInline(QXmlStreamReader &xml, const Context &ctx, Paragraph &paragraph,
             } else if (is(xml, kTextNs, QLatin1String("line-break"))) {
                 paragraph.appendLiteral(QString(QChar::LineSeparator), format);
                 xml.skipCurrentElement();
-            } else if (ctx.pageFields
-                       && (is(xml, kTextNs, QLatin1String("page-number")) || is(xml, kTextNs, QLatin1String("page-count")))) {
-                const auto field = xml.name() == QLatin1String("page-number") ? PageParts::Field::PageNumber
-                                                                               : PageParts::Field::PageCount;
-                paragraph.appendLiteral(QString(QChar::ObjectReplacementCharacter), PageParts::fieldFormat(format, field));
+            } else if (const InlineObjects::Kind *kind = InlineObjects::forOdfElement(xml.namespaceUri(), xml.name(), ctx.part)) {
+                paragraph.appendLiteral(QString(QChar::ObjectReplacementCharacter),
+                                        kind->fromOdf(xml.name().toString(), format));
                 xml.skipCurrentElement();
             } else if (is(xml, kTextNs, QLatin1String("note")) || is(xml, kOfficeNs, QLatin1String("annotation"))
                        || xml.namespaceUri() == kDrawNs) {
@@ -743,7 +747,7 @@ bool OdfReader::readPagePart(QTextDocument *doc, const QString &path, bool foote
     // The part of the master page named Standard, else of the first one
     // (as PageLayout::fromOdfStyles() chooses).
     Context ctx;
-    ctx.pageFields = true;
+    ctx.part = DocumentParts::Kind::PageMargin;
     const QLatin1StringView partName = footer ? QLatin1String("footer") : QLatin1String("header");
     QList<Block> standard, first;
     bool sawMaster = false, hasStandard = false;
@@ -797,5 +801,29 @@ bool OdfReader::readPagePart(QTextDocument *doc, const QString &path, bool foote
     insertBlocks(cursor, hasStandard ? standard : first);
     cursor.endEditBlock();
     doc->clearUndoRedoStacks();
+    return true;
+}
+
+bool OdfReader::readData(const QString &path, DocumentData::Stores *stores, QString *error)
+{
+    const std::optional<QList<Package::Entry>> entries = Package::readFile(path);
+    if (!entries)
+        return fail(error, QStringLiteral("%1: not an ODF document (not a zip archive)").arg(path));
+    static const QRegularExpression entryName(QStringLiteral("^Rune/(.+)\\.json$"));
+    stores->clear();
+    for (const Package::Entry &entry : *entries) {
+        const QRegularExpressionMatch match = entryName.match(entry.name);
+        if (!match.hasMatch())
+            continue;
+        const QString name = match.captured(1);
+        QJsonParseError parseError;
+        const QJsonDocument json = QJsonDocument::fromJson(entry.data, &parseError);
+        if (!DocumentData::isValidName(name) || json.isNull()) {
+            qWarning().noquote() << "OdfReader: skipping data store" << entry.name << "in" << path << "-"
+                                 << (json.isNull() ? parseError.errorString() : QStringLiteral("invalid name"));
+            continue;
+        }
+        stores->insert(name, json.isArray() ? QJsonValue(json.array()) : QJsonValue(json.object()));
+    }
     return true;
 }

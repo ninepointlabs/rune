@@ -110,6 +110,25 @@ bool PageParts::isField(const QTextFormat &format)
     return format.objectType() == kFieldObject;
 }
 
+InlineObjects::Kind PageParts::fieldKind()
+{
+    const QString textNs = QStringLiteral("urn:oasis:names:tc:opendocument:xmlns:text:1.0");
+    InlineObjects::Kind kind;
+    kind.objectType = kFieldObject;
+    kind.allowedIn = {DocumentParts::Kind::PageMargin};
+    kind.install = [](QTextDocument *doc) { PageFieldHandler::install(doc); };
+    kind.toOdf = [](const QTextFormat &format) {
+        return format.intProperty(kFieldKind) == int(Field::PageNumber)
+            ? QStringLiteral("<text:page-number text:select-page=\"current\">1</text:page-number>")
+            : QStringLiteral("<text:page-count>1</text:page-count>");
+    };
+    kind.odfElements = {{textNs, QStringLiteral("page-number")}, {textNs, QStringLiteral("page-count")}};
+    kind.fromOdf = [](const QString &name, const QTextCharFormat &base) {
+        return fieldFormat(base, name == QLatin1String("page-number") ? Field::PageNumber : Field::PageCount);
+    };
+    return kind;
+}
+
 bool PageParts::isEmpty(const QTextDocument *doc)
 {
     for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
@@ -167,18 +186,16 @@ QString PageParts::toOdf(const QTextDocument *doc, const QString &stylePrefix, q
             const QTextFragment fragment = it.fragment();
             const QTextCharFormat format = fragment.charFormat();
             QString content;
-            if (isField(format)) {
-                // A field per object character; adjacent fields share a
-                // fragment, and so may text typed right after one (it takes
-                // the field's format, but is text).
-                const bool number = format.intProperty(kFieldKind) == int(Field::PageNumber);
+            if (const InlineObjects::Kind *kind = InlineObjects::forFormat(format)) {
+                // One element per object character; adjacent objects share
+                // a fragment, and so may text typed right after one (it
+                // takes the object's format, but is text).
                 for (const QChar ch : fragment.text()) {
                     if (ch != QChar::ObjectReplacementCharacter) {
                         content += odfText(QString(ch), afterSpace);
                         continue;
                     }
-                    content += number ? QStringLiteral("<text:page-number text:select-page=\"current\">1</text:page-number>")
-                                      : QStringLiteral("<text:page-count>1</text:page-count>");
+                    content += kind->toOdf(format);
                     afterSpace = false;
                 }
             } else {

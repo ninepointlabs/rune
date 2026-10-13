@@ -10,12 +10,16 @@
 // the document's layout (install()).
 //
 // toOdf() writes such a document as the ODF of a <style:header> or
-// <style:footer>; OdfReader::readPagePart() reads one back.
+// <style:footer>, inline objects as their kind writes them (InlineObjects);
+// OdfReader::readPagePart() reads one back.
 //
 // Written: paragraphs with their alignment; bold, italic, underline, font
 // family, size and color; tabs, runs of spaces and line breaks; the two
-// fields. Not written: lists and tables (their paragraphs are written as
+// inline objects. Not written: lists and tables (their paragraphs are written as
 // plain paragraphs), images.
+
+#include "FormatIds.h"
+#include "InlineObjects.h"
 
 #include <QColor>
 #include <QObject>
@@ -28,15 +32,18 @@ class QTextDocument;
 
 namespace PageParts {
 
-constexpr int kFieldObject = QTextFormat::UserObject + 1;
+constexpr int kFieldObject = FormatIds::kPageFieldObject;
 // Which field an object character is (a Field).
-constexpr int kFieldKind = QTextFormat::UserProperty + 120;
+constexpr int kFieldKind = FormatIds::kPageFieldKind;
 
 enum class Field { PageNumber, PageCount };
 
 // `base` (the formatting around it) as the format of a `field` character.
 QTextCharFormat fieldFormat(const QTextCharFormat &base, Field field);
 bool isField(const QTextFormat &format);
+// The fields as an inline object kind (see InlineObjects): in headers and
+// footers, written and read as <text:page-number> / <text:page-count>.
+InlineObjects::Kind fieldKind();
 
 // The ODF block elements for `doc`, its automatic styles added to
 // `automaticStyles` under names starting with `stylePrefix`. Every
