@@ -1,0 +1,26 @@
+{
+ "size": [1280, 720],
+ "steps": [
+  {"eval": "root.openPath('$OUT/salt-and-ember.odt')"},
+  {"until": "!controller.busy", "timeout": 10},
+  {"eval": "root.statusFlash = ''"},
+  {"scroll": "", "secs": 0.05},
+  {"cursor": "and the gulls had it to themselves."},
+  {"wait": 0.5},
+
+  {"record": "09-palette"},
+  {"wait": 0.6},
+  {"key": "Ctrl+K"},
+  {"wait": 1.4},
+  {"type": "page set", "cps": 9},
+  {"wait": 0.7},
+  {"key": "Return"},
+  {"wait": 0.8},
+  {"click": "landscapeButton", "secs": 0.7},
+  {"wait": 0.5},
+  {"click": "pageSetupApply", "secs": 0.7},
+  {"pointer": false},
+  {"wait": 2.2},
+  {"quit": true}
+ ]
+}

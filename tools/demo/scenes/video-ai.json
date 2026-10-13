@@ -1,0 +1,175 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/salt-and-ember.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''; aiPanel.mode = 'edit'; aiPanel.visible = true"
+  },
+  {
+   "eval": "(function w(i){ if (typeof i.text === 'string' && i.text.indexOf('@') >= 0) i.text = '● Signed in'; for (var k = 0; k < i.children.length; ++k) w(i.children[k]); })(aiPanel)"
+  },
+  {
+   "until": "ai.models.length > 0",
+   "timeout": 20
+  },
+  {
+   "scroll": "Wren unroled the oldest map",
+   "at": 0.3,
+   "secs": 0.05
+  },
+  {
+   "cursor": "a light answered.",
+   "before": true
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "record": "05-ai-edit"
+  },
+  {
+   "wait": 0.6
+  },
+  {
+   "point": "text:Wren unroled",
+   "secs": 0.7
+  },
+  {
+   "select": "Wren unroled the oldest map on the gallery floor and she held it down flat with both of her hands against the wind, which was very strong and cold. If the square was realy a ship, then it had been anchored in the exact same place for two hundred years. If it was not a ship, she did not yet have a word for it."
+  },
+  {
+   "wait": 0.8
+  },
+  {
+   "click": "aiPrompt",
+   "secs": 0.7
+  },
+  {
+   "type": "Fix the typos and tighten this paragraph.",
+   "cps": 20
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "pointer": false
+  },
+  {
+   "until": "!ai.busy",
+   "timeout": 90
+  },
+  {
+   "expect": "(function(){ var t = pageView.editor.getText(0, pageView.editor.length); var a = t.indexOf('out there.\"'); var b = t.indexOf('Far out, past the point'); var mid = t.substring(a + 11, b); return a >= 0 && b > a && t.indexOf('unroled') < 0 && t.indexOf('realy') < 0 && (mid.match(/[\\n\\u2028\\u2029]/g) || []).length === 4; })()"
+  },
+  {
+   "wait": 1.2
+  },
+  {
+   "eval": "root.focusEditor()"
+  },
+  {
+   "key": "Ctrl+Z"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "key": "Ctrl+Shift+Z"
+  },
+  {
+   "wait": 1.2
+  },
+  {
+   "record": "06-ai-draft"
+  },
+  {
+   "cursor": "a light answered."
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "click": "aiPrompt",
+   "secs": 0.7
+  },
+  {
+   "type": "Write the next paragraph: Ilse counts the flashes and knows the signal.",
+   "cps": 24
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "pointer": false
+  },
+  {
+   "until": "ai.busy",
+   "timeout": 10
+  },
+  {
+   "until": "!ai.busy",
+   "timeout": 90
+  },
+  {
+   "expect": "pageView.editor.getText(0, pageView.editor.length).indexOf('a light answered.') < pageView.editor.length - 120"
+  },
+  {
+   "wait": 1.5
+  },
+  {
+   "record": "07-providers"
+  },
+  {
+   "point": "label:ChatGPT#1",
+   "secs": 0.8
+  },
+  {
+   "wait": 1.2
+  },
+  {
+   "click": "label:OpenRouter#1",
+   "secs": 0.8
+  },
+  {
+   "until": "ai.models.length > 0 && ai.activeProviderId === 'openrouter'",
+   "timeout": 20
+  },
+  {
+   "eval": "(function(){ var m = ai.models.map(function(x){ return x.id || x; }); var c = m.filter(function(id){ return id.indexOf('anthropic/claude') === 0; }); var best = c.filter(function(id){ return id.indexOf('sonnet') >= 0 || id.indexOf('opus') >= 0; }); if (best.length) c = best; if (c.length) ai.model = c[0]; })()"
+  },
+  {
+   "wait": 1.8
+  },
+  {
+   "click": "label:ChatGPT#1",
+   "secs": 0.8
+  },
+  {
+   "wait": 1.5
+  },
+  {
+   "quit": true
+  }
+ ]
+}

@@ -1,0 +1,61 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "steps": [
+  {
+   "compose": "../content/novel.md",
+   "spaced": true
+  },
+  {
+   "eval": "root.editPart('header', 1)"
+  },
+  {
+   "type": "Salt and Ember · Draft three",
+   "cps": 0
+  },
+  {
+   "eval": "controller.setAlignment(Qt.AlignRight)"
+  },
+  {
+   "eval": "root.finishPartEditing(0)"
+  },
+  {
+   "eval": "root.addPageNumbers()"
+  },
+  {
+   "eval": "root.finishPartEditing(0)"
+  },
+  {
+   "eval": "controller.addNote('character', 'Wren Aldous', 'Admiralty cartographer, thirty-four. Measures the coast every spring and calls it mourning. Copies everything exactly as it is written.')"
+  },
+  {
+   "eval": "controller.addNote('character', 'Captain Ilse Varga', 'Daughter of the missing keeper. Wet coat, no patience. Knows more about the Ember than she says.')"
+  },
+  {
+   "eval": "controller.addNote('character', 'Tomas Varga', 'Keeper of the Ember until the night he vanished, eleven years ago. Kept the ledger. Aimed the lens out to sea.')"
+  },
+  {
+   "eval": "controller.addNote('place', 'Harrowgate', 'Fishing town on a shrinking headland. Tide goes out all at once. Lodgings above the chandler’s.')"
+  },
+  {
+   "eval": "controller.addNote('place', 'The Ember', 'The lighthouse at the end of the sea wall. 112 steps. Its lamp turns ember-red in fog.')"
+  },
+  {
+   "eval": "controller.addNote('research', 'Fresnel lenses', 'A first-order lens weighs several tonnes and turns on a bath of mercury, so a keeper could aim it by hand.')"
+  },
+  {
+   "eval": "controller.saveToOdf('$OUT/salt-and-ember.odt')"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "build-novel"
+  },
+  {
+   "quit": true
+  }
+ ]
+}

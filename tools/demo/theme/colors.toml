@@ -1,0 +1,21 @@
+# The palette of rune.ninepointlabs.com, as an Omarchy theme, so the
+# screenshots and the video match the site. make-media.py points the app at
+# it with a scratch HOME; your own theme is untouched.
+mode = "dark"
+accent = "#D98F4E"
+selection = "#3A2A1E"
+muted = "#6B5D4D"
+background = "#0E0C0A"
+dark_background = "#0A0908"
+lighter_background = "#17130F"
+foreground = "#E9E1D2"
+dark_foreground = "#A89A85"
+light_foreground = "#D8CDB9"
+bright_foreground = "#F6EFE2"
+red = "#C9503F"
+yellow = "#F2B06E"
+orange = "#D98F4E"
+green = "#8FA86B"
+cyan = "#6FA8A0"
+blue = "#6E8FB8"
+magenta = "#B07A9C"

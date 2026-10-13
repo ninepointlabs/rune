@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<!-- The video's title and end cards and its captions, in the site's type
+     and colours. make-media.py renders it with headless Chromium at
+     1920×1080: card.html#title, #end, or #caption=Text (transparent). -->
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body { font-family: 'Spectral', serif; color: #e9e1d2; }
+  body.card {
+    background:
+      radial-gradient(ellipse 60% 55% at 50% 42%, rgba(217, 143, 78, 0.13), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 100% 100%, rgba(122, 38, 52, 0.10), transparent 60%),
+      #0a0908;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  }
+  body.caption { background: transparent; }
+  .mark { width: 170px; height: 170px; margin-bottom: 44px;
+          filter: drop-shadow(0 0 30px rgba(217, 143, 78, 0.6)) drop-shadow(0 0 80px rgba(217, 143, 78, 0.22)); }
+  .word { font-family: 'Cinzel', serif; font-weight: 600; font-size: 112px; letter-spacing: 0.16em; margin: 0 0 18px 0.16em; }
+  .tag { font-size: 46px; font-style: italic; color: #a89a85; margin: 0; }
+  .tag em { color: #f2b06e; }
+  .end .word { font-size: 84px; margin-bottom: 8px; }
+  .end .mark { width: 120px; height: 120px; margin-bottom: 30px; }
+  .url { font-family: 'Cinzel', serif; font-size: 52px; color: #f2b06e; letter-spacing: 0.04em; margin: 26px 0 48px; }
+  .cmd { font-family: 'JetBrains Mono', monospace; font-size: 30px; color: #a89a85;
+         border: 1px solid #4a3a2a; background: #15110e; padding: 18px 30px; border-radius: 4px; }
+  .cmd b { color: #d98f4e; font-weight: 500; }
+  .small { font-size: 28px; color: #6b5d4d; margin-top: 30px; }
+  .lower { position: absolute; left: 72px; bottom: 96px; display: flex; align-items: center; gap: 22px;
+           background: rgba(10, 9, 8, 0.86); border: 1px solid #4a3a2a; border-left: 4px solid #d98f4e;
+           padding: 14px 30px 16px 22px; border-radius: 3px; box-shadow: 0 10px 40px rgba(0,0,0,0.45); }
+  .lower svg { width: 28px; height: 28px; }
+  .lower span { font-family: "Cinzel", serif; font-weight: 600; font-size: 34px; letter-spacing: 0.06em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><symbol id="rune" viewBox="0 0 100 100"><path d="M30 10 L30 90 M30 10 L72 36 L30 58 M72 36 L84 90" stroke="#d98f4e" stroke-width="6" fill="none" stroke-linecap="square"/></symbol></svg>
+
+<div id="title" hidden>
+  <svg class="mark"><use href="#rune"/></svg>
+  <p class="word">RUNE</p>
+  <p class="tag">The word processor that writes <em>with</em> you</p>
+</div>
+
+<div id="end" class="end" hidden>
+  <svg class="mark"><use href="#rune"/></svg>
+  <p class="word">RUNE</p>
+  <p class="tag">Free and open source · made for Omarchy</p>
+  <p class="url">rune.ninepointlabs.com</p>
+  <div class="cmd"><b>$</b> autonomix-cli add https://github.com/ninepointlabs/rune</div>
+  <p class="small">Packages for Arch, Debian and Fedora on GitHub Releases</p>
+</div>
+
+<div id="caption" class="lower" hidden>
+  <svg><use href="#rune"/></svg><span></span>
+</div>
+
+<script>
+  const [kind, text] = decodeURIComponent(location.hash.slice(1)).split('=');
+  document.body.className = kind === 'caption' ? 'caption' : 'card';
+  const el = document.getElementById(kind);
+  el.hidden = false;
+  if (kind === 'caption') el.querySelector('span').textContent = text;
+</script>
+</body>
+</html>

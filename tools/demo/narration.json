@@ -1,0 +1,27 @@
+{
+ "voice": "JBFqnCBsd6RMkjVDRZzb",
+ "voice_name": "George (ElevenLabs premade)",
+ "model": "eleven_multilingual_v2",
+ "segments": [
+  {"clip": "01-title", "card": "title",
+   "text": "This is Rune. A word processor for Linux that writes with you."},
+  {"clip": "02-write", "caption": "Native editing",
+   "text": "It opens real documents: OpenDocument, Word, even old dot-doc files. And it feels quick, because it's native. One process, no browser inside."},
+  {"clip": "03-outline", "caption": "The outline",
+   "text": "Writing a book? Chapters are just headings. The outline shows every chapter and scene, with its word count. Drag one, and the whole chapter moves with it."},
+  {"clip": "04-notes", "caption": "Story notes",
+   "text": "Characters, places and research live in the same file as story notes, so they travel with your manuscript."},
+  {"clip": "05-ai-edit", "caption": "AI edits in place", "fade_in": true,
+   "text": "Select a passage and say what you want. The AI edits the page in place, keeps your formatting, and the whole change is a single undo."},
+  {"clip": "06-ai-draft", "caption": "AI writes at the cursor",
+   "text": "Or ask it to pick up where you left off. It reads your story notes, so it knows who your characters are."},
+  {"clip": "07-providers", "caption": "Your own AI accounts",
+   "text": "Sign in with the ChatGPT plan you already pay for, or reach Claude, GPT and Grok through OpenRouter. Rune has no server of its own, and your sign-in stays in your keyring."},
+  {"clip": "08-cite", "caption": "Citations", "fade_in": true,
+   "text": "Writing a paper? Add your sources, or paste BibTeX, then cite as you write, in APA, MLA, Chicago or IEEE. Switch styles, and every citation follows. The bibliography keeps itself up to date."},
+  {"clip": "09-palette", "caption": "Command palette", "fade_in": true,
+   "text": "Everything else is a keystroke away. Press Control K, and just type."},
+  {"clip": "10-end", "card": "end",
+   "text": "Rune is free and open source, made for Omarchy. Get it at rune dot ninepointlabs dot com."}
+ ]
+}

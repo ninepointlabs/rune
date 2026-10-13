@@ -1,0 +1,47 @@
+{
+ "size": [1280, 720],
+ "steps": [
+  {"eval": "root.openPath('$OUT/salt-and-ember.odt')"},
+  {"until": "!controller.busy", "timeout": 10},
+  {"eval": "root.statusFlash = ''"},
+  {"scroll": "", "secs": 0.05},
+  {"cursor": "and the gulls had it to themselves."},
+  {"wait": 0.5},
+
+  {"record": "02-write"},
+  {"wait": 0.8},
+  {"type": " Somewhere past the point, a bell was ringing.", "cps": 15},
+  {"wait": 0.6},
+  {"select": "a bell was ringing"},
+  {"wait": 0.4},
+  {"key": "Ctrl+I"},
+  {"wait": 0.5},
+  {"cursor": "a bell was ringing."},
+  {"wait": 0.8},
+  {"scroll": "The door at its foot was open.", "at": 0.45, "secs": 2.2},
+  {"wait": 1.0},
+
+  {"record": "03-outline"},
+  {"click": "sidebarButton", "secs": 0.8},
+  {"wait": 1.2},
+  {"point": "outlineHandle#6", "secs": 0.7},
+  {"wait": 0.3},
+  {"drag": ["outlineHandle#6", {"at": "outlineHandle#3", "dy": -9}], "secs": 1.4},
+  {"wait": 1.2},
+  {"click": "label:Where the Light Goes", "secs": 0.7},
+  {"wait": 2.0},
+  {"click": "label:A Map With No Coast", "secs": 0.7},
+  {"wait": 1.5},
+
+  {"record": "04-notes"},
+  {"click": "sidebarTab_notes", "secs": 0.7},
+  {"wait": 1.6},
+  {"click": "notesKind_place", "secs": 0.6},
+  {"wait": 1.4},
+  {"click": "notesKind_research", "secs": 0.6},
+  {"wait": 1.4},
+  {"click": "notesKind_character", "secs": 0.6},
+  {"wait": 1.0},
+  {"quit": true}
+ ]
+}

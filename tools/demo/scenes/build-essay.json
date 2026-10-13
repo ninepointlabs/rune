@@ -1,0 +1,43 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "steps": [
+  {
+   "compose": "../content/essay.md",
+   "spaced": true
+  },
+  {
+   "eval": "root.editPart('header', 1)"
+  },
+  {
+   "type": "Print, Memory and the Modern Reader",
+   "cps": 0
+  },
+  {
+   "eval": "controller.setAlignment(Qt.AlignRight)"
+  },
+  {
+   "eval": "root.finishPartEditing(0)"
+  },
+  {
+   "eval": "root.addPageNumbers()"
+  },
+  {
+   "eval": "root.finishPartEditing(0)"
+  },
+  {
+   "eval": "controller.importBibTeX(\"@book{eisenstein1979,\\n  author = {Eisenstein, Elizabeth L.},\\n  title = {The Printing Press as an Agent of Change: Communications and Cultural Transformations in Early-Modern Europe},\\n  publisher = {Cambridge University Press},\\n  address = {Cambridge},\\n  year = {1979}\\n}\\n@book{ong1982,\\n  author = {Ong, Walter J.},\\n  title = {Orality and Literacy: The Technologizing of the Word},\\n  publisher = {Methuen},\\n  address = {London},\\n  year = {1982}\\n}\\n@book{johns1998,\\n  author = {Johns, Adrian},\\n  title = {The Nature of the Book: Print and Knowledge in the Making},\\n  publisher = {University of Chicago Press},\\n  address = {Chicago},\\n  year = {1998}\\n}\\n@article{darnton1982,\\n  author = {Darnton, Robert},\\n  title = {What Is the History of Books?},\\n  journal = {Daedalus},\\n  volume = {111},\\n  number = {3},\\n  pages = {65--83},\\n  year = {1982}\\n}\\n\")"
+  },
+  {
+   "log": "controller.sources"
+  },
+  {
+   "eval": "controller.saveToOdf('$OUT/essay.odt')"
+  },
+  {
+   "quit": true
+  }
+ ]
+}

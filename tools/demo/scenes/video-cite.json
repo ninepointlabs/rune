@@ -1,0 +1,135 @@
+{
+ "size": [
+  1280,
+  720
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/essay.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''; sidebar.show('sources')"
+  },
+  {
+   "scroll": "",
+   "secs": 0.05
+  },
+  {
+   "cursor": "in a thousand identical copies"
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "record": "08-cite"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "key": "Ctrl+Shift+C"
+  },
+  {
+   "wait": 0.6
+  },
+  {
+   "type": "eisen",
+   "cps": 9
+  },
+  {
+   "wait": 0.6
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "cursor": "stories that carry instructions inside them"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "key": "Ctrl+Shift+C"
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "type": "ong",
+   "cps": 9
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "wait": 1.0
+  },
+  {
+   "click": "citationStylePicker",
+   "secs": 0.8
+  },
+  {
+   "wait": 0.6
+  },
+  {
+   "click": "label:MLA 9",
+   "secs": 0.6
+  },
+  {
+   "wait": 1.4
+  },
+  {
+   "cursor": "remembers how it was changed."
+  },
+  {
+   "click": "insertBibliographyButton",
+   "secs": 0.8
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "pointer": false
+  },
+  {
+   "scroll": "remembers how it was changed.",
+   "at": 0.15,
+   "secs": 1.4
+  },
+  {
+   "wait": 1.5
+  },
+  {
+   "click": "citationStylePicker",
+   "secs": 0.8
+  },
+  {
+   "wait": 0.5
+  },
+  {
+   "click": "label:APA 7",
+   "secs": 0.6
+  },
+  {
+   "wait": 2.0
+  },
+  {
+   "quit": true
+  }
+ ]
+}

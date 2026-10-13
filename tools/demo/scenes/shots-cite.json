@@ -1,0 +1,91 @@
+{
+ "size": [
+  1440,
+  900
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/essay.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''; sidebar.show('sources')"
+  },
+  {
+   "cursor": "in a thousand identical copies"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "eval": "controller.insertCitation(['eisenstein1979'], '')"
+  },
+  {
+   "cursor": "stories that carry instructions inside them"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "eval": "controller.insertCitation(['ong1982'], '')"
+  },
+  {
+   "cursor": "one library at a time"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "eval": "controller.insertCitation(['darnton1982', 'johns1998'], '')"
+  },
+  {
+   "cursor": "remembers how it was changed."
+  },
+  {
+   "eval": "root.insertBibliography()"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "scroll": "Print and Its Readers",
+   "at": 0.1,
+   "secs": 0.05
+  },
+  {
+   "cursor": "Historians of the book",
+   "before": true
+  },
+  {
+   "key": "Ctrl+Shift+C"
+  },
+  {
+   "type": "history",
+   "cps": 0
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "shot-citations-picker"
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "shot-citations"
+  },
+  {
+   "quit": true
+  }
+ ]
+}
