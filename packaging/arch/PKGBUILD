@@ -1,6 +1,6 @@
 # Maintainer: Nine Point Labs <tim@ninepointlabs.com>
 pkgname=rune
-pkgver=0.7
+pkgver=0.8
 pkgrel=1
 pkgdesc='A word processor that writes with you'
 arch=('x86_64')
