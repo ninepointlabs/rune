@@ -1164,7 +1164,6 @@ Window {
                 color: root.theme.foreground
                 selectionColor: root.theme.accent
                 selectedTextColor: root.theme.background
-                font.pointSize: 12
 
                 onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
                 onCursorPositionChanged: root.syncSelection()
@@ -1308,7 +1307,6 @@ Window {
                 color: root.theme.foreground
                 selectionColor: root.theme.accent
                 selectedTextColor: root.theme.background
-                font.pointSize: 12
                 onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
                 onCursorPositionChanged: if (visible) root.syncSelection()
                 onSelectionStartChanged: if (visible) root.syncSelection()
@@ -1335,7 +1333,6 @@ Window {
                 color: root.theme.foreground
                 selectionColor: root.theme.accent
                 selectedTextColor: root.theme.background
-                font.pointSize: 12
                 onTextChanged: if (root.autosaveActive && controller.dirty) autosaveTimer.restart()
                 onCursorPositionChanged: if (visible) root.syncSelection()
                 onSelectionStartChanged: if (visible) root.syncSelection()

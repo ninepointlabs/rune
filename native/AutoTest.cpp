@@ -18,6 +18,8 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
+#include <QFontMetricsF>
+#include <QTextLayout>
 #include <QStyleHints>
 #include <QPainter>
 #include <QInputMethodEvent>
@@ -80,6 +82,7 @@ const QString kDialogDocxPath = QStringLiteral("/tmp/rune-native-dialog.docx");
 const QString kPagePath = QStringLiteral("/tmp/rune-native-pages.odt");
 const QString kPageDocxPath = QStringLiteral("/tmp/rune-native-pages.docx");
 const QString kPageBarePath = QStringLiteral("/tmp/rune-native-pages-bare.odt");
+const QString kFontSizePath = QStringLiteral("/tmp/rune-native-font-size.odt");
 const QString kPartsPath = QStringLiteral("/tmp/rune-native-header-footer.odt");
 const QString kPartsDocxPath = QStringLiteral("/tmp/rune-native-header-footer.docx");
 const QString kAutosaveDir = QStringLiteral("/tmp/rune-native-autosave");
@@ -2075,6 +2078,50 @@ bool runAutoTest(QQuickWindow *window)
             QCoreApplication::processEvents();
             t.check(!setup->property("visible").toBool() && layoutOf() == applied, "Escape closes Page setup without changing anything");
         }
+        controller->newDocument();
+    }
+
+    // --- Default font size ---
+    {
+        // What the toolbar says unformatted text is, it is: laid out at 12
+        // pt in the body and header, after New and after opening a file.
+        const auto laidOutAt = [](QTextDocument *d, qreal points) {
+            QFont font = d->defaultFont();
+            font.setPointSizeF(points);
+            const QTextLayout *layout = d->begin().layout();
+            return layout && layout->lineCount() > 0 && qAbs(layout->lineAt(0).ascent() - QFontMetricsF(font).ascent()) < 0.01;
+        };
+        controller->newDocument();
+        QTextCursor(doc).insertText(QStringLiteral("Unformatted"));
+        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("Header"));
+        QCoreApplication::processEvents();
+        const bool fresh = laidOutAt(doc, 12) && laidOutAt(controller->partDocument(false), 12)
+            && controller->currentFontSize() == 12 && window->property("fontSize").toDouble() == 12;
+        QFile::remove(kFontSizePath);
+        controller->saveToOdf(kFontSizePath);
+        // The file names the font by its real family, at that size, for
+        // the body and the header: other programs show the same.
+        const QString family = doc->defaultFont().family();
+        QString content, styles;
+        {
+            QuaZip zip(kFontSizePath);
+            for (const QString &name : {QStringLiteral("content.xml"), QStringLiteral("styles.xml")}) {
+                if (zip.isOpen() || zip.open(QuaZip::mdUnzip)) {
+                    zip.setCurrentFile(name);
+                    QuaZipFile f(&zip);
+                    f.open(QIODevice::ReadOnly);
+                    (name == QLatin1String("content.xml") ? content : styles) = QString::fromUtf8(f.readAll());
+                }
+            }
+        }
+        const bool named = family != QLatin1String("Sans")
+            && content.contains(QStringLiteral("fo:font-family=\"%1\" fo:font-size=\"12pt\"").arg(family))
+            && styles.contains(QStringLiteral("fo:font-family=\"'%1'\" fo:font-size=\"12pt\"").arg(family));
+        controller->newDocument();
+        controller->openOdf(kFontSizePath);
+        QCoreApplication::processEvents();
+        t.check(fresh && named && laidOutAt(doc, 12) && laidOutAt(controller->partDocument(false), 12) && controller->currentFontSize() == 12,
+                "unformatted text is 12 pt " + family + ", as the toolbar says, in the body and the header; the file says so, and reopens the same");
         controller->newDocument();
     }
 

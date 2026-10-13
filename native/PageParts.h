@@ -41,7 +41,8 @@ bool isField(const QTextFormat &format);
 // The ODF block elements for `doc`, its automatic styles added to
 // `automaticStyles` under names starting with `stylePrefix`. Every
 // paragraph gets the header and footer tab stops: centre at half
-// `textWidthMm`, right at `textWidthMm`. "" for an empty document.
+// `textWidthMm`, right at `textWidthMm`, and `doc`'s default font family
+// and size, which its unformatted text is in. "" for an empty document.
 QString toOdf(const QTextDocument *doc, const QString &stylePrefix, qreal textWidthMm, QString &automaticStyles);
 
 // Whether `doc` has nothing in it but empty paragraphs.

@@ -10,6 +10,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QFutureWatcher>
 #include <QList>
 #include <QLocale>
@@ -34,6 +35,16 @@ DocumentController::DocumentController(QObject *parent)
     : QObject(parent), m_document(new QTextDocument(this)), m_header(new QTextDocument(this)),
       m_footer(new QTextDocument(this)), m_target(m_document)
 {
+    // By its real family name: Qt's ODF writer writes the default font into
+    // every unformatted run, and an unresolved default font calls itself
+    // "Sans", which other programs (and Rune, reopening) take for another
+    // font.
+    QFont font = m_document->defaultFont();
+    font.setFamily(QFontInfo(font).family());
+    font.setPointSizeF(kDefaultPointSize);
+    for (QTextDocument *doc : {m_document, m_header, m_footer})
+        doc->setDefaultFont(font);
+
     // Not wired straight to dirtyChanged(): QTextDocument::clear() resets
     // the modified flag without emitting modificationChanged(), so loads
     // and newDocument() also call updateDirty(). (It drops the undo history

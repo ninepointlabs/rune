@@ -90,6 +90,15 @@ class DocumentController : public QObject
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
+
+    // Unformatted text, in the body, header and footer: the system's font
+    // at this size, the size LibreOffice and Word default to. Saved files
+    // name both (Qt's ODF writer writes the default font into every
+    // unformatted run; PageParts::toOdf() into every header and footer
+    // paragraph), so the text looks the same elsewhere and when reopened.
+    // A TextEdit's own font doesn't reach an installed document; this is
+    // the size.
+    static constexpr qreal kDefaultPointSize = 12;
     ~DocumentController() override;
 
     QQuickTextDocument *qmlDocument() const { return m_qmlDocument; }

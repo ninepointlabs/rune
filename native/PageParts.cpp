@@ -130,14 +130,20 @@ QString PageParts::toOdf(const QTextDocument *doc, const QString &stylePrefix, q
                                             "<style:tab-stop style:position=\"%2\" style:type=\"right\"/>"
                                             "</style:tab-stops>")
                                  .arg(mm(textWidthMm / 2), mm(textWidthMm));
+    // The document's default font, which unformatted text is in (as Qt's
+    // ODF writer does for the body).
+    QTextCharFormat defaultFont;
+    defaultFont.setFontFamilies({doc->defaultFont().family()});
+    defaultFont.setFontPointSize(doc->defaultFont().pointSizeF());
+    const QString defaultText = textProperties(defaultFont);
     const auto paragraphStyle = [&](const QString &align) {
         QString &name = paragraphStyles[align];
         if (name.isEmpty()) {
             name = stylePrefix + QStringLiteral("P") + QString::number(paragraphStyles.size());
             automaticStyles += QStringLiteral("<style:style style:name=\"%1\" style:family=\"paragraph\">"
                                               "<style:paragraph-properties fo:text-align=\"%2\">%3</style:paragraph-properties>"
-                                              "</style:style>")
-                                   .arg(name, align, tabStops);
+                                              "<style:text-properties%4/></style:style>")
+                                   .arg(name, align, tabStops, defaultText);
         }
         return name;
     };
