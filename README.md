@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 481 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 487 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -108,7 +108,7 @@ QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 
 On Arch, Qt sends its warnings to the systemd journal when stderr isn't a terminal; add `QT_FORCE_STDERR_LOGGING=1` to see QML warnings in the test output.
 
-481 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+487 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 

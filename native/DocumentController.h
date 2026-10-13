@@ -177,6 +177,8 @@ public:
     // Draws the header or footer as on `page` (1-based), text in `color`
     // unless formatted otherwise; for PagePartView.
     void paintPart(QPainter *painter, const QString &part, int page, const QColor &color);
+    // Only its fields (see HeaderFooter::paintFields()).
+    void paintPartFields(QPainter *painter, const QString &part, int page, const QColor &color);
     // What the document carries besides its text: named JSON stores (see
     // DocumentData), saved in the file. Changing one marks the document
     // modified; opening a file replaces them, newDocument() empties them.

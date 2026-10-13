@@ -63,6 +63,9 @@ public:
     int page = 1;
     int pageCount = 1;
     QColor color = Qt::black;
+    // Draw nothing, keeping the room: what the header and footer TextEdits
+    // get (see HeaderFooter::setEditing()).
+    bool blank = false;
 
     QSizeF intrinsicSize(QTextDocument *doc, int position, const QTextFormat &format) override;
     void drawObject(QPainter *painter, const QRectF &rect, QTextDocument *doc, int position,

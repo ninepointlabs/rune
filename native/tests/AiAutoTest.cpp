@@ -923,6 +923,70 @@ void runAiAutoTest(QQuickWindow *window, const Check &check)
         check(doc->toPlainText() == QLatin1String("A strong claim here."),
               "a FIND quoting Markdown markup and collapsed spaces still matches: \"" + doc->toPlainText() + "\"");
 
+        // The context goes one paragraph to a line. Qt's Markdown wraps at
+        // 80 columns, and models copied the wraps into their replacements,
+        // where each one became a paragraph break.
+        const QString longText = QStringLiteral(
+            "Wren unroled the oldest map on the gallery floor and she held it down flat with both of her hands "
+            "against the wind, which was very strong and cold. If the square was realy a ship, then it had been "
+            "anchored in the exact same place for two hundred years.");
+        controller->newDocument();
+        doc->setPlainText(QStringLiteral("Title\n") + longText + QStringLiteral("\nItem one\nItem two"));
+        {
+            QTextCursor heading(doc->findBlockByNumber(0));
+            QTextBlockFormat h;
+            h.setHeadingLevel(1);
+            heading.setBlockFormat(h);
+        }
+        controller->setSelection(doc->characterCount() - 1, doc->findBlockByNumber(2).position(), doc->characterCount() - 1);
+        controller->toggleBulletList();
+        controller->setSelection(longText.size() + 6, longText.size() + 6, longText.size() + 6);
+        const auto context = controller->markdownContext();
+        check(context.before.contains(longText.left(longText.size())) && context.after.contains("- Item two"),
+              "the AI's context has each paragraph on one line, not wrapped at 80 columns: \""
+                  + context.before.right(120) + "\"");
+
+        // A reply wrapped anyway: its line breaks inside one paragraph are
+        // spaces; a blank line between sentences is still an empty paragraph.
+        doc->setPlainText(longText);
+        controller->setSelection(0, 0, 0);
+        nextChat = chatStream({change(
+            "Wren unroled the oldest map on the gallery floor and she held it down flat with\n"
+            "both of her hands against the wind, which was very strong and cold.",
+            "Wren unrolled the oldest map on the gallery floor and held it flat against the\n"
+            "strong, cold wind.")});
+        run([&] { return ai->edit(QStringLiteral("Tighten")); });
+        check(doc->blockCount() == 1 && doc->toPlainText().startsWith("Wren unrolled the oldest map on the gallery floor "
+                                                                      "and held it flat against the strong, cold wind. If"),
+              "a wrapped FIND and REPLACE change one paragraph without breaking it: \"" + doc->toPlainText().left(110) + "\"");
+        doc->setPlainText(QStringLiteral("It was cold. The wind rose and the light went out."));
+        controller->setSelection(0, 0, 0);
+        nextChat = chatStream({change("The wind rose and the light", "The wind rose,\nand the light"),
+                               change("It was cold. The", "It was cold.\n\nThe")});
+        run([&] { return ai->edit(QStringLiteral("Split it")); });
+        QStringList split;
+        for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+            split.append(b.text());
+        check(split == QStringList{"It was cold.", "", "The wind rose, and the light went out."},
+              "a line break mid-sentence is a space; a blank line after a sentence is a paragraph break: "
+                  + split.join(" | "));
+
+        // A quote the model garbled a little: a space inside a word, curly
+        // for straight quotes, a line break.
+        doc->setPlainText(QStringLiteral("If the square was realy a ship, it wasn't the Ember's."));
+        controller->setSelection(0, 0, 0);
+        nextChat = chatStream({change("was real y a ship, it wasn’t\nthe", "was really a ship, it wasn't the")});
+        run([&] { return ai->edit(QStringLiteral("Fix the typo")); });
+        check(doc->toPlainText() == QLatin1String("If the square was really a ship, it wasn't the Ember's."),
+              "a FIND with a stray space, curly quotes and a wrap still matches: \"" + doc->toPlainText() + "\"");
+        // ...but not a short one, which could match across words.
+        doc->setPlainText(QStringLiteral("Briton theory."));
+        controller->setSelection(0, 0, 0);
+        nextChat = chatStream({change("onth e", "x")});
+        run([&] { return ai->edit(QStringLiteral("Fix")); });
+        check(doc->toPlainText() == QLatin1String("Briton theory."),
+              "a short FIND isn't matched with its spaces ignored: \"" + doc->toPlainText() + "\"");
+
         // Nothing found: the document is untouched and nothing to undo.
         doc->clearUndoRedoStacks();
         const QString untouched = doc->toHtml();

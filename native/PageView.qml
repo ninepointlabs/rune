@@ -353,6 +353,27 @@ Flickable {
             Keys.onEscapePressed: flick.appRoot.finishPartEditing()
         }
 
+        // The fields of the header or footer being edited, drawn over its
+        // TextEdit, which shows them blank: Qt Quick would put one that
+        // starts a centred line at the left (see HeaderFooter::setEditing()).
+        Repeater {
+            model: [headerEditor, footerEditor]
+            PagePartView {
+                required property var modelData
+                required property int index
+                documentController: flick.controller
+                part: index === 0 ? "header" : "footer"
+                page: flick.appRoot.editingPage
+                fieldsOnly: true
+                x: modelData.x
+                y: modelData.y
+                width: modelData.width
+                height: modelData.height
+                color: flick.theme.foreground
+                visible: modelData.visible
+            }
+        }
+
         // Where the header ends / the footer begins, and the edit bar:
         // fields, and the way back to the body. The toolbar formats the
         // header or footer meanwhile.

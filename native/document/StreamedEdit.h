@@ -33,7 +33,8 @@ public:
     bool isActive() const { return m_active; }
 
     // The body as Markdown around the selection (or the cursor, where
-    // `selection` is ""): what an AI request sends as context.
+    // `selection` is ""): what an AI request sends as context. One line a
+    // paragraph: unlike Qt's own Markdown, never wrapped.
     struct MarkdownContext
     {
         QString before, selection, after;
@@ -44,14 +45,17 @@ public:
     bool begin();
     int append(const QString &text);
     int finish(const QString &markdown);
-    // Replaces `find` with `replace` (plain text; "\n" is a paragraph
-    // break). `find` is matched exactly, else ignoring Markdown markup and
-    // differences in whitespace; the first match at or after the previous
-    // replacement wins, else the first in scope. Only the characters that
-    // differ are rewritten, so the formatting of the rest is kept; new empty
-    // paragraphs are left out of any list. -1 if `find` isn't there (or
-    // spans a table boundary), changing nothing.
-    int applyReplacement(const QString &find, const QString &replace);
+    // Replaces `find` with `replacement` (plain text; "\n" is a paragraph
+    // break, except inside one paragraph, where a line break that wraps a
+    // line is a space). `find` is matched exactly, else ignoring Markdown
+    // markup and differences in whitespace; the first match at or after the
+    // previous replacement wins, else the first in scope. Failing those, a
+    // quote of 12 or more characters found exactly once, compared without
+    // whitespace and with curly quotes as straight ones, matches. Only the
+    // characters that differ are rewritten, so the formatting of the rest
+    // is kept; new empty paragraphs are left out of any list. -1 if `find`
+    // isn't there (or spans a table boundary), changing nothing.
+    int applyReplacement(const QString &find, const QString &replacement);
     int abort(bool keepText);
 
 private:

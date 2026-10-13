@@ -51,6 +51,10 @@ public:
     // returns the position after it.
     int insertPageField(bool footer, int position, bool count);
     // What fields show in the TextEdits: `page`'s numbers, in `color`.
+    // The TextEdits draw them blank, keeping their room (from install()):
+    // Qt Quick puts a field that starts a centred or right-aligned line at
+    // its left edge (QQuickTextNodeEngine::addImage() ignores the alignment
+    // there, Qt 6.11). paintFields() draws them over it instead.
     void setEditing(int page, const QColor &color);
     // The page count fields show (and size themselves for).
     void setPageCount(int pages);
@@ -63,6 +67,9 @@ public:
     // Draws the header or footer as on `page` (1-based), text in `color`
     // unless formatted otherwise.
     void paint(QPainter *painter, bool footer, int page, const QColor &color);
+    // Draws only the header's or footer's fields, where its layout puts
+    // them on `page`: over its TextEdit while it is edited.
+    void paintFields(QPainter *painter, bool footer, int page, const QColor &color);
 
     // Empties both, unmodified with no history.
     void clear();

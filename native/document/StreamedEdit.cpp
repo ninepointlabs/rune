@@ -50,6 +50,109 @@ QRegularExpression loosePattern(const QString &find)
     return QRegularExpression(escaped.join(QStringLiteral(R"(\s+)")));
 }
 
+// Qt's Markdown writer wraps paragraphs at 80 columns. Sent to a model
+// that way, its quotes and replacements come back wrapped too, and a line
+// break in a replacement is a paragraph break: so the context goes one
+// paragraph to a line. Each line that continues the one before is joined
+// to it. Qt never wraps a heading or a table row; a list item continues
+// on indented lines, a quote on lines that also start with '>'; a line
+// ending in two spaces or a backslash is a hard line break, and stays.
+QString unwrapMarkdown(const QString &markdown)
+{
+    static const QRegularExpression blockStart(QStringLiteral(R"(^\s*(?:[-*+][ \t]|\d+[.)][ \t]|#|\||>|```|~~~|$))"));
+    const auto continuable = [](const QString &line) {
+        const QString t = line.trimmed();
+        return !t.isEmpty() && t != QLatin1String(">") && !t.startsWith(QLatin1Char('#'))
+            && !t.startsWith(QLatin1Char('|')) && !t.startsWith(QLatin1String("```")) && !t.startsWith(QLatin1String("~~~"))
+            && !line.endsWith(QLatin1String("  ")) && !line.endsWith(QLatin1Char('\\'));
+    };
+    QStringList out;
+    bool fenced = false;
+    for (const QString &line : markdown.split(QLatin1Char('\n'))) {
+        if (!fenced && !out.isEmpty() && continuable(out.last())) {
+            const bool quote = out.last().startsWith(QLatin1Char('>'));
+            if (quote && line.startsWith(QLatin1Char('>'))) {
+                const QString content = line.mid(1).trimmed();
+                if (!blockStart.match(content).hasMatch()) {
+                    out.last() += QLatin1Char(' ') + content;
+                    continue;
+                }
+            } else if (!quote && !blockStart.match(line).hasMatch()) {
+                out.last() += QLatin1Char(' ') + line.trimmed();
+                continue;
+            }
+        }
+        const QString t = line.trimmed();
+        if (t.startsWith(QLatin1String("```")) || t.startsWith(QLatin1String("~~~")))
+            fenced = !fenced;
+        out << line;
+    }
+    return out.join(QLatin1Char('\n'));
+}
+
+// A replacement for text inside one paragraph, with line breaks the model
+// didn't mean as paragraph breaks: it wraps long lines, whether copying
+// wrapped text or on its own. When its quote was wrapped (`quoteWrapped`),
+// every single line break is a wrap; otherwise one that ends mid-sentence
+// is. Those become spaces; a blank line (an empty paragraph) stays.
+QString unwrapReplacement(const QString &replace, bool quoteWrapped)
+{
+    static const QRegularExpression single(QStringLiteral(R"([ \t]*(?<!\n)\n(?!\n)[ \t]*)"));
+    static const QString sentenceEnd = QStringLiteral(".!?:;\"')\u201D\u2019\u2026");
+    QString out;
+    qsizetype last = 0;
+    for (auto it = single.globalMatch(replace); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        const QString before = replace.left(m.capturedStart()).trimmed();
+        const bool wrap = quoteWrapped || before.isEmpty() || !sentenceEnd.contains(before.back());
+        out += replace.mid(last, m.capturedStart() - last) + (wrap ? QStringLiteral(" ") : QStringLiteral("\n"));
+        last = m.capturedEnd();
+    }
+    return out + replace.mid(last);
+}
+
+QChar plainQuote(QChar c)
+{
+    switch (c.unicode()) {
+    case 0x2018: case 0x2019: case 0x201B: case 0x2032:
+        return QLatin1Char('\'');
+    case 0x201C: case 0x201D: case 0x201F: case 0x2033:
+        return QLatin1Char('"');
+    default:
+        return c;
+    }
+}
+
+// The last resort for a quote the model garbled in small ways (a space
+// added or dropped, "real y" for "realy"; curly quotes for straight):
+// `find` in `text` compared without whitespace or Markdown markup, with
+// quotes made plain. Only a long enough quote, found exactly once, counts.
+// Sets `at` and `length` in `text`; false if there's no such match.
+bool compactMatch(const QString &text, QString find, int &at, int &length)
+{
+    static const QRegularExpression emphasis(QStringLiteral(R"(\*\*|__|\*|`)"));
+    find.remove(emphasis);
+    QString needle;
+    for (const QChar c : find)
+        if (!c.isSpace())
+            needle += plainQuote(c);
+    if (needle.size() < 12)
+        return false;
+    QString hay;
+    QList<int> origin; // hay's characters' positions in text
+    for (int i = 0; i < text.size(); ++i)
+        if (!text.at(i).isSpace()) {
+            hay += plainQuote(text.at(i));
+            origin << i;
+        }
+    const qsizetype first = hay.indexOf(needle);
+    if (first < 0 || hay.indexOf(needle, first + 1) >= 0)
+        return false;
+    at = origin.at(first);
+    length = origin.at(first + needle.size() - 1) + 1 - at;
+    return true;
+}
+
 } // namespace
 
 StreamedEdit::MarkdownContext StreamedEdit::markdownContext() const
@@ -74,7 +177,7 @@ StreamedEdit::MarkdownContext StreamedEdit::markdownContext() const
             objects << kind->toMarkdown(find.charFormat());
             find.insertText(QStringLiteral("RUNEOBJECT%1X").arg(objects.size() - 1), QTextCharFormat());
         }
-        QString out = copy.toMarkdown();
+        QString out = unwrapMarkdown(copy.toMarkdown());
         for (qsizetype i = objects.size() - 1; i >= 0; --i)
             out.replace(QStringLiteral("RUNEOBJECT%1X").arg(i), objects.at(i));
         return out;
@@ -216,7 +319,7 @@ int StreamedEdit::finish(const QString &markdown)
     return cursor.position();
 }
 
-int StreamedEdit::applyReplacement(const QString &find, const QString &replace)
+int StreamedEdit::applyReplacement(const QString &find, const QString &replacement)
 {
     if (!m_active || find.isEmpty() || m_start >= 0)
         return -1; // new text was already being written: one kind of edit per reply
@@ -252,11 +355,14 @@ int StreamedEdit::applyReplacement(const QString &find, const QString &replace)
         }
         return m.hasMatch();
     };
-    if (!exact(from) && !exact(0) && !fuzzy(from) && !fuzzy(0))
+    if (!exact(from) && !exact(0) && !fuzzy(from) && !fuzzy(0) && !compactMatch(text, find, at, length))
         return -1;
     const QString found = text.mid(at, length);
     if (std::any_of(found.begin(), found.end(), isFrameBoundary))
         return -1;
+    // Within one paragraph, line breaks in the reply are wraps, not breaks.
+    const QString replace = found.contains(QLatin1Char('\n'))
+        ? replacement : unwrapReplacement(replacement, find.contains(QLatin1Char('\n')));
 
     // Rewrite only what differs: the common prefix and suffix stay as they
     // are, formatting and all.

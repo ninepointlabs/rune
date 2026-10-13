@@ -274,6 +274,12 @@ void DocumentController::paintPart(QPainter *painter, const QString &part, int p
         m_margins->paint(painter, HeaderFooter::isFooter(part), page, color);
 }
 
+void DocumentController::paintPartFields(QPainter *painter, const QString &part, int page, const QColor &color)
+{
+    if (HeaderFooter::isPart(part))
+        m_margins->paintFields(painter, HeaderFooter::isFooter(part), page, color);
+}
+
 void DocumentController::setAllModified(bool modified)
 {
     m_parts->setModified(modified);

@@ -350,6 +350,42 @@ void testHeaderFooter(Env &env)
         t.check(window->property("editingPart").toString() == QStringLiteral("footer") && footerEditor && footerEditor->hasActiveFocus()
                     && fieldCount(true, PageParts::Field::PageNumber) == 1 && partAlignment(true) == Qt::AlignHCenter,
                 "Page numbers: a centred page number field in the footer, open for editing");
+        // Drawn centred while it is edited, too. Qt Quick's TextEdit puts a
+        // field that starts a centred line at the left, so the TextEdit
+        // draws fields blank and the page view draws them over it.
+        if (footerEditor) {
+            const auto inkColumns = [](const QImage &image, const QRect &rect) {
+                const QColor background = image.pixelColor(rect.topLeft());
+                QList<int> columns;
+                for (int x = rect.left(); x <= rect.right(); ++x)
+                    for (int y = rect.top(); y <= rect.bottom(); ++y) {
+                        const QColor c = image.pixelColor(x, y);
+                        if (qAbs(c.red() - background.red()) + qAbs(c.green() - background.green())
+                                + qAbs(c.blue() - background.blue()) > 120) {
+                            columns.append(x);
+                            break;
+                        }
+                    }
+                return columns;
+            };
+            const QImage shot = window->grabWindow();
+            const qreal scale = qreal(shot.width()) / window->width();
+            const QRectF editorRect = footerEditor->mapRectToScene(QRectF(0, 0, footerEditor->width(), footerEditor->height()));
+            const QRect area(QRectF(editorRect.topLeft() * scale, editorRect.size() * scale).toRect());
+            const QList<int> leftInk = inkColumns(shot, QRect(area.left(), area.top(), area.width() * 2 / 5, area.height()));
+            QImage fields(int(footerEditor->width()), int(footerEditor->height()), QImage::Format_ARGB32);
+            fields.fill(Qt::white);
+            {
+                QPainter painter(&fields);
+                controller->paintPartFields(&painter, QStringLiteral("footer"), 1, Qt::black);
+            }
+            const QList<int> ink = inkColumns(fields, fields.rect());
+            const qreal middle = ink.isEmpty() ? -1 : (ink.first() + ink.last()) / 2.0;
+            t.check(leftInk.isEmpty() && !ink.isEmpty() && qAbs(middle - fields.width() / 2.0) < fields.width() * 0.05,
+                    QStringLiteral("while the footer is edited its lone centred page number is drawn at the centre (%1 of %2 px), "
+                                   "not at the left (%3 ink columns there)")
+                        .arg(middle).arg(fields.width()).arg(leftInk.size()));
+        }
         if (auto *done = findItem(window->contentItem(), QStringLiteral("partDone"))) {
             QTest::mouseClick(window, Qt::LeftButton, Qt::NoModifier, done->mapToScene(QPointF(done->width() / 2, done->height() / 2)).toPoint());
             QCoreApplication::processEvents();

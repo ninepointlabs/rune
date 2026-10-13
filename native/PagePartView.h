@@ -22,6 +22,9 @@ class PagePartView : public QQuickPaintedItem
     Q_PROPERTY(QString part READ part WRITE setPart NOTIFY partChanged)
     Q_PROPERTY(int page READ page WRITE setPage NOTIFY pageChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY colorChanged)
+    // Only the fields: over the TextEdit of the header or footer being
+    // edited (see HeaderFooter::setEditing()).
+    Q_PROPERTY(bool fieldsOnly READ fieldsOnly WRITE setFieldsOnly NOTIFY fieldsOnlyChanged)
 
 public:
     explicit PagePartView(QQuickItem *parent = nullptr);
@@ -34,6 +37,8 @@ public:
     void setPage(int page);
     QColor color() const { return m_color; }
     void setColor(const QColor &color);
+    bool fieldsOnly() const { return m_fieldsOnly; }
+    void setFieldsOnly(bool fieldsOnly);
 
     void paint(QPainter *painter) override;
 
@@ -42,10 +47,12 @@ signals:
     void partChanged();
     void pageChanged();
     void colorChanged();
+    void fieldsOnlyChanged();
 
 private:
     QPointer<DocumentController> m_controller;
     QString m_part;
     int m_page = 1;
     QColor m_color = Qt::black;
+    bool m_fieldsOnly = false;
 };

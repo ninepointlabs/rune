@@ -78,6 +78,8 @@ QSizeF PageFieldHandler::intrinsicSize(QTextDocument *doc, int, const QTextForma
 void PageFieldHandler::drawObject(QPainter *painter, const QRectF &rect, QTextDocument *doc, int,
                                   const QTextFormat &format)
 {
+    if (blank)
+        return;
     const QFont font = fontFor(doc, format);
     const QTextCharFormat charFormat = format.toCharFormat();
     const bool number = format.intProperty(PageParts::kFieldKind) == int(PageParts::Field::PageNumber);

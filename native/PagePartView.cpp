@@ -45,8 +45,21 @@ void PagePartView::setColor(const QColor &color)
     emit colorChanged();
 }
 
+void PagePartView::setFieldsOnly(bool fieldsOnly)
+{
+    if (m_fieldsOnly == fieldsOnly)
+        return;
+    m_fieldsOnly = fieldsOnly;
+    update();
+    emit fieldsOnlyChanged();
+}
+
 void PagePartView::paint(QPainter *painter)
 {
-    if (m_controller)
+    if (!m_controller)
+        return;
+    if (m_fieldsOnly)
+        m_controller->paintPartFields(painter, m_part, m_page, m_color);
+    else
         m_controller->paintPart(painter, m_part, m_page, m_color);
 }

@@ -4,10 +4,13 @@
 #include "PageParts.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QQuickTextDocument>
+#include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextLayout>
 #include <QTextOption>
 
 #include <algorithm>
@@ -64,6 +67,8 @@ void HeaderFooter::install(bool footer, QQuickTextDocument *qmlDocument, const P
     handler->pageCount = m_pageCount;
     handler->page = m_editPage;
     handler->color = m_editColor;
+    // Blank in the TextEdit from its first frame (see setEditing()).
+    handler->blank = true;
     // ... and its own margin and width.
     part->setDocumentMargin(0);
     syncWidths(layout);
@@ -137,12 +142,47 @@ void HeaderFooter::paint(QPainter *painter, bool footer, int page, const QColor 
     PageFieldHandler *handler = PageFieldHandler::install(part);
     handler->page = page;
     handler->color = color;
+    handler->blank = false;
     QAbstractTextDocumentLayout::PaintContext context;
     context.palette.setColor(QPalette::Text, color);
     part->documentLayout()->draw(painter, context);
     // Back to what the TextEdits show.
     handler->page = m_editPage;
     handler->color = m_editColor;
+    handler->blank = true;
+}
+
+void HeaderFooter::paintFields(QPainter *painter, bool footer, int page, const QColor &color)
+{
+    QTextDocument *part = document(footer);
+    PageFieldHandler *handler = PageFieldHandler::install(part);
+    handler->page = page;
+    handler->color = color;
+    handler->blank = false;
+    QAbstractTextDocumentLayout *layout = part->documentLayout();
+    for (QTextBlock block = part->begin(); block.isValid(); block = block.next()) {
+        const QPointF origin = layout->blockBoundingRect(block).topLeft();
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const QTextFragment fragment = it.fragment();
+            const QTextCharFormat format = fragment.charFormat();
+            if (!PageParts::isField(format))
+                continue;
+            // On its baseline, as the TextEdit sizes and aligns it.
+            const QFontMetricsF metrics(format.font().resolve(part->defaultFont()));
+            for (int pos = fragment.position(); pos < fragment.position() + fragment.length(); ++pos) {
+                const int inBlock = pos - block.position();
+                const QTextLine line = block.layout()->lineForTextPosition(inBlock);
+                if (!line.isValid())
+                    continue;
+                const QSizeF size = handler->intrinsicSize(part, pos, format);
+                const QPointF at(line.cursorToX(inBlock), line.y() + line.ascent() - (size.height() - metrics.descent()));
+                handler->drawObject(painter, QRectF(origin + at, size), part, pos, format);
+            }
+        }
+    }
+    handler->page = m_editPage;
+    handler->color = m_editColor;
+    handler->blank = true;
 }
 
 void HeaderFooter::clear()
