@@ -29,7 +29,10 @@ find_package(QuaZip-Qt6 REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.7)
 
-qt_add_executable(rune main.cpp AutoTest.h AutoTest.cpp AiAutoTest.h AiAutoTest.cpp)
+qt_add_executable(rune main.cpp
+    tests/AutoTest.h tests/AutoTest.cpp tests/TestSupport.h tests/AiAutoTest.h tests/AiAutoTest.cpp
+    tests/FormattingTests.cpp tests/TablesTests.cpp tests/OdfTests.cpp tests/DocxTests.cpp tests/AsyncIoTests.cpp
+    tests/UndoTests.cpp tests/PagesTests.cpp tests/HeaderFooterTests.cpp tests/WindowTests.cpp)
 # Interpreted, not compiled ahead of time: see the comment at its top.
 set_source_files_properties(UnsavedChangesDialog.qml PROPERTIES QT_QML_SKIP_CACHEGEN TRUE)
 qt_add_qml_module(rune
@@ -37,6 +40,7 @@ qt_add_qml_module(rune
     VERSION 1.0
     QML_FILES Main.qml ToolButton.qml ToolMenu.qml ThemedMenu.qml MenuEntry.qml MenuDivider.qml AlignIcon.qml
               FileMenu.qml FontPicker.qml ColorPicker.qml CommandPalette.qml PageSetup.qml UnsavedChangesDialog.qml AiPanel.qml
+              Toolbar.qml PageView.qml StatusBar.qml Commands.qml
     SOURCES DocumentController.h DocumentController.cpp PagePartView.h PagePartView.cpp
             document/EditState.h document/EditState.cpp document/CharFormatter.h document/CharFormatter.cpp
             document/Lists.h document/Lists.cpp document/Tables.h document/Tables.cpp
@@ -52,7 +56,7 @@ qt_add_qml_module(rune
 
 target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Network Qt6::Test QuaZip::QuaZip
                                    OpenSSL::Crypto PkgConfig::LIBSECRET)
-target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} document formats ai)
+target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} document formats ai tests)
 
 # --auto-test opens samples/test.docx from the repo.
 target_compile_definitions(rune PRIVATE RUNE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../samples")

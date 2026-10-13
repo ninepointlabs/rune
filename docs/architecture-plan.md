@@ -1,6 +1,6 @@
 # Rune — Modularity Plan
 
-**Status:** Stage 1 done; stages 2–4 not started
+**Status:** Stages 1 and 4 done; stages 2 and 3 not started
 **Date:** 2026-10-13
 
 Rune will grow features that cut across the whole editor: citations and a
@@ -17,8 +17,8 @@ which describes the retired LibreOfficeKit design and is kept as history.
 | `native/ai/` | 2.6k lines | A real module: provider interface, two providers, storage, OAuth, SSE. Talks to the editor through the streamed-edit API. |
 | `PageLayout`, `PageParts`, `PagePartView`, `OdfReader`, `DocxBridge` | 0.2–0.8k each | Separate files, one concern each. |
 | `DocumentController` | 1.8k lines, 48 invokables, 18 properties | Everything else: file I/O and conversion, character and paragraph formatting, typing and undo, lists, tables, page setup, headers and footers, AI streaming. Every feature so far has landed here. |
-| `Main.qml` | 1.5k lines | Toolbar, page view, header/footer editing, command list, shortcuts, dialogs. |
-| `AutoTest.cpp` | 3.1k lines, 399 checks | One file, one long run. The safety net for everything below. |
+| `Main.qml` | 1.5k lines | Toolbar, page view, header/footer editing, command list, shortcuts, dialogs. (Stage 4 split it.) |
+| `AutoTest.cpp` | 3.1k lines, 399 checks | One file, one long run. The safety net for everything below. (Stage 4 split it.) |
 
 What blocks the planned features:
 
@@ -123,14 +123,31 @@ and citations to be saved at all, and it retires the `sanitizeForOdfExport()`
 workarounds. `.docx` keeps going through LibreOffice. Round-trip checks
 (save → reopen → compare, and soffice → `.docx` → text) guard it.
 
-### 4. Split the UI and the tests
+### 4. Split the UI and the tests (done)
 
 - `Main.qml` → `Toolbar.qml`, `PageView.qml` (sheets, header/footer
-  hotspots and editors), `Commands.js` (the palette's list), with features
-  adding their own commands and toolbar groups.
-- `AutoTest.cpp` → one file per feature (`tests/Formatting.cpp`,
-  `tests/Tables.cpp`, `tests/Pages.cpp`, `tests/Files.cpp`, …) sharing the
-  key/typing helpers; still one `--auto-test` run.
+  hotspots and editors), `StatusBar.qml`, and `Commands.qml` (the
+  palette's list, one list per feature).
+- `AutoTest.cpp` → `native/tests/`: one file per feature sharing
+  `TestSupport.h`'s helpers; still one `--auto-test` run.
+
+Result: `Main.qml` went from 1,457 to 534 lines: the window's state, the
+file flow (open, save, autosave, the unsaved-changes guard), header/footer
+editing and the shortcuts. The tests' public hooks stay there (the checks
+read `editingPart`, `boldActive` and the like, and call `save()`,
+`editPart()` and so on). `AutoTest.cpp` is now 54 lines of setup and
+order, with `FormattingTests`, `TablesTests`, `OdfTests`, `DocxTests`,
+`AsyncIoTests`, `UndoTests`, `PagesTests`, `HeaderFooterTests` and
+`WindowTests` beside it; dependencies that used to be implicit between
+sections are now explicit (the ODF round-trip text passed to the `.docx`
+and async checks, the temp-directory check spanning both in
+`AutoTest.cpp`). The same 399 checks run in the same order: 399/399 on
+Arch and in Debian 13. One visible change: the palette lists "Turn
+autosave on/off" with the other File commands, before the Page ones.
+
+Not done yet: features registering their own toolbar groups. The
+toolbar's collapse logic names its groups, so a new feature's group is
+still added there by hand.
 
 Stages 1, 2 and 4 are independent enough to interleave; 3 needs 2.
 
