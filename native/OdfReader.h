@@ -13,8 +13,7 @@
 //
 // Not read: a paragraph whose heading-ness comes only from its named style
 // gets the style's look (size, weight) but no heading level; styles.xml's
-// default styles (style:default-style) and its own automatic styles
-// (headers/footers); percentage font sizes; list numbering restarts and
+// default styles (style:default-style); percentage font sizes; list numbering restarts and
 // start values, list headers (read as ordinary items), bullet characters and
 // number formats (lists get the UI's styles for their level); table and
 // column widths, cell borders and backgrounds; images, notes and
@@ -59,5 +58,13 @@ private:
 // true on success; on failure `doc` is not touched and `*error` (if
 // non-null) gets a human-readable message. Clears the undo history.
 bool readInto(QTextDocument *doc, const QString &path, QString *error = nullptr);
+
+// The header (or with `footer`, the footer) of the .odt at `path` into
+// `doc`, replacing its contents: the <style:header>/<style:footer> of the
+// master page PageLayout::fromOdfStyles() takes the page layout from, read
+// as body text is, with styles.xml's own styles. Page number and page count
+// fields become PageParts fields. A file without one leaves `doc` empty and
+// succeeds; on failure `doc` is not touched. Clears the undo history.
+bool readPagePart(QTextDocument *doc, const QString &path, bool footer, QString *error = nullptr);
 
 } // namespace OdfReader

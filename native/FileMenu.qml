@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls.Basic
 
 // The toolbar's first button: the Rune mark and "File", opening a menu with
-// New, Open, Save, Save As, Page setup, the Autosave toggle and the command
-// palette. Each item runs the same Main.qml function as its keyboard
+// New, Open, Save, Save As, Page setup, Edit header / footer, the Autosave
+// toggle and the command palette. Each item runs the same Main.qml function as its keyboard
 // shortcut (the Shortcut items in Main.qml), so the menu only shows the key
 // as a hint rather than binding it a second time.
 Rectangle {
@@ -105,6 +105,17 @@ Rectangle {
             objectName: "pageSetupMenuItem"
             text: "Page setup…"
             onTriggered: fileMenu.appRoot.openPageSetup()
+        }
+        MenuEntry {
+            objectName: "editHeaderMenuItem"
+            text: "Edit header"
+            // Once the menu has closed and given the focus back.
+            onTriggered: Qt.callLater(() => fileMenu.appRoot.editPart("header", fileMenu.appRoot.currentPage()))
+        }
+        MenuEntry {
+            objectName: "editFooterMenuItem"
+            text: "Edit footer"
+            onTriggered: Qt.callLater(() => fileMenu.appRoot.editPart("footer", fileMenu.appRoot.currentPage()))
         }
         MenuDivider { theme: fileMenu.theme }
         MenuEntry {

@@ -2,6 +2,7 @@
 
 #include "DocxBridge.h"
 #include "OdfReader.h"
+#include "PageParts.h"
 
 #include <QAbstractTextDocumentLayout>
 #include <QBuffer>
@@ -12,6 +13,7 @@
 #include <QFutureWatcher>
 #include <QList>
 #include <QLocale>
+#include <QPainter>
 #include <QScopedValueRollback>
 #include <QSaveFile>
 #include <QSignalBlocker>
@@ -29,20 +31,54 @@
 #include <memory>
 
 DocumentController::DocumentController(QObject *parent)
-    : QObject(parent), m_document(new QTextDocument(this))
+    : QObject(parent), m_document(new QTextDocument(this)), m_header(new QTextDocument(this)),
+      m_footer(new QTextDocument(this)), m_target(m_document)
 {
     // Not wired straight to dirtyChanged(): QTextDocument::clear() resets
     // the modified flag without emitting modificationChanged(), so loads
     // and newDocument() also call updateDirty(). (It drops the undo history
     // just as silently; newDocument() covers that too.)
     connect(m_document, &QTextDocument::modificationChanged, this, &DocumentController::updateDirty);
-    connect(m_document, &QTextDocument::undoAvailable, this, &DocumentController::canUndoChanged);
-    connect(m_document, &QTextDocument::redoAvailable, this, &DocumentController::canRedoChanged);
-    connect(m_document, &QTextDocument::contentsChange, this, &DocumentController::onContentsChange);
+    connect(m_document, &QTextDocument::undoAvailable, this, [this] {
+        if (m_target == m_document)
+            emit canUndoChanged();
+    });
+    connect(m_document, &QTextDocument::redoAvailable, this, [this] {
+        if (m_target == m_document)
+            emit canRedoChanged();
+    });
+    connect(m_document, &QTextDocument::contentsChange, this, [this](int position, int removed, int added) {
+        if (m_target == m_document)
+            onContentsChange(position, removed, added);
+    });
     connect(m_document, &QTextDocument::contentsChanged, this, [this] { ++m_contentRevision; });
     connect(m_document, &QTextDocument::contentsChanged, this, &DocumentController::syncPages);
     connect(m_document->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
             &DocumentController::syncPages);
+
+    for (QTextDocument *part : {m_header, m_footer}) {
+        part->setDocumentMargin(0);
+        connect(part, &QTextDocument::modificationChanged, this, &DocumentController::updateDirty);
+        connect(part, &QTextDocument::undoAvailable, this, [this, part] {
+            if (m_target == part)
+                emit canUndoChanged();
+        });
+        connect(part, &QTextDocument::redoAvailable, this, [this, part] {
+            if (m_target == part)
+                emit canRedoChanged();
+        });
+        connect(part, &QTextDocument::contentsChange, this, [this, part](int position, int removed, int added) {
+            if (m_target == part)
+                onContentsChange(position, removed, added);
+        });
+        connect(part, &QTextDocument::contentsChanged, this, [this] {
+            ++m_contentRevision;
+            emit pagePartsChanged();
+        });
+        connect(part->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
+                &DocumentController::pagePartsChanged);
+        PageFieldHandler::install(part);
+    }
 
     m_defaultLayout = PageLayout::defaultFor(QLocale::system().territory());
     m_reportedLayout = m_defaultLayout;
@@ -68,7 +104,7 @@ void DocumentController::updateDirty()
 {
     // While blocked, m_dirty keeps what QML last saw; the caller updates
     // it once unblocked (finishConvertedIo()).
-    if (signalsBlocked() || m_document->isModified() == m_dirty)
+    if (signalsBlocked() || isDirty() == m_dirty)
         return;
     m_dirty = !m_dirty;
     emit dirtyChanged();
@@ -90,6 +126,8 @@ enum PageProperty {
     kPageBottomMm,
     kPageLeftMm,
     kPageRightMm,
+    kPageHeaderMm,
+    kPageFooterMm,
 };
 
 } // namespace
@@ -106,6 +144,8 @@ PageLayout DocumentController::pageLayout() const
     layout.bottomMm = format.doubleProperty(kPageBottomMm);
     layout.leftMm = format.doubleProperty(kPageLeftMm);
     layout.rightMm = format.doubleProperty(kPageRightMm);
+    layout.headerMm = format.doubleProperty(kPageHeaderMm);
+    layout.footerMm = format.doubleProperty(kPageFooterMm);
     return layout;
 }
 
@@ -123,6 +163,8 @@ void DocumentController::writePageLayout(const PageLayout &layout)
     format.setProperty(kPageBottomMm, layout.bottomMm);
     format.setProperty(kPageLeftMm, layout.leftMm);
     format.setProperty(kPageRightMm, layout.rightMm);
+    format.setProperty(kPageHeaderMm, layout.headerMm);
+    format.setProperty(kPageFooterMm, layout.footerMm);
     {
         const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
         m_document->rootFrame()->setFrameFormat(format);
@@ -136,6 +178,7 @@ void DocumentController::syncPages()
     const QSizeF size = layout.sizePx();
     if (m_document->pageSize() != size)
         m_document->setPageSize(size);
+    syncPartWidths(layout);
     if (layout != m_reportedLayout) {
         m_reportedLayout = layout;
         emit pageLayoutChanged();
@@ -143,20 +186,187 @@ void DocumentController::syncPages()
     const int pages = std::max(1, m_document->pageCount());
     if (pages != m_pageCount) {
         m_pageCount = pages;
+        // Fields take the room of the widest page number: lay them out again.
+        for (QTextDocument *part : {m_header, m_footer}) {
+            PageFieldHandler::install(part)->pageCount = pages;
+            part->markContentsDirty(0, part->characterCount());
+        }
         emit pageCountChanged();
+        emit pagePartsChanged();
+    }
+}
+
+void DocumentController::syncPartWidths(const PageLayout &layout)
+{
+    const QSizeF size = layout.sizePx();
+    const QMarginsF margins = layout.marginsPx();
+    const qreal width = size.width() - margins.left() - margins.right();
+    for (QTextDocument *part : {m_header, m_footer}) {
+        if (qFuzzyCompare(part->textWidth(), width) && !part->defaultTextOption().tabs().isEmpty())
+            continue;
+        part->setTextWidth(width);
+        // Tab stops as in a word processor's header: centre, then right.
+        QTextOption option = part->defaultTextOption();
+        option.setTabs({QTextOption::Tab(width / 2, QTextOption::CenterTab),
+                        QTextOption::Tab(width - 0.5, QTextOption::RightTab)});
+        part->setDefaultTextOption(option);
     }
 }
 
 void DocumentController::setPageLayout(const QVariantMap &layout)
 {
     const PageLayout current = pageLayout();
-    const PageLayout next = PageLayout::fromMap(layout, current);
+    const PageLayout next = withRoomForParts(PageLayout::fromMap(layout, current));
     if (next == current)
         return;
     // Its own undo step, not merged into the word being typed.
     endTypingStep();
     writePageLayout(next);
     emit formatChanged();
+}
+
+// --- Header and footer -----------------------------------------------------
+
+bool DocumentController::hasHeader() const
+{
+    return !PageParts::isEmpty(m_header);
+}
+
+bool DocumentController::hasFooter() const
+{
+    return !PageParts::isEmpty(m_footer);
+}
+
+qreal DocumentController::headerHeightPx() const
+{
+    return m_header->documentLayout()->documentSize().height();
+}
+
+qreal DocumentController::footerHeightPx() const
+{
+    return m_footer->documentLayout()->documentSize().height();
+}
+
+void DocumentController::setPartDocument(bool footer, QQuickTextDocument *qmlDocument)
+{
+    QTextDocument *part = partDocument(footer);
+    if (!qmlDocument)
+        return;
+    qmlDocument->setTextDocument(part);
+    // The TextEdit may have given the document a layout of its own.
+    connect(part->documentLayout(), &QAbstractTextDocumentLayout::documentSizeChanged, this,
+            &DocumentController::pagePartsChanged, Qt::UniqueConnection);
+    PageFieldHandler *handler = PageFieldHandler::install(part);
+    handler->pageCount = m_pageCount;
+    handler->page = m_editPage;
+    handler->color = m_editColor;
+    // ... and its own margin and width.
+    part->setDocumentMargin(0);
+    syncPartWidths(pageLayout());
+    emit pagePartsChanged();
+}
+
+int DocumentController::insertPageField(bool footer, int position, bool count)
+{
+    QTextDocument *part = partDocument(footer);
+    QTextCursor cursor(part);
+    cursor.setPosition(std::clamp(position, 0, part->characterCount() - 1));
+    // Formatted like the text before it, unless that is a field itself.
+    QTextCharFormat base = cursor.charFormat();
+    base.clearProperty(QTextFormat::ObjectType);
+    base.clearProperty(PageParts::kFieldKind);
+    base.clearProperty(QTextFormat::TextVerticalAlignment);
+    cursor.insertText(QString(QChar::ObjectReplacementCharacter),
+                      PageParts::fieldFormat(base, count ? PageParts::Field::PageCount : PageParts::Field::PageNumber));
+    return cursor.position();
+}
+
+void DocumentController::setEditTarget(int target)
+{
+    QTextDocument *next = target == Header ? m_header : target == Footer ? m_footer : m_document;
+    if (next == m_target)
+        return;
+    m_target = next;
+    clearPending();
+    endTypingStep();
+    // The new document's selection arrives through setSelection().
+    m_cursorPosition = m_selectionStart = m_selectionEnd = 0;
+    emit canUndoChanged();
+    emit canRedoChanged();
+    emit formatChanged();
+}
+
+void DocumentController::setPartEditing(int page, const QColor &color)
+{
+    m_editPage = std::max(1, page);
+    m_editColor = color;
+    for (QTextDocument *part : {m_header, m_footer}) {
+        PageFieldHandler *handler = PageFieldHandler::install(part);
+        handler->page = m_editPage;
+        handler->color = m_editColor;
+        // Draws the fields again, with the new number.
+        part->markContentsDirty(0, part->characterCount());
+    }
+}
+
+PageLayout DocumentController::withRoomForParts(PageLayout layout) const
+{
+    constexpr qreal kMmPerPx = 25.4 / 96.0;
+    if (hasHeader())
+        layout.topMm = std::max(layout.topMm, layout.headerMm + headerHeightPx() * kMmPerPx);
+    if (hasFooter())
+        layout.bottomMm = std::max(layout.bottomMm, layout.footerMm + footerHeightPx() * kMmPerPx);
+    return layout;
+}
+
+void DocumentController::fitPageParts()
+{
+    const PageLayout current = pageLayout();
+    const PageLayout next = withRoomForParts(current);
+    if (next == current)
+        return;
+    endTypingStep();
+    writePageLayout(next);
+    emit formatChanged();
+}
+
+void DocumentController::paintPart(QPainter *painter, bool footer, int page, const QColor &color)
+{
+    QTextDocument *part = partDocument(footer);
+    PageFieldHandler *handler = PageFieldHandler::install(part);
+    handler->page = page;
+    handler->color = color;
+    QAbstractTextDocumentLayout::PaintContext context;
+    context.palette.setColor(QPalette::Text, color);
+    part->documentLayout()->draw(painter, context);
+    // Back to what the TextEdits show.
+    handler->page = m_editPage;
+    handler->color = m_editColor;
+}
+
+void DocumentController::clearParts()
+{
+    for (QTextDocument *part : {m_header, m_footer}) {
+        part->clear();
+        part->clearUndoRedoStacks();
+        part->setModified(false);
+    }
+}
+
+void DocumentController::setAllModified(bool modified)
+{
+    for (QTextDocument *doc : {m_document, m_header, m_footer})
+        doc->setModified(modified);
+}
+
+QByteArray DocumentController::odfStyles() const
+{
+    const PageLayout layout = pageLayout();
+    const qreal textWidthMm = layout.widthMm - layout.leftMm - layout.rightMm;
+    PageLayout::OdfParts parts;
+    parts.header = PageParts::toOdf(m_header, QStringLiteral("Header"), textWidthMm, parts.automaticStyles);
+    parts.footer = PageParts::toOdf(m_footer, QStringLiteral("Footer"), textWidthMm, parts.automaticStyles);
+    return layout.odfStyles(parts);
 }
 
 bool DocumentController::localeUsesLetter() const
@@ -181,11 +391,13 @@ void DocumentController::setQmlDocument(QQuickTextDocument *qmlDocument)
 
 void DocumentController::newDocument()
 {
+    setEditTarget(Body);
     m_document->clear();
+    clearParts();
     // clear() resets the root frame format, where the page layout lives.
     writePageLayout(m_defaultLayout);
     m_document->clearUndoRedoStacks();
-    m_document->setModified(false);
+    setAllModified(false);
     updateDirty();
     // clear() also drops the undo history without emitting undoAvailable().
     emit canUndoChanged();
@@ -214,8 +426,9 @@ bool DocumentController::saveToOdf(const QString &path)
         qWarning() << "DocumentController: ODF serialisation failed";
         return false;
     }
-    // Qt's writer leaves out the page layout (it writes no styles.xml).
-    const QByteArray odt = withOdfPageLayout(buffer.data(), pageLayout());
+    // Qt's writer leaves out the page layout, header and footer (it writes
+    // no styles.xml).
+    const QByteArray odt = withOdfStyles(buffer.data(), odfStyles());
     if (odt.isEmpty()) {
         qWarning() << "DocumentController: cannot add the page layout to the ODF archive";
         return false;
@@ -226,7 +439,7 @@ bool DocumentController::saveToOdf(const QString &path)
         return false;
     }
 
-    m_document->setModified(false);
+    setAllModified(false);
     // Undo back to here must stop at the save, not run on into the word.
     endTypingStep();
     const QString absolute = QFileInfo(path).absoluteFilePath();
@@ -241,6 +454,7 @@ bool DocumentController::openOdf(const QString &path)
 {
     QString error;
     bool read = false;
+    setEditTarget(Body);
     {
         // Not typing: keep a pending format from being applied to the load.
         const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
@@ -250,13 +464,24 @@ bool DocumentController::openOdf(const QString &path)
         qWarning().noquote() << "DocumentController: cannot open" << error;
         return false;
     }
-    // The file's own page layout, if it has one: not part of the history.
-    writePageLayout(PageLayout::fromOdtFile(path).value_or(m_defaultLayout));
+    // Its header and footer, if any.
+    for (const bool footer : {false, true}) {
+        QString partError;
+        if (!OdfReader::readPagePart(partDocument(footer), path, footer, &partError)) {
+            qWarning().noquote() << "DocumentController: cannot read the" << (footer ? "footer:" : "header:") << partError;
+            partDocument(footer)->clear();
+        }
+    }
+    // The file's own page layout, if it has one, with room for the header
+    // and footer as laid out here: not part of the history.
+    const PageLayout layout = PageLayout::fromOdtFile(path).value_or(m_defaultLayout);
+    syncPartWidths(layout);
+    writePageLayout(withRoomForParts(layout));
     m_document->clearUndoRedoStacks();
     emit canUndoChanged();
     emit canRedoChanged();
 
-    m_document->setModified(false);
+    setAllModified(false);
     updateDirty();
     clearPending();
     const QString absolute = QFileInfo(path).absoluteFilePath();
@@ -396,7 +621,7 @@ void DocumentController::saveFile(const QString &path)
     {
         const QSignalBlocker blocker(this);
         const QString oldPath = m_currentPath;
-        const bool wasDirty = isDirty();
+        const bool wasModified[] = {m_document->isModified(), m_header->isModified(), m_footer->isModified()};
         if (!saveToOdf(odt)) {
             // saveToOdf() changed nothing and has said why
             emit fileSaved(false, path, QStringLiteral("cannot write the temporary .odt for %1").arg(path));
@@ -404,7 +629,9 @@ void DocumentController::saveFile(const QString &path)
         }
         // Nothing is saved where the user asked yet: undo what saveToOdf()
         // did to our state until the conversion succeeds.
-        m_document->setModified(wasDirty);
+        m_document->setModified(wasModified[0]);
+        m_header->setModified(wasModified[1]);
+        m_footer->setModified(wasModified[2]);
         m_currentPath = oldPath;
     }
 
@@ -423,7 +650,7 @@ void DocumentController::saveFile(const QString &path)
             const QString oldPath = m_currentPath;
             if (m_contentRevision == revision) {
                 const QSignalBlocker blocker(this);
-                m_document->setModified(false);
+                setAllModified(false);
                 endTypingStep();
             } // else edited since the snapshot: still dirty
             finishConvertedIo(path, oldPath);
@@ -438,6 +665,7 @@ void DocumentController::finishConvertedIo(const QString &path, const QString &o
     // openOdf()/saveToOdf() ran with this object's signals blocked.
     emit pageLayoutChanged();
     emit pageCountChanged();
+    emit pagePartsChanged();
     m_currentPath = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != oldPath)
         emit currentPathChanged();
@@ -531,9 +759,9 @@ void DocumentController::stepHistory(bool undo)
         // Not typing: keep a pending format from being applied to restored text.
         const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
         if (undo)
-            m_document->undo(&cursor);
+            m_target->undo(&cursor);
         else
-            m_document->redo(&cursor);
+            m_target->redo(&cursor);
     }
     clearPending();
     emit cursorPositionRequested(cursor.position());
@@ -570,8 +798,8 @@ void DocumentController::setAttr(QTextCharFormat &f, Attr attr, bool on)
 // TextEdit reported positions from before an edit.
 QTextCursor DocumentController::selectionCursor() const
 {
-    const int last = std::max(0, m_document->characterCount() - 1);
-    QTextCursor cursor(m_document);
+    const int last = std::max(0, m_target->characterCount() - 1);
+    QTextCursor cursor(m_target);
     if (m_selectionStart != m_selectionEnd) {
         const int anchor = m_cursorPosition == m_selectionStart ? m_selectionEnd : m_selectionStart;
         cursor.setPosition(std::clamp(anchor, 0, last));
@@ -600,7 +828,7 @@ bool DocumentController::attrState(Attr attr) const
     }
 
     const int start = cursor.selectionStart(), end = cursor.selectionEnd();
-    for (QTextBlock block = m_document->findBlock(start); block.isValid() && block.position() < end;
+    for (QTextBlock block = m_target->findBlock(start); block.isValid() && block.position() < end;
          block = block.next()) {
         for (auto it = block.begin(); !it.atEnd(); ++it) {
             const QTextFragment fragment = it.fragment();
@@ -682,7 +910,7 @@ void DocumentController::applyCharFormat(const QTextCharFormat &change, bool cle
         }
     }
     if (clearForeground)
-        clearForegroundIn(m_document, cursor.selectionStart(), cursor.selectionEnd());
+        clearForegroundIn(m_target, cursor.selectionStart(), cursor.selectionEnd());
     else
         cursor.mergeCharFormat(change);
     emit formatChanged();
@@ -708,7 +936,7 @@ QTextCharFormat DocumentController::currentCharFormat() const
 
 bool DocumentController::typeText(const QString &text)
 {
-    if (m_loading || isStreamingEdit() || text.isEmpty())
+    if (m_loading || isStreamingEdit() || text.isEmpty() || m_target != m_document)
         return false;
     QTextCursor cursor = selectionCursor();
     const bool pending = m_pendingPosition >= 0 && m_pendingPosition == cursor.position() && !cursor.hasSelection();
@@ -754,13 +982,13 @@ void DocumentController::onContentsChange(int position, int removed, int added)
         || position + added < m_pendingPosition + inserted)
         return;
     const int start = m_pendingPosition, end = m_pendingPosition + inserted;
-    QTextCursor cursor(m_document);
+    QTextCursor cursor(m_target);
     cursor.setPosition(start);
     cursor.setPosition(end, QTextCursor::KeepAnchor);
     m_selfEdit = true;
     cursor.mergeCharFormat(m_pendingFormat);
     if (m_pendingClearForeground)
-        clearForegroundIn(m_document, start, end);
+        clearForegroundIn(m_target, start, end);
     m_selfEdit = false;
     clearPending();
 }
@@ -782,7 +1010,7 @@ void DocumentController::setFontFamily(const QString &family)
 QString DocumentController::currentFontFamily() const
 {
     const QStringList families = currentCharFormat().fontFamilies().toStringList();
-    return families.isEmpty() ? m_document->defaultFont().family() : families.constFirst();
+    return families.isEmpty() ? m_target->defaultFont().family() : families.constFirst();
 }
 
 void DocumentController::setFontSize(qreal pointSize)
@@ -798,7 +1026,7 @@ qreal DocumentController::currentFontSize() const
 {
     const QTextCharFormat format = currentCharFormat();
     return format.hasProperty(QTextFormat::FontPointSize) ? format.fontPointSize()
-                                                          : m_document->defaultFont().pointSizeF();
+                                                          : m_target->defaultFont().pointSizeF();
 }
 
 void DocumentController::setTextColor(const QString &hexColor)
@@ -843,8 +1071,8 @@ QList<QTextBlock> DocumentController::selectedBlocks() const
 {
     const QTextCursor cursor = selectionCursor();
     QList<QTextBlock> blocks;
-    const QTextBlock last = m_document->findBlock(cursor.selectionEnd());
-    for (QTextBlock block = m_document->findBlock(cursor.selectionStart()); block.isValid(); block = block.next()) {
+    const QTextBlock last = m_target->findBlock(cursor.selectionEnd());
+    for (QTextBlock block = m_target->findBlock(cursor.selectionStart()); block.isValid(); block = block.next()) {
         blocks.append(block);
         if (block == last)
             break;
@@ -924,6 +1152,8 @@ void removeFromList(const QTextBlock &block)
 
 void DocumentController::toggleList(ListKind kind)
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QList<QTextBlock> blocks = selectedBlocks();
     const bool remove = currentListKind() == kind;
     const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
@@ -969,6 +1199,8 @@ void DocumentController::toggleList(ListKind kind)
 // Moves each selected list item `delta` levels deeper (+1) or shallower (-1).
 void DocumentController::changeListLevel(int delta)
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QList<QTextBlock> blocks = selectedBlocks();
     const QScopedValueRollback<bool> selfEdit(m_selfEdit, true);
     QTextCursor edit(m_document);
@@ -1086,6 +1318,8 @@ QTextTableFormat DocumentController::tableFormat()
 
 void DocumentController::insertTable(int rows, int columns)
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QTextTableFormat format = tableFormat();
     QTextCursor cursor = selectionCursor();
     cursor.clearSelection();
@@ -1112,6 +1346,8 @@ bool DocumentController::isInTable() const
 // asked to remove every row or column.
 void DocumentController::editTable(bool rows, bool insert, bool before)
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QTextCursor cursor = selectionCursor();
     QTextTable *table = cursor.currentTable();
     if (!table)
@@ -1149,6 +1385,8 @@ void DocumentController::deleteTableColumn() { editTable(false, false); }
 
 void DocumentController::deleteTable()
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     QTextTable *table = selectionCursor().currentTable();
     if (!table)
         return;
@@ -1176,6 +1414,8 @@ void DocumentController::deleteTable()
 
 void DocumentController::nextTableCell()
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QTextCursor cursor = selectionCursor();
     QTextTable *table = cursor.currentTable();
     if (!table)
@@ -1192,6 +1432,8 @@ void DocumentController::nextTableCell()
 
 void DocumentController::previousTableCell()
 {
+    if (m_target != m_document)
+        return; // the body's only (see setEditTarget())
     const QTextCursor cursor = selectionCursor();
     QTextTable *table = cursor.currentTable();
     if (!table)
@@ -1240,7 +1482,7 @@ DocumentController::MarkdownContext DocumentController::markdownContext() const
 
 bool DocumentController::beginStreamedEdit()
 {
-    if (m_busy || m_streaming)
+    if (m_busy || m_streaming || m_target != m_document)
         return false;
     const QTextCursor cursor = selectionCursor();
     clearPending();

@@ -1,4 +1,5 @@
 #include "OdfReader.h"
+#include "PageParts.h"
 
 #include "DocumentController.h"
 
@@ -175,6 +176,9 @@ struct Context
     QHash<QString, QStringList> fontFaces; // <style:font-face> name -> families
     QHash<QString, ListStyle> listStyles;
     int lists = 0; // top-level <text:list>s seen, numbering their ids
+    // Page number and page count fields become PageParts fields (headers
+    // and footers); elsewhere they keep their text.
+    bool pageFields = false;
 };
 
 // Where a block sits in a list: nesting level (0: not in a list), the list
@@ -366,6 +370,12 @@ void readInline(QXmlStreamReader &xml, const Context &ctx, Paragraph &paragraph,
                 xml.skipCurrentElement();
             } else if (is(xml, kTextNs, QLatin1String("line-break"))) {
                 paragraph.appendLiteral(QString(QChar::LineSeparator), format);
+                xml.skipCurrentElement();
+            } else if (ctx.pageFields
+                       && (is(xml, kTextNs, QLatin1String("page-number")) || is(xml, kTextNs, QLatin1String("page-count")))) {
+                const auto field = xml.name() == QLatin1String("page-number") ? PageParts::Field::PageNumber
+                                                                               : PageParts::Field::PageCount;
+                paragraph.appendLiteral(QString(QChar::ObjectReplacementCharacter), PageParts::fieldFormat(format, field));
                 xml.skipCurrentElement();
             } else if (is(xml, kTextNs, QLatin1String("note")) || is(xml, kOfficeNs, QLatin1String("annotation"))
                        || xml.namespaceUri() == kDrawNs) {
@@ -712,6 +722,78 @@ bool OdfReader::readInto(QTextDocument *doc, const QString &path, QString *error
     QTextCursor cursor(doc);
     cursor.beginEditBlock();
     insertBlocks(cursor, blocks);
+    cursor.endEditBlock();
+    doc->clearUndoRedoStacks();
+    return true;
+}
+
+bool OdfReader::readPagePart(QTextDocument *doc, const QString &path, bool footer, QString *error)
+{
+    if (!doc)
+        return fail(error, QStringLiteral("no document to read into"));
+    QuaZip zip(path);
+    if (!zip.open(QuaZip::mdUnzip))
+        return fail(error, QStringLiteral("%1: not an ODF document (not a zip archive)").arg(path));
+    QByteArray stylesXml;
+    if (!extract(zip, path, QStringLiteral("styles.xml"), false, stylesXml, error))
+        return false;
+    zip.close();
+
+    // The part of the master page named Standard, else of the first one
+    // (as PageLayout::fromOdfStyles() chooses).
+    Context ctx;
+    ctx.pageFields = true;
+    const QLatin1StringView partName = footer ? QLatin1String("footer") : QLatin1String("header");
+    QList<Block> standard, first;
+    bool sawMaster = false, hasStandard = false;
+    if (!stylesXml.isEmpty()) {
+        QXmlStreamReader xml(stylesXml);
+        if (xml.readNextStartElement() && is(xml, kOfficeNs, QLatin1String("document-styles"))) {
+            while (xml.readNextStartElement()) {
+                if (is(xml, kOfficeNs, QLatin1String("font-face-decls"))) {
+                    readFontFaces(xml, ctx);
+                } else if (is(xml, kOfficeNs, QLatin1String("styles")) || is(xml, kOfficeNs, QLatin1String("automatic-styles"))) {
+                    // Named styles, then styles.xml's own automatic ones,
+                    // which are the ones headers and footers use.
+                    readStyles(xml, ctx);
+                } else if (is(xml, kOfficeNs, QLatin1String("master-styles"))) {
+                    while (xml.readNextStartElement()) {
+                        if (!is(xml, kStyleNs, QLatin1String("master-page"))) {
+                            xml.skipCurrentElement();
+                            continue;
+                        }
+                        const bool isStandard = xml.attributes().value(kStyleNs, QLatin1String("name")) == QLatin1String("Standard");
+                        const bool isFirst = !sawMaster;
+                        sawMaster = true;
+                        hasStandard = hasStandard || isStandard;
+                        while (xml.readNextStartElement()) {
+                            if (is(xml, kStyleNs, partName) && (isStandard || isFirst)
+                                && xml.attributes().value(kStyleNs, QLatin1String("display")) != QLatin1String("false")) {
+                                QList<Block> blocks;
+                                readBlocks(xml, ctx, ListContext(), blocks);
+                                if (isStandard)
+                                    standard = blocks;
+                                if (isFirst)
+                                    first = blocks;
+                            } else {
+                                xml.skipCurrentElement();
+                            }
+                        }
+                    }
+                } else {
+                    xml.skipCurrentElement();
+                }
+            }
+        }
+        if (xml.hasError())
+            return fail(error, malformed(path, QStringLiteral("styles.xml"), xml));
+    }
+
+    // Standard if there is one, whether or not it has this part.
+    doc->clear();
+    QTextCursor cursor(doc);
+    cursor.beginEditBlock();
+    insertBlocks(cursor, hasStandard ? standard : first);
     cursor.endEditBlock();
     doc->clearUndoRedoStacks();
     return true;

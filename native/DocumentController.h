@@ -41,6 +41,7 @@
 #include <QTextListFormat>
 #include <QTextTableFormat>
 
+class QPainter;
 class QTextList;
 
 class DocumentController : public QObject
@@ -72,6 +73,15 @@ class DocumentController : public QObject
     // pages the document fills: the editor's page view.
     Q_PROPERTY(QSizeF pageSizePx READ pageSizePx NOTIFY pageLayoutChanged)
     Q_PROPERTY(int pageCount READ pageCount NOTIFY pageCountChanged)
+    // The header and footer: documents of their own, the same on every page
+    // but for their page number fields (PageParts). PagePartView draws them
+    // on each page; a TextEdit each edits them in place (setPartDocument()),
+    // with its own undo history (the TextEdit's own Ctrl+Z). `dirty` counts
+    // their edits too. Heights are of their content, in pixels.
+    Q_PROPERTY(bool hasHeader READ hasHeader NOTIFY pagePartsChanged)
+    Q_PROPERTY(bool hasFooter READ hasFooter NOTIFY pagePartsChanged)
+    Q_PROPERTY(qreal headerHeightPx READ headerHeightPx NOTIFY pagePartsChanged)
+    Q_PROPERTY(qreal footerHeightPx READ footerHeightPx NOTIFY pagePartsChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -81,12 +91,15 @@ public:
     void setQmlDocument(QQuickTextDocument *qmlDocument);
     QTextDocument *textDocument() const { return m_document; }
 
-    bool isDirty() const { return m_document->isModified(); }
+    bool isDirty() const
+    {
+        return m_document->isModified() || m_header->isModified() || m_footer->isModified();
+    }
     QString currentPath() const { return m_currentPath; }
     bool isBusy() const { return m_busy; }
     bool isLoading() const { return m_loading; }
-    bool canUndo() const { return m_document->isUndoAvailable(); }
-    bool canRedo() const { return m_document->isRedoAvailable(); }
+    bool canUndo() const { return m_target->isUndoAvailable(); }
+    bool canRedo() const { return m_target->isRedoAvailable(); }
     bool hasSelection() const { return m_selectionStart != m_selectionEnd; }
     bool isStreamingEdit() const { return m_streaming; }
     PageLayout pageLayout() const;
@@ -95,8 +108,41 @@ public:
     int pageCount() const { return m_pageCount; }
 
     // Page setup: missing values keep the current ones (see
-    // PageLayout::fromMap()). One undo step; marks the document modified.
+    // PageLayout::fromMap()); the top and bottom margins stay at least
+    // tall enough for the header and footer (see fitPageParts()). One undo
+    // step; marks the document modified.
     Q_INVOKABLE void setPageLayout(const QVariantMap &layout);
+
+    // The header (`footer` false) or footer document.
+    QTextDocument *partDocument(bool footer) const { return footer ? m_footer : m_header; }
+    bool hasHeader() const;
+    bool hasFooter() const;
+    qreal headerHeightPx() const;
+    qreal footerHeightPx() const;
+    // Installs the header or footer document into a TextEdit's document
+    // wrapper, as `document` does for the body.
+    Q_INVOKABLE void setPartDocument(bool footer, QQuickTextDocument *qmlDocument);
+    // Inserts a page number (or with `count`, page count) field at
+    // `position` in the header or footer, formatted like the text there;
+    // returns the position after it.
+    Q_INVOKABLE int insertPageField(bool footer, int position, bool count);
+    // Which document the selection (setSelection()), character and
+    // alignment formatting, undo/redo and canUndo/canRedo act on: the body
+    // (Body), or the header or footer while one is edited in place. Lists,
+    // tables, typeText() and streamed edits are the body's only, and do
+    // nothing meanwhile. newDocument() and opening go back to the body.
+    enum EditTarget { Body, Header, Footer };
+    Q_ENUM(EditTarget)
+    Q_INVOKABLE void setEditTarget(int target);
+    // What fields show in the TextEdits: `page`'s numbers, in `color`.
+    Q_INVOKABLE void setPartEditing(int page, const QColor &color);
+    // Where the header or footer has grown past its margin, moves the
+    // margin to make room, as one undo step (a Page setup change). Called
+    // when editing them ends.
+    Q_INVOKABLE void fitPageParts();
+    // Draws the header or footer as on `page` (1-based), text in `color`
+    // unless formatted otherwise; for PagePartView.
+    void paintPart(QPainter *painter, bool footer, int page, const QColor &color);
     // Whether this locale uses Letter paper (Page setup shows inches then).
     Q_INVOKABLE bool localeUsesLetter() const;
 
@@ -277,6 +323,8 @@ signals:
     void formatChanged();
     void pageLayoutChanged();
     void pageCountChanged();
+    // The header or footer changed: content, height or emptiness.
+    void pagePartsChanged();
     // The controller moved the cursor (e.g. into a new table cell); the
     // TextEdit should set its cursorPosition to `position`.
     void cursorPositionRequested(int position);
@@ -321,6 +369,18 @@ private:
     void setBusy(bool busy, bool loading = false);
     // Writes `layout` into the root frame format (an undo step of its own).
     void writePageLayout(const PageLayout &layout);
+    // The header and footer laid out at `layout`'s text width, with tab
+    // stops at its centre and right edge.
+    void syncPartWidths(const PageLayout &layout);
+    // `layout` with its top and bottom margins grown where the header or
+    // footer needs more room.
+    PageLayout withRoomForParts(PageLayout layout) const;
+    // Empties the header and footer, unmodified with no history.
+    void clearParts();
+    // Every document (body, header, footer) marked modified or not.
+    void setAllModified(bool modified);
+    // The styles.xml saveToOdf() writes: page layout, header and footer.
+    QByteArray odfStyles() const;
     // After any change: keeps the document paginated at the page size (the
     // TextEdit resets the page height whenever its width changes) and
     // reports layout and page-count changes.
@@ -332,6 +392,13 @@ private:
     void finishOpen(const QString &path, const Conversion &result);
 
     QTextDocument *m_document;
+    QTextDocument *m_header;
+    QTextDocument *m_footer;
+    QTextDocument *m_target; // see setEditTarget()
+    // The page the header and footer TextEdits show fields for, and their
+    // color (see setPartEditing()).
+    int m_editPage = 1;
+    QColor m_editColor = Qt::black;
     QPointer<QQuickTextDocument> m_qmlDocument;
     QString m_currentPath;
     bool m_busy = false;

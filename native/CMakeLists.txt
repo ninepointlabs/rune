@@ -37,7 +37,7 @@ qt_add_qml_module(rune
     VERSION 1.0
     QML_FILES Main.qml ToolButton.qml ToolMenu.qml ThemedMenu.qml MenuEntry.qml MenuDivider.qml AlignIcon.qml
               FileMenu.qml FontPicker.qml ColorPicker.qml CommandPalette.qml PageSetup.qml UnsavedChangesDialog.qml AiPanel.qml
-    SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp PageLayout.h PageLayout.cpp
+    SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp PageLayout.h PageLayout.cpp PageParts.h PageParts.cpp PagePartView.h PagePartView.cpp
             DocxBridge.h DocxBridge.cpp
             ai/AiManager.h ai/AiManager.cpp ai/AiProvider.h ai/AiProvider.cpp
             ai/ChatGptProvider.h ai/ChatGptProvider.cpp ai/OpenRouterProvider.h ai/OpenRouterProvider.cpp
