@@ -182,6 +182,7 @@ void DocumentController::syncPages()
     if (layout != m_reportedLayout) {
         m_reportedLayout = layout;
         emit pageLayoutChanged();
+        emit pagePartsChanged(); // their positions
     }
     const int pages = std::max(1, m_document->pageCount());
     if (pages != m_pageCount) {
@@ -309,13 +310,30 @@ void DocumentController::setPartEditing(int page, const QColor &color)
     }
 }
 
+namespace {
+constexpr qreal kMmPerPx = 25.4 / 96.0;
+// The least room above and below a header or footer, in its margin.
+constexpr qreal kPartPaddingMm = 3.0;
+} // namespace
+
+qreal DocumentController::headerYPx() const
+{
+    return std::max<qreal>(0, (pageLayout().marginsPx().top() - headerHeightPx()) / 2);
+}
+
+qreal DocumentController::footerYPx() const
+{
+    const PageLayout layout = pageLayout();
+    const qreal margin = layout.marginsPx().bottom();
+    return layout.sizePx().height() - margin + std::max<qreal>(0, (margin - footerHeightPx()) / 2);
+}
+
 PageLayout DocumentController::withRoomForParts(PageLayout layout) const
 {
-    constexpr qreal kMmPerPx = 25.4 / 96.0;
     if (hasHeader())
-        layout.topMm = std::max(layout.topMm, layout.headerMm + headerHeightPx() * kMmPerPx);
+        layout.topMm = std::max(layout.topMm, headerHeightPx() * kMmPerPx + 2 * kPartPaddingMm);
     if (hasFooter())
-        layout.bottomMm = std::max(layout.bottomMm, layout.footerMm + footerHeightPx() * kMmPerPx);
+        layout.bottomMm = std::max(layout.bottomMm, footerHeightPx() * kMmPerPx + 2 * kPartPaddingMm);
     return layout;
 }
 
@@ -361,8 +379,11 @@ void DocumentController::setAllModified(bool modified)
 
 QByteArray DocumentController::odfStyles() const
 {
-    const PageLayout layout = pageLayout();
+    PageLayout layout = pageLayout();
     const qreal textWidthMm = layout.widthMm - layout.leftMm - layout.rightMm;
+    // Where they are drawn: centred in their margins.
+    layout.headerMm = headerYPx() * kMmPerPx;
+    layout.footerMm = (layout.sizePx().height() - footerYPx() - footerHeightPx()) * kMmPerPx;
     PageLayout::OdfParts parts;
     parts.header = PageParts::toOdf(m_header, QStringLiteral("Header"), textWidthMm, parts.automaticStyles);
     parts.footer = PageParts::toOdf(m_footer, QStringLiteral("Footer"), textWidthMm, parts.automaticStyles);

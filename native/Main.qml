@@ -1094,7 +1094,7 @@ Window {
                         footer: false
                         page: pageParts.index + 1
                         x: root.mmToPx(pageParts.layout.left)
-                        y: root.mmToPx(pageParts.layout.header)
+                        y: controller.headerYPx
                         width: pageColumn.width - x - root.mmToPx(pageParts.layout.right)
                         height: controller.headerHeightPx
                         color: Qt.alpha(root.theme.foreground, 0.75)
@@ -1106,7 +1106,7 @@ Window {
                         footer: true
                         page: pageParts.index + 1
                         x: root.mmToPx(pageParts.layout.left)
-                        y: pageParts.height - root.mmToPx(pageParts.layout.footer) - height
+                        y: controller.footerYPx
                         width: pageColumn.width - x - root.mmToPx(pageParts.layout.right)
                         height: controller.footerHeightPx
                         color: Qt.alpha(root.theme.foreground, 0.75)
@@ -1117,8 +1117,9 @@ Window {
                         visible: !root.partEditing && pageParts.hovered !== ""
                                  && (header ? !controller.hasHeader : !controller.hasFooter)
                         x: root.mmToPx(pageParts.layout.left)
-                        y: header ? root.mmToPx(pageParts.layout.header)
-                                  : pageParts.height - root.mmToPx(pageParts.layout.footer) - height
+                        // Centred in the margin, as the header or footer would be.
+                        y: header ? (root.mmToPx(pageParts.layout.top) - height) / 2
+                                  : pageParts.height - (root.mmToPx(pageParts.layout.bottom) + height) / 2
                         text: header ? "Double-click to add a header" : "Double-click to add a footer"
                         color: Qt.alpha(root.theme.foreground, 0.4)
                         font.pixelSize: 13
@@ -1293,7 +1294,7 @@ Window {
                 id: headerEditor
                 objectName: "headerEditor"
                 visible: root.editingPart === "header"
-                y: (root.editingPage - 1) * pageColumn.page.height + root.mmToPx(controller.pageLayout.header)
+                y: (root.editingPage - 1) * pageColumn.page.height + controller.headerYPx
                 x: root.mmToPx(controller.pageLayout.left)
                 width: pageColumn.width - x - root.mmToPx(controller.pageLayout.right)
                 height: implicitHeight
@@ -1320,7 +1321,7 @@ Window {
                 id: footerEditor
                 objectName: "footerEditor"
                 visible: root.editingPart === "footer"
-                y: root.editingPage * pageColumn.page.height - root.mmToPx(controller.pageLayout.footer) - height
+                y: (root.editingPage - 1) * pageColumn.page.height + controller.footerYPx
                 x: root.mmToPx(controller.pageLayout.left)
                 width: pageColumn.width - x - root.mmToPx(controller.pageLayout.right)
                 height: implicitHeight

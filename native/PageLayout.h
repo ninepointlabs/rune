@@ -36,7 +36,9 @@ struct PageLayout
     qreal leftMm = 25.4;
     qreal rightMm = 25.4;
     // Distance of the header's top from the page's top edge, and of the
-    // footer's bottom from the bottom edge; at most the margin.
+    // footer's bottom from the bottom edge, as ODF stores them; at most the
+    // margin. (Rune centres them in their margins and saves where that puts
+    // them: see DocumentController.)
     qreal headerMm = 12.7;
     qreal footerMm = 12.7;
 

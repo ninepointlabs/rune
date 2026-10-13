@@ -77,11 +77,16 @@ class DocumentController : public QObject
     // but for their page number fields (PageParts). PagePartView draws them
     // on each page; a TextEdit each edits them in place (setPartDocument()),
     // with its own undo history (the TextEdit's own Ctrl+Z). `dirty` counts
-    // their edits too. Heights are of their content, in pixels.
+    // their edits too. Heights are of their content, in pixels; each sits
+    // centred in its margin, headerYPx / footerYPx below the page's top
+    // edge (so a bigger font grows it both ways). Saving writes those
+    // distances, so other word processors place them the same.
     Q_PROPERTY(bool hasHeader READ hasHeader NOTIFY pagePartsChanged)
     Q_PROPERTY(bool hasFooter READ hasFooter NOTIFY pagePartsChanged)
     Q_PROPERTY(qreal headerHeightPx READ headerHeightPx NOTIFY pagePartsChanged)
     Q_PROPERTY(qreal footerHeightPx READ footerHeightPx NOTIFY pagePartsChanged)
+    Q_PROPERTY(qreal headerYPx READ headerYPx NOTIFY pagePartsChanged)
+    Q_PROPERTY(qreal footerYPx READ footerYPx NOTIFY pagePartsChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -119,6 +124,8 @@ public:
     bool hasFooter() const;
     qreal headerHeightPx() const;
     qreal footerHeightPx() const;
+    qreal headerYPx() const;
+    qreal footerYPx() const;
     // Installs the header or footer document into a TextEdit's document
     // wrapper, as `document` does for the body.
     Q_INVOKABLE void setPartDocument(bool footer, QQuickTextDocument *qmlDocument);
@@ -136,9 +143,9 @@ public:
     Q_INVOKABLE void setEditTarget(int target);
     // What fields show in the TextEdits: `page`'s numbers, in `color`.
     Q_INVOKABLE void setPartEditing(int page, const QColor &color);
-    // Where the header or footer has grown past its margin, moves the
-    // margin to make room, as one undo step (a Page setup change). Called
-    // when editing them ends.
+    // Where the header or footer has grown too tall for its margin (less
+    // than 3 mm either side of it), grows the margin to make room, as one
+    // undo step (a Page setup change). Called when editing them ends.
     Q_INVOKABLE void fitPageParts();
     // Draws the header or footer as on `page` (1-based), text in `color`
     // unless formatted otherwise; for PagePartView.

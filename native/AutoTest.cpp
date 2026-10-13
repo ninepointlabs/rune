@@ -2094,6 +2094,12 @@ bool runAutoTest(QQuickWindow *window)
             return count;
         };
         const auto layoutOf = [&] { return PageLayout::fromMap(controller->pageLayoutMap(), PageLayout()); };
+        // Paper and margins alike (header and footer distances aside).
+        const auto sameMargins = [](PageLayout a, const PageLayout &b) {
+            a.headerMm = b.headerMm;
+            a.footerMm = b.footerMm;
+            return a == b;
+        };
         const auto partAlignment = [&](bool footer) {
             return controller->partDocument(footer)->begin().blockFormat().alignment() & Qt::AlignHorizontal_Mask;
         };
@@ -2201,8 +2207,31 @@ bool runAutoTest(QQuickWindow *window)
         }
 
         // Saved in styles.xml, read back on open.
+        // Centred in its margin, a bigger font growing it both ways.
+        {
+            const qreal top = controller->pageLayout().marginsPx().top();
+            const qreal centre = controller->headerYPx() + controller->headerHeightPx() / 2;
+            QTextCursor all(controller->partDocument(false));
+            all.select(QTextCursor::Document);
+            QTextCharFormat big;
+            big.setFontPointSize(24);
+            all.mergeCharFormat(big);
+            QCoreApplication::processEvents();
+            const qreal bigCentre = controller->headerYPx() + controller->headerHeightPx() / 2;
+            const qreal bottom = controller->pageLayout().marginsPx().bottom();
+            const qreal footerCentre = controller->footerYPx() + controller->footerHeightPx() / 2;
+            t.check(qAbs(centre - top / 2) < 0.5 && qAbs(bigCentre - top / 2) < 0.5
+                        && qAbs(footerCentre - (controller->pageSizePx().height() - bottom / 2)) < 0.5,
+                    QStringLiteral("the header sits centred in the top margin, at 12 and at 24 pt (centre %1 and %2 px of %3), the footer in the bottom one")
+                        .arg(centre).arg(bigCentre).arg(top));
+            controller->partDocument(false)->undo();
+        }
+
         QFile::remove(kPartsPath);
         const bool partsSaved = controller->saveToOdf(kPartsPath);
+        // Where they were drawn: what the file says.
+        const qreal savedHeaderMm = controller->headerYPx() * 25.4 / 96;
+        const qreal savedFooterMm = (controller->pageSizePx().height() - controller->footerYPx() - controller->footerHeightPx()) * 25.4 / 96;
         const QByteArray savedStyles = readZipMember(kPartsPath, QStringLiteral("styles.xml"));
         t.check(partsSaved && !controller->isDirty() && savedStyles.contains("<style:header><text:p")
                     && savedStyles.contains("Quarterly report") && savedStyles.contains("<text:page-count>"),
@@ -2214,7 +2243,7 @@ bool runAutoTest(QQuickWindow *window)
         t.check(clearedByNew && partsOpened && partText(false) == QStringLiteral("Quarterly report")
                     && fieldCount(true, PageParts::Field::PageNumber) == 1 && fieldCount(true, PageParts::Field::PageCount) == 1
                     && partText(true).startsWith(QStringLiteral("Page ")) && partAlignment(true) == Qt::AlignHCenter
-                    && layoutOf() == PageLayout::defaultFor(QLocale::system().territory()) && !controller->isDirty(),
+                    && sameMargins(layoutOf(), PageLayout::defaultFor(QLocale::system().territory())) && !controller->isDirty(),
                 "New empties them; opening the file brings back the header, the footer's fields and alignment, and the page layout, clean");
 
         // LibreOffice, independently: Word's header and footer, PAGE and NUMPAGES fields, header distance.
@@ -2232,9 +2261,9 @@ bool runAutoTest(QQuickWindow *window)
         const auto nearTwips = [&](const QString &attribute, qreal mm) { return qAbs(twips(attribute) - mm / 25.4 * 1440) <= 2; };
         t.check(converted && headerXml.contains(QStringLiteral("Quarterly report")) && footerXml.contains(QStringLiteral(" PAGE "))
                     && footerXml.contains(QStringLiteral(" NUMPAGES ")) && nearTwips(QStringLiteral("top"), local.topMm)
-                    && nearTwips(QStringLiteral("header"), local.headerMm) && nearTwips(QStringLiteral("footer"), local.footerMm)
+                    && nearTwips(QStringLiteral("header"), savedHeaderMm) && nearTwips(QStringLiteral("footer"), savedFooterMm)
                     && nearTwips(QStringLiteral("bottom"), local.bottomMm),
-                "soffice: the .docx has the header, PAGE and NUMPAGES in the footer, and the same margins and header/footer distances ("
+                "soffice: the .docx has the header, PAGE and NUMPAGES in the footer, the same margins, and the header and footer where Rune drew them ("
                     + pgMar + ")" + (docxError.isEmpty() ? QString() : " " + docxError));
         controller->newDocument();
         const IoRun docxOpen = openAndWait(controller, kPartsDocxPath);
@@ -2244,7 +2273,7 @@ bool runAutoTest(QQuickWindow *window)
         auto *firstHeaderView = findItem(window->contentItem(), QStringLiteral("headerView"));
         t.check(docxOpen.success && firstHeaderView && firstHeaderView->isVisible() && partText(false).trimmed() == QStringLiteral("Quarterly report")
                     && fieldCount(true, PageParts::Field::PageNumber) == 1 && fieldCount(true, PageParts::Field::PageCount) == 1
-                    && qAbs(fromDocx.topMm - local.topMm) < 0.5 && qAbs(fromDocx.headerMm - local.headerMm) < 0.5
+                    && qAbs(fromDocx.topMm - local.topMm) < 0.5 && qAbs(fromDocx.headerMm - savedHeaderMm) < 0.5
                     && qAbs(fromDocx.bottomMm - local.bottomMm) < 0.5,
                 QStringLiteral("opening that .docx brings back the header (shown on the page), both fields and the margins (top %1, header %2, bottom %3 mm)")
                     .arg(fromDocx.topMm).arg(fromDocx.headerMm).arg(fromDocx.bottomMm) + errorNote(docxOpen));
@@ -2380,10 +2409,11 @@ bool runAutoTest(QQuickWindow *window)
         t.check(window->property("editingPart").toString().isEmpty() && editor->hasActiveFocus() && !controller->canUndo(),
                 "Done goes back to the body; a one-line footer fits its margin, so the page layout is unchanged");
 
-        // A header taller than its margin pushes the body down, as one undo step.
+        // A header taller than its margin (8 lines, in any font) pushes the
+        // body down, as one undo step.
         controller->newDocument();
         QMetaObject::invokeMethod(window, "editPart", Q_ARG(QVariant, QStringLiteral("header")), Q_ARG(QVariant, 1));
-        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("One\nTwo\nThree\nFour\nFive"));
+        QTextCursor(controller->partDocument(false)).insertText(QStringLiteral("One\nTwo\nThree\nFour\nFive\nSix\nSeven\nEight"));
         QCoreApplication::processEvents();
         const qreal tallHeader = controller->headerHeightPx() * 25.4 / 96;
         const PageLayout before = layoutOf();
@@ -2395,10 +2425,10 @@ bool runAutoTest(QQuickWindow *window)
         controller->undo();
         controller->undo();
         QCoreApplication::processEvents();
-        t.check(grown.topMm > before.topMm && qAbs(grown.topMm - (grown.headerMm + tallHeader)) < 0.01
-                    && qAbs(squeezed.headerMm - 5) < 0.01 && qAbs(squeezed.topMm - (5 + tallHeader)) < 0.01 && layoutOf() == before,
-                QStringLiteral("a 5-line header (%1 mm) moves the body down to %2 mm; a 5 mm top margin moves the header up, the body "
-                               "still below it (%3 mm); undo restores %4 mm")
+        t.check(grown.topMm > before.topMm && qAbs(grown.topMm - (tallHeader + 6)) < 0.01
+                    && qAbs(squeezed.topMm - grown.topMm) < 0.01 && layoutOf().topMm == before.topMm,
+                QStringLiteral("an 8-line header (%1 mm) moves the body down to %2 mm, 3 mm clear above and below; Page setup can't "
+                               "put the body back under it (%3 mm); undo restores %4 mm")
                     .arg(tallHeader).arg(grown.topMm).arg(squeezed.topMm).arg(before.topMm));
         controller->newDocument();
     }
