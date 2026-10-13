@@ -5,7 +5,7 @@
 //
 // In an .odt the layout lives in styles.xml: a <style:page-layout> in its
 // automatic styles, used by the master page. Qt's ODF writer produces no
-// styles.xml at all, so withOdfPageLayout() adds one (and its manifest
+// styles.xml at all, so withOdfStyles() adds one (and its manifest
 // entry) to what the writer wrote. fromOdfStyles() reads it back from the
 // master page named "Standard", or the first master page if none is.
 //
@@ -27,6 +27,8 @@
 
 #include <optional>
 
+class QTextDocument;
+
 struct PageLayout
 {
     qreal widthMm = 215.9;
@@ -38,7 +40,7 @@ struct PageLayout
     // Distance of the header's top from the page's top edge, and of the
     // footer's bottom from the bottom edge, as ODF stores them; at most the
     // margin. (Rune centres them in their margins and saves where that puts
-    // them: see DocumentController.)
+    // them: see HeaderFooter.)
     qreal headerMm = 12.7;
     qreal footerMm = 12.7;
 
@@ -59,6 +61,15 @@ struct PageLayout
     // At 96 pixels per inch, the scale the editor lays text out at.
     QSizeF sizePx() const;
     QMarginsF marginsPx() const;
+
+    // The layout stored in `doc`'s root frame format (see storeIn()), if
+    // it has one.
+    static std::optional<PageLayout> fromDocument(const QTextDocument *doc);
+    // Stores this layout in `doc`'s root frame format, twice: its margins
+    // in pixels, which the text layout uses, and the exact millimetre
+    // values as user properties, which fromDocument() reads. An ordinary
+    // edit: undo and redo restore both.
+    void storeIn(QTextDocument *doc) const;
 
     bool operator==(const PageLayout &other) const;
     bool operator!=(const PageLayout &other) const { return !(*this == other); }

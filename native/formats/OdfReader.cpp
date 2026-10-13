@@ -1,7 +1,8 @@
 #include "OdfReader.h"
 #include "PageParts.h"
 
-#include "DocumentController.h"
+#include "Lists.h"
+#include "Tables.h"
 
 #include <QColor>
 #include <QFileInfo>
@@ -528,7 +529,7 @@ void insertTable(QTextCursor &cursor, const Table &table)
     if (rows == 0 || columns == 0)
         return;
 
-    QTextTable *textTable = cursor.insertTable(rows, columns, DocumentController::tableFormat());
+    QTextTable *textTable = cursor.insertTable(rows, columns, Tables::format());
     // Spans first: the cells they swallow must not get content.
     for (int r = 0; r < rows; ++r)
         for (int c = 0; c < int(table.rows.at(r).size()); ++c) {
@@ -556,7 +557,7 @@ void insertBlocks(QTextCursor &cursor, const QList<Block> &blocks)
 {
     bool fresh = true; // the cursor's block is empty and unused
     // The list each nesting level adds to, index level - 1: a QTextList per
-    // run of siblings, as DocumentController's list editing builds them.
+    // run of siblings, as Lists builds them.
     QList<QTextList *> lists;
     int listId = 0;
     for (const Block &block : blocks) {
@@ -603,9 +604,9 @@ void insertBlocks(QTextCursor &cursor, const QList<Block> &blocks)
         const int level = paragraph.listLevel;
         lists.resize(std::min(int(lists.size()), level));
         lists.resize(level, nullptr);
-        const auto kind = paragraph.listNumbered ? DocumentController::ListKind::Numbered
-                                                 : DocumentController::ListKind::Bullet;
-        const QTextListFormat::Style style = DocumentController::listStyle(kind, level);
+        const auto kind = paragraph.listNumbered ? Lists::Kind::Numbered
+                                                 : Lists::Kind::Bullet;
+        const QTextListFormat::Style style = Lists::style(kind, level);
         QTextList *&list = lists[level - 1];
         if (list && list->format().style() == style) {
             list->add(cursor.block());

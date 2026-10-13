@@ -2,6 +2,8 @@
 
 #include <QBuffer>
 #include <QHash>
+#include <QTextDocument>
+#include <QTextFrame>
 #include <QXmlStreamReader>
 
 #include <quazip.h>
@@ -127,6 +129,57 @@ QSizeF PageLayout::sizePx() const
 QMarginsF PageLayout::marginsPx() const
 {
     return {leftMm * kPxPerMm, topMm * kPxPerMm, rightMm * kPxPerMm, bottomMm * kPxPerMm};
+}
+
+namespace {
+
+enum PageProperty {
+    kPageWidthMm = QTextFormat::UserProperty + 100,
+    kPageHeightMm,
+    kPageTopMm,
+    kPageBottomMm,
+    kPageLeftMm,
+    kPageRightMm,
+    kPageHeaderMm,
+    kPageFooterMm,
+};
+
+} // namespace
+
+std::optional<PageLayout> PageLayout::fromDocument(const QTextDocument *doc)
+{
+    const QTextFrameFormat format = doc->rootFrame()->frameFormat();
+    if (!format.hasProperty(kPageWidthMm))
+        return std::nullopt;
+    PageLayout layout;
+    layout.widthMm = format.doubleProperty(kPageWidthMm);
+    layout.heightMm = format.doubleProperty(kPageHeightMm);
+    layout.topMm = format.doubleProperty(kPageTopMm);
+    layout.bottomMm = format.doubleProperty(kPageBottomMm);
+    layout.leftMm = format.doubleProperty(kPageLeftMm);
+    layout.rightMm = format.doubleProperty(kPageRightMm);
+    layout.headerMm = format.doubleProperty(kPageHeaderMm);
+    layout.footerMm = format.doubleProperty(kPageFooterMm);
+    return layout;
+}
+
+void PageLayout::storeIn(QTextDocument *doc) const
+{
+    QTextFrameFormat format = doc->rootFrame()->frameFormat();
+    const QMarginsF margins = marginsPx();
+    format.setTopMargin(margins.top());
+    format.setBottomMargin(margins.bottom());
+    format.setLeftMargin(margins.left());
+    format.setRightMargin(margins.right());
+    format.setProperty(kPageWidthMm, widthMm);
+    format.setProperty(kPageHeightMm, heightMm);
+    format.setProperty(kPageTopMm, topMm);
+    format.setProperty(kPageBottomMm, bottomMm);
+    format.setProperty(kPageLeftMm, leftMm);
+    format.setProperty(kPageRightMm, rightMm);
+    format.setProperty(kPageHeaderMm, headerMm);
+    format.setProperty(kPageFooterMm, footerMm);
+    doc->rootFrame()->setFrameFormat(format);
 }
 
 bool PageLayout::operator==(const PageLayout &other) const

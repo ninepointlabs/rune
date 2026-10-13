@@ -2,7 +2,7 @@
 
 // PageParts: what headers and footers are made of beyond plain text.
 //
-// A header or footer is its own QTextDocument (see DocumentController). A
+// A header or footer is its own QTextDocument (see HeaderFooter). A
 // page number or page count in it is a field: one object character
 // (QChar::ObjectReplacementCharacter) whose format has object type
 // kFieldObject and says which field it is. PageFieldHandler draws it, as

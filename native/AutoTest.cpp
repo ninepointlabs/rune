@@ -5,6 +5,7 @@
 #include "DocumentController.h"
 #include "DocxBridge.h"
 #include "OdfReader.h"
+#include "OdfWriter.h"
 #include "PageLayout.h"
 #include "PageParts.h"
 
@@ -589,7 +590,7 @@ bool runAutoTest(QQuickWindow *window)
     t.check(sdoc->blockCount() == blocksBefore, "save left the live document unchanged");
 
     std::unique_ptr<QTextDocument> copy(sdoc->clone());
-    DocumentController::sanitizeForOdfExport(copy.get());
+    OdfWriter::sanitize(copy.get());
     const QTextBlock separator = blockBeforeFirstTable(copy.get());
     t.check(separator.isValid() && !separator.textList() && separator.text().isEmpty(),
             "sanitized copy: empty non-list paragraph between list and table");
@@ -1249,7 +1250,7 @@ bool runAutoTest(QQuickWindow *window)
     // What actually goes into the file: the sanitizer adds an empty
     // paragraph between the list and the table.
     std::unique_ptr<QTextDocument> exported(doc->clone());
-    DocumentController::sanitizeForOdfExport(exported.get());
+    OdfWriter::sanitize(exported.get());
     const QString docxExpected = exported->toPlainText();
 
     QStringList savePaths;

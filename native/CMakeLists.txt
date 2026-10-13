@@ -37,8 +37,13 @@ qt_add_qml_module(rune
     VERSION 1.0
     QML_FILES Main.qml ToolButton.qml ToolMenu.qml ThemedMenu.qml MenuEntry.qml MenuDivider.qml AlignIcon.qml
               FileMenu.qml FontPicker.qml ColorPicker.qml CommandPalette.qml PageSetup.qml UnsavedChangesDialog.qml AiPanel.qml
-    SOURCES DocumentController.h DocumentController.cpp OdfReader.h OdfReader.cpp PageLayout.h PageLayout.cpp PageParts.h PageParts.cpp PagePartView.h PagePartView.cpp
-            DocxBridge.h DocxBridge.cpp
+    SOURCES DocumentController.h DocumentController.cpp PagePartView.h PagePartView.cpp
+            document/EditState.h document/EditState.cpp document/CharFormatter.h document/CharFormatter.cpp
+            document/Lists.h document/Lists.cpp document/Tables.h document/Tables.cpp
+            document/StreamedEdit.h document/StreamedEdit.cpp document/HeaderFooter.h document/HeaderFooter.cpp
+            document/PageLayout.h document/PageLayout.cpp document/PageParts.h document/PageParts.cpp
+            formats/OdfReader.h formats/OdfReader.cpp formats/OdfWriter.h formats/OdfWriter.cpp
+            formats/DocxBridge.h formats/DocxBridge.cpp
             ai/AiManager.h ai/AiManager.cpp ai/AiProvider.h ai/AiProvider.cpp
             ai/ChatGptProvider.h ai/ChatGptProvider.cpp ai/OpenRouterProvider.h ai/OpenRouterProvider.cpp
             ai/AiStorage.h ai/SystemAiStorage.cpp ai/OAuthLoopback.h ai/OAuthLoopback.cpp
@@ -47,7 +52,7 @@ qt_add_qml_module(rune
 
 target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Network Qt6::Test QuaZip::QuaZip
                                    OpenSSL::Crypto PkgConfig::LIBSECRET)
-target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ai)
+target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} document formats ai)
 
 # --auto-test opens samples/test.docx from the repo.
 target_compile_definitions(rune PRIVATE RUNE_SAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../samples")

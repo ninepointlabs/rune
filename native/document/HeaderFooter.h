@@ -1,0 +1,80 @@
+#pragma once
+
+// HeaderFooter: the header and footer, documents of their own, the same on
+// every page but for their page number fields (PageParts).
+//
+// PagePartView draws them on each page (paint()); a TextEdit each edits them
+// in place (install()), with its own undo history. Heights are of their
+// content, in pixels; each sits centred in its margin, headerYPx() /
+// footerYPx() below the page's top edge (so a bigger font grows it both
+// ways). Saving writes those distances (odfStyles()), so other word
+// processors place them the same.
+
+#include "PageLayout.h"
+
+#include <QByteArray>
+#include <QColor>
+#include <QObject>
+
+class QFont;
+class QPainter;
+class QQuickTextDocument;
+class QTextDocument;
+
+class HeaderFooter : public QObject
+{
+    Q_OBJECT
+
+public:
+    // Both start empty, their unformatted text in `font`.
+    HeaderFooter(const QFont &font, QObject *parent = nullptr);
+
+    // The header (`footer` false) or footer document.
+    QTextDocument *document(bool footer) const { return footer ? m_footer : m_header; }
+    bool has(bool footer) const;
+    qreal heightPx(bool footer) const;
+    qreal headerYPx(const PageLayout &layout) const;
+    qreal footerYPx(const PageLayout &layout) const;
+
+    // Installs the header or footer document into a TextEdit's document
+    // wrapper, laid out for `layout`.
+    void install(bool footer, QQuickTextDocument *qmlDocument, const PageLayout &layout);
+    // Inserts a page number (or with `count`, page count) field at
+    // `position` in the header or footer, formatted like the text there;
+    // returns the position after it.
+    int insertPageField(bool footer, int position, bool count);
+    // What fields show in the TextEdits: `page`'s numbers, in `color`.
+    void setEditing(int page, const QColor &color);
+    // The page count fields show (and size themselves for).
+    void setPageCount(int pages);
+    // Both laid out at `layout`'s text width, with tab stops at its centre
+    // and right edge.
+    void syncWidths(const PageLayout &layout);
+    // `layout` with its top and bottom margins grown where the header or
+    // footer needs more room: at least 3 mm either side of it.
+    PageLayout withRoom(PageLayout layout) const;
+    // Draws the header or footer as on `page` (1-based), text in `color`
+    // unless formatted otherwise.
+    void paint(QPainter *painter, bool footer, int page, const QColor &color);
+
+    // Empties both, unmodified with no history.
+    void clear();
+    bool isModified() const;
+    void setModified(bool modified);
+
+    // A styles.xml for `layout` with the header and footer where they are
+    // drawn (see PageLayout::odfStyles()).
+    QByteArray odfStyles(PageLayout layout) const;
+
+signals:
+    // Content, height or emptiness changed.
+    void changed();
+
+private:
+    QTextDocument *m_header;
+    QTextDocument *m_footer;
+    // The page the TextEdits show fields for, and their color.
+    int m_editPage = 1;
+    QColor m_editColor = Qt::black;
+    int m_pageCount = 1;
+};

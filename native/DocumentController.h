@@ -3,6 +3,12 @@
 // DocumentController: owns Rune's QTextDocument and exposes editing and
 // save operations to QML.
 //
+// The QML-facing facade: each feature's logic lives in document/ (character
+// formatting, lists, tables, streamed edits, header and footer, page
+// layout) and formats/ (reading and writing files); this class routes QML's
+// calls to them, keeps the open file's lifecycle (new, open, save, .docx
+// conversion, dirty state, current path) and emits what changed.
+//
 //   TextEdit { id: editor; textFormat: TextEdit.RichText }
 //   DocumentController { id: controller }
 //   Component.onCompleted: controller.document = editor.textDocument
@@ -15,17 +21,18 @@
 // than a binding so the TextEdit's own initialisation (text, textFormat)
 // has already run and can't reset the installed document.
 //
-// Selection: QML can't hand C++ a QTextCursor, so the TextEdit reports its
-// cursor/selection via setSelection() and the controller builds a QTextCursor
-// on its own document on demand; when an operation must move the cursor
-// (into a new table cell, Tab between cells) the controller emits
-// cursorPositionRequested() for the TextEdit to apply. Character formatting (toggles, font,
-// size, color) with a collapsed cursor inside a word formats that word;
-// elsewhere it arms a pending format that is applied to the next text typed
-// at that position. Paragraph formatting (alignment, lists) applies to every
-// block the selection touches, or the cursor's block.
+// Selection: the TextEdit reports its cursor/selection via setSelection()
+// (see EditState); when an operation must move the cursor (into a new table
+// cell, Tab between cells) the controller emits cursorPositionRequested()
+// for the TextEdit to apply. Character formatting: see CharFormatter.
+// Paragraph formatting (alignment, lists) applies to every block the
+// selection touches, or the cursor's block.
 
+#include "CharFormatter.h"
+#include "EditState.h"
+#include "Lists.h"
 #include "PageLayout.h"
+#include "StreamedEdit.h"
 
 #include <QFuture>
 #include <QObject>
@@ -38,11 +45,9 @@
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QTextDocument>
-#include <QTextListFormat>
-#include <QTextTableFormat>
 
+class HeaderFooter;
 class QPainter;
-class QTextList;
 
 class DocumentController : public QObject
 {
@@ -73,14 +78,9 @@ class DocumentController : public QObject
     // pages the document fills: the editor's page view.
     Q_PROPERTY(QSizeF pageSizePx READ pageSizePx NOTIFY pageLayoutChanged)
     Q_PROPERTY(int pageCount READ pageCount NOTIFY pageCountChanged)
-    // The header and footer: documents of their own, the same on every page
-    // but for their page number fields (PageParts). PagePartView draws them
-    // on each page; a TextEdit each edits them in place (setPartDocument()),
-    // with its own undo history (the TextEdit's own Ctrl+Z). `dirty` counts
-    // their edits too. Heights are of their content, in pixels; each sits
-    // centred in its margin, headerYPx / footerYPx below the page's top
-    // edge (so a bigger font grows it both ways). Saving writes those
-    // distances, so other word processors place them the same.
+    // The header and footer (see HeaderFooter). `dirty` counts their edits
+    // too. Heights are of their content, in pixels; headerYPx / footerYPx
+    // are below the page's top edge.
     Q_PROPERTY(bool hasHeader READ hasHeader NOTIFY pagePartsChanged)
     Q_PROPERTY(bool hasFooter READ hasFooter NOTIFY pagePartsChanged)
     Q_PROPERTY(qreal headerHeightPx READ headerHeightPx NOTIFY pagePartsChanged)
@@ -105,17 +105,14 @@ public:
     void setQmlDocument(QQuickTextDocument *qmlDocument);
     QTextDocument *textDocument() const { return m_document; }
 
-    bool isDirty() const
-    {
-        return m_document->isModified() || m_header->isModified() || m_footer->isModified();
-    }
+    bool isDirty() const;
     QString currentPath() const { return m_currentPath; }
     bool isBusy() const { return m_busy; }
     bool isLoading() const { return m_loading; }
-    bool canUndo() const { return m_target->isUndoAvailable(); }
-    bool canRedo() const { return m_target->isRedoAvailable(); }
-    bool hasSelection() const { return m_selectionStart != m_selectionEnd; }
-    bool isStreamingEdit() const { return m_streaming; }
+    bool canUndo() const { return m_edit.target->isUndoAvailable(); }
+    bool canRedo() const { return m_edit.target->isRedoAvailable(); }
+    bool hasSelection() const { return m_edit.hasSelection(); }
+    bool isStreamingEdit() const { return m_stream.isActive(); }
     PageLayout pageLayout() const;
     QVariantMap pageLayoutMap() const { return pageLayout().toMap(); }
     QSizeF pageSizePx() const { return pageLayout().sizePx(); }
@@ -128,7 +125,7 @@ public:
     Q_INVOKABLE void setPageLayout(const QVariantMap &layout);
 
     // The header (`footer` false) or footer document.
-    QTextDocument *partDocument(bool footer) const { return footer ? m_footer : m_header; }
+    QTextDocument *partDocument(bool footer) const;
     bool hasHeader() const;
     bool hasFooter() const;
     qreal headerHeightPx() const;
@@ -215,38 +212,17 @@ public:
 
     // The document as Markdown around the selection (or the cursor, where
     // `selection` is ""): what an AI request sends as context.
-    struct MarkdownContext
-    {
-        QString before, selection, after;
-    };
-    MarkdownContext markdownContext() const;
+    using MarkdownContext = StreamedEdit::MarkdownContext;
+    MarkdownContext markdownContext() const { return m_stream.markdownContext(); }
 
-    // A streamed edit: an AI reply changing the document as it arrives, all
-    // of it ONE undo step. Typing, undo and other edits are refused while
-    // one is open; nothing changes until the reply's first piece.
-    //
-    // beginStreamedEdit() opens it on the current selection or cursor
-    // (false, doing nothing, while busy or already streaming). Then either:
-    //  - New text: appendStreamedText() replaces the selection (first call)
-    //    or writes at the cursor, as plain text as it arrives; then
-    //    finishStreamedEdit() replaces all of it with `markdown` converted
-    //    to formatting (headings, lists, emphasis, tables; a paragraph that
-    //    is only a non-breaking space becomes an empty one).
-    //  - Changes to existing text: applyStreamedReplacement() for each
-    //    (find, replace) pair, within the selection if there was one, else
-    //    the whole document; see there.
-    // abortStreamedEdit() closes it, keeping what was done, or reverting the
-    // document to exactly how it was.
+    // A streamed edit: an AI reply changing the document as it arrives (see
+    // StreamedEdit). Typing, undo and other edits are refused while one is
+    // open. beginStreamedEdit() is false, doing nothing, while busy, already
+    // streaming, or editing the header or footer.
     bool beginStreamedEdit();
     void appendStreamedText(const QString &text);
     void finishStreamedEdit(const QString &markdown);
-    // Replaces `find` with `replace` (plain text; "\n" is a paragraph
-    // break). `find` is matched exactly, else ignoring Markdown markup and
-    // differences in whitespace; the first match at or after the previous
-    // replacement wins, else the first in scope. Only the characters that
-    // differ are rewritten, so the formatting of the rest is kept; new empty
-    // paragraphs are left out of any list. False if `find` isn't there (or
-    // spans a table boundary), changing nothing.
+    // False if `find` isn't there, changing nothing.
     bool applyStreamedReplacement(const QString &find, const QString &replace);
     void abortStreamedEdit(bool keepText);
 
@@ -265,8 +241,7 @@ public:
     Q_INVOKABLE void setAlignment(Qt::Alignment alignment);
     Q_INVOKABLE int currentAlignment() const;
 
-    // Lists. Nested bullet levels use disc/circle/square, all of which count
-    // as "bullet"; numbered lists are decimal at every level.
+    // Lists (see Lists).
     Q_INVOKABLE void toggleBulletList();
     Q_INVOKABLE void toggleNumberedList();
     Q_INVOKABLE bool isInBulletList() const;
@@ -275,9 +250,7 @@ public:
     Q_INVOKABLE void promoteListItem();
     Q_INVOKABLE void demoteListItem();
 
-    // Font and color: queries report the first selected character, or what
-    // typing at the cursor would produce; unset values report the
-    // document's default font and "auto".
+    // Font and color (see CharFormatter).
     Q_INVOKABLE void setFontFamily(const QString &family);
     Q_INVOKABLE QString currentFontFamily() const;
     Q_INVOKABLE void setFontSize(qreal pointSize);
@@ -285,12 +258,10 @@ public:
     // "#RRGGBB", or "auto" to remove any explicit color.
     Q_INVOKABLE void setTextColor(const QString &hexColor);
     Q_INVOKABLE QString currentTextColor() const;
-    // The installed font families, as {family, preview}: preview is false
-    // when the family can't write its own Latin name (symbol, emoji and
-    // non-Latin fonts), so a picker shows that name in the UI font instead.
+    // The installed font families (see CharFormatter::installedFamilies()).
     Q_INVOKABLE QVariantList fontFamilies() const;
 
-    // Tables. insertTable() clamps rows/columns to 1..50 and puts the
+    // Tables (see Tables). insertTable() clamps rows/columns to 1..50 and puts the
     // cursor in the first cell. Row/column edits act on the cursor's cell
     // and do nothing outside a table; inserting keeps the cursor in its
     // cell; deleting never removes the last row or column (that's
@@ -311,17 +282,6 @@ public:
     // nothing.
     Q_INVOKABLE void nextTableCell();
     Q_INVOKABLE void previousTableCell();
-
-    // Rewrites `doc` so QTextDocumentWriter's ODF output is well-formed.
-    // Every ODF save must go through this; see the .cpp for each rule.
-    static void sanitizeForOdfExport(QTextDocument *doc);
-
-    // How lists and tables are represented, shared with OdfReader so an
-    // opened document has the structure the UI would have built.
-    enum class ListKind { None, Bullet, Numbered };
-    // The QTextListFormat style for a list of `kind` at nesting `indent` (1-based).
-    static QTextListFormat::Style listStyle(ListKind kind, int indent);
-    static QTextTableFormat tableFormat();
 
 signals:
     void documentChanged();
@@ -346,30 +306,20 @@ signals:
     void cursorPositionRequested(int position);
 
 private:
-    enum class Attr { Bold, Italic, Underline };
-
-    static bool hasAttr(const QTextCharFormat &f, Attr attr);
-    static void setAttr(QTextCharFormat &f, Attr attr, bool on);
-    QTextCursor selectionCursor() const;
-    bool attrState(Attr attr) const;
-    void toggle(Attr attr);
-    void applyCharFormat(const QTextCharFormat &change, bool clearForeground = false);
-    QTextCharFormat currentCharFormat() const;
-    void clearPending();
+    void toggle(CharFormatter::Attr attr);
+    // Emits formatChanged(), and cursorPositionRequested() for `position`
+    // unless it is -1.
+    void moved(int position);
     void onContentsChange(int position, int removed, int added);
     // Emits dirtyChanged() when isDirty() differs from what was last reported.
     void updateDirty();
-
-    static ListKind listKind(const QTextList *list);
-    QList<QTextBlock> selectedBlocks() const;
-    ListKind currentListKind() const;
-    void toggleList(ListKind kind);
+    // Whether list and table edits act: only on the body (see
+    // setEditTarget()).
+    bool editsBody() const { return m_edit.editingBody(); }
+    void toggleList(Lists::Kind kind);
     void changeListLevel(int delta);
-
     void editTable(bool rows, bool insert, bool before = false);
     void stepHistory(bool undo);
-    // The next typeText() starts a new undo step.
-    void endTypingStep() { m_typingEnd = -1; }
 
     // After openOdf()/saveToOdf() of a temporary .odt ran with signals
     // blocked: point currentPath at the real file and emit what changed
@@ -385,18 +335,8 @@ private:
     void setBusy(bool busy, bool loading = false);
     // Writes `layout` into the root frame format (an undo step of its own).
     void writePageLayout(const PageLayout &layout);
-    // The header and footer laid out at `layout`'s text width, with tab
-    // stops at its centre and right edge.
-    void syncPartWidths(const PageLayout &layout);
-    // `layout` with its top and bottom margins grown where the header or
-    // footer needs more room.
-    PageLayout withRoomForParts(PageLayout layout) const;
-    // Empties the header and footer, unmodified with no history.
-    void clearParts();
     // Every document (body, header, footer) marked modified or not.
     void setAllModified(bool modified);
-    // The styles.xml saveToOdf() writes: page layout, header and footer.
-    QByteArray odfStyles() const;
     // After any change: keeps the document paginated at the page size (the
     // TextEdit resets the page height whenever its width changes) and
     // reports layout and page-count changes.
@@ -408,13 +348,10 @@ private:
     void finishOpen(const QString &path, const Conversion &result);
 
     QTextDocument *m_document;
-    QTextDocument *m_header;
-    QTextDocument *m_footer;
-    QTextDocument *m_target; // see setEditTarget()
-    // The page the header and footer TextEdits show fields for, and their
-    // color (see setPartEditing()).
-    int m_editPage = 1;
-    QColor m_editColor = Qt::black;
+    HeaderFooter *m_parts;
+    EditState m_edit;
+    CharFormatter m_format;
+    StreamedEdit m_stream;
     QPointer<QQuickTextDocument> m_qmlDocument;
     QString m_currentPath;
     bool m_busy = false;
@@ -424,51 +361,9 @@ private:
     // What pageLayoutChanged()/pageCountChanged() last reported.
     PageLayout m_reportedLayout;
     int m_pageCount = 1;
-    // The streamed edit in progress (see beginStreamedEdit()): its
-    // selection when it began, the text it has written so far (start -1:
-    // none yet), where the next replacement search starts, the format new
-    // text gets, and whether its undo step exists yet.
-    bool m_streaming = false;
-    int m_streamSelStart = 0;
-    int m_streamSelEnd = 0;
-    bool m_streamHadSelection = false;
-    int m_streamStart = -1;
-    int m_streamEnd = -1;
-    int m_streamSearchFrom = 0;
-    QTextCharFormat m_streamFormat;
-    bool m_streamHasStep = false;
-    // Opens (or joins) the edit's undo step on `cursor`.
-    void openStreamStep(QTextCursor &cursor);
-    // The first appendStreamedText()/finishStreamedEdit(): removes the
-    // selection and sets where new text goes.
-    void startStreamedText();
     // isDirty() as last reported by dirtyChanged(); see updateDirty().
     bool m_dirty = false;
-    // Bumped on every document edit, so a background .docx save can tell
-    // whether what it wrote is still what's in the document.
-    quint64 m_contentRevision = 0;
     // The open conversion in flight, if any, so the destructor can still
     // remove its temporary .odt.
     QFuture<Conversion> m_pendingOpen;
-
-    int m_cursorPosition = 0;
-    int m_selectionStart = 0;
-    int m_selectionEnd = 0;
-
-    // Format armed by a toggle with no selection and no word to apply it
-    // to; merged onto the next insertion at m_pendingPosition. A pending
-    // "auto" color can't be expressed as a merge, hence the separate flag.
-    QTextCharFormat m_pendingFormat;
-    bool m_pendingClearForeground = false;
-    int m_pendingPosition = -1;
-    // The typing undo step typeText() is extending: where its text ends,
-    // whether that text ended in whitespace, and m_contentRevision after it
-    // (any other edit since starts a new step). -1: none.
-    int m_typingEnd = -1;
-    bool m_typingEndsInSpace = false;
-    quint64 m_typingRevision = 0;
-
-    // Set while the controller edits the document itself, so those
-    // contentsChange()s aren't taken for typing.
-    bool m_selfEdit = false;
 };

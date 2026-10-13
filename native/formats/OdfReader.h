@@ -7,9 +7,9 @@
 // family, size and color, and paragraph alignment, from both content.xml's
 // automatic styles and styles.xml's named styles, following
 // style:parent-style-name chains; bullet and numbered lists, nested by level,
-// built the way DocumentController builds them; tables, including cell spans
-// and multi-paragraph and nested-table cells, in DocumentController's table
-// format.
+// built the way the UI builds them (Lists); tables, including cell spans
+// and multi-paragraph and nested-table cells, in the UI's table format
+// (Tables).
 //
 // Not read: a paragraph whose heading-ness comes only from its named style
 // gets the style's look (size, weight) but no heading level; styles.xml's
