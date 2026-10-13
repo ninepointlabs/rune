@@ -37,6 +37,8 @@ public:
         // Typing goes through DocumentController::typeText(), in word-sized
         // undo steps; elsewhere the TextEdit inserts it.
         WordUndoSteps = 0x8,
+        Headings = 0x10,
+        Citations = 0x20,
     };
     Q_DECLARE_FLAGS(Capabilities, Capability)
     static Capabilities capabilities(Kind kind);

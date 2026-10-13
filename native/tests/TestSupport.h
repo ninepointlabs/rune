@@ -561,6 +561,8 @@ void testHeaderFooter(Env &env);
 void testRegistries(Env &env);
 void testDocumentData(Env &env);
 void testOdfWriter(Env &env);
+void testAuthorTools(Env &env);
+void testCitations(Env &env);
 void testWindow(Env &env);
 
 } // namespace TestSupport

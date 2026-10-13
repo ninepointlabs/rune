@@ -154,6 +154,13 @@ QString OdfTextWriter::namedStyles()
         xml += QStringLiteral("<style:style style:name=\"%1\" style:display-name=\"Heading %2\" style:family=\"paragraph\" "
                               "style:default-outline-level=\"%2\" style:class=\"text\"/>")
                    .arg(headingStyleName(level)).arg(level);
+    // The bibliography's (Citations): a heading, and its entries.
+    xml += QStringLiteral("<style:style style:name=\"Bibliography_20_Heading\" style:display-name=\"Bibliography Heading\" "
+                          "style:family=\"paragraph\" style:parent-style-name=\"%1\" style:default-outline-level=\"1\" "
+                          "style:class=\"index\"/>"
+                          "<style:style style:name=\"Bibliography_20_1\" style:display-name=\"Bibliography 1\" "
+                          "style:family=\"paragraph\" style:class=\"index\"/>")
+               .arg(headingStyleName(1));
     return xml;
 }
 
@@ -253,7 +260,8 @@ QString OdfTextWriter::writeBlock(const QTextBlock &block)
                     content += odfText(QString(ch), afterSpace);
                     continue;
                 }
-                content += kind->toOdf(format);
+                InlineObjects::OdfContext context{m_doc, m_options.data};
+                content += kind->toOdf(format, context);
                 afterSpace = false;
             }
         } else {
@@ -293,7 +301,10 @@ QString OdfTextWriter::paragraphStyle(const QTextBlock &block)
         properties += QStringLiteral(" fo:break-after=\"page\"");
 
     const int heading = std::clamp(format.headingLevel(), 0, 6);
-    const QString parentName = heading > 0 ? headingStyleName(heading) : QString();
+    const int bibliography = format.intProperty(FormatIds::kBibliography);
+    const QString parentName = bibliography == 1 ? QStringLiteral("Bibliography_20_Heading")
+                             : bibliography == 2 ? QStringLiteral("Bibliography_20_1")
+                             : heading > 0 ? headingStyleName(heading) : QString();
     const QString parent = parentName.isEmpty() ? QString() : QStringLiteral(" style:parent-style-name=\"%1\"").arg(parentName);
     QString &name = m_paragraphStyles[parent + properties];
     if (name.isEmpty()) {

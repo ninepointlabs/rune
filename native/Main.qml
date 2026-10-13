@@ -144,6 +144,8 @@ Window {
     property real fontSize: 12
     property string textColor: "auto"
     property bool tableActive: false
+    // The cursor paragraph's heading level (0: body text).
+    property int headingLevel: 0
 
     // The page the body's cursor is on, from 1.
     function currentPage() {
@@ -161,6 +163,7 @@ Window {
         fontSize = controller.currentFontSize()
         textColor = controller.currentTextColor()
         tableActive = controller.isInTable()
+        headingLevel = controller.currentHeadingLevel()
     }
 
     // Steps the font size to the next preset up (+1) or down (-1).
@@ -280,6 +283,37 @@ Window {
         saveTo(path)
     }
 
+    // The body's cursor to `position` (the outline's sections), in view.
+    function goToPosition(position) {
+        finishPartEditing()
+        pageView.editor.forceActiveFocus()
+        pageView.editor.cursorPosition = position
+    }
+
+    // Insert citation (Ctrl+Shift+C).
+    function openCitationPicker() {
+        if (partEditing || controller.busy)
+            return
+        citationPicker.openPicker()
+    }
+
+    function insertBibliography() {
+        if (partEditing)
+            return
+        if (!controller.insertBibliography())
+            flash("The bibliography is up to date")
+    }
+
+    // A brief status-bar message.
+    function flash(message) {
+        statusFlash = message
+        flashTimer.restart()
+    }
+
+    function showSidebar(tab) {
+        sidebar.show(tab)
+    }
+
     // Back to the body's text, after a menu or dialog closes.
     function focusEditor() {
         pageView.editor.forceActiveFocus()
@@ -357,6 +391,7 @@ Window {
     DocumentController {
         id: controller
         objectName: "controller"
+        inkColor: root.theme.foreground
         onFormatChanged: root.refreshFormat()
         onCursorPositionRequested: position => root.activeEditor().cursorPosition = position
     }
@@ -465,6 +500,12 @@ Window {
     Shortcut { sequences: [StandardKey.Bold]; onActivated: controller.toggleBold() }
     Shortcut { sequences: [StandardKey.Italic]; onActivated: controller.toggleItalic() }
     Shortcut { sequences: [StandardKey.Underline]; onActivated: controller.toggleUnderline() }
+    // Paragraph styles: body text and headings (chapters, scenes).
+    Shortcut { sequences: ["Ctrl+Alt+0"]; onActivated: controller.setHeadingLevel(0); enabled: !root.partEditing }
+    Shortcut { sequences: ["Ctrl+Alt+1"]; onActivated: controller.setHeadingLevel(1); enabled: !root.partEditing }
+    Shortcut { sequences: ["Ctrl+Alt+2"]; onActivated: controller.setHeadingLevel(2); enabled: !root.partEditing }
+    Shortcut { sequences: ["Ctrl+Alt+3"]; onActivated: controller.setHeadingLevel(3); enabled: !root.partEditing }
+    Shortcut { sequences: ["Ctrl+Shift+C"]; onActivated: root.openCitationPicker(); enabled: !root.partEditing }
 
     Toolbar {
         id: toolbar
@@ -472,6 +513,28 @@ Window {
         appRoot: root
         controller: controller
         aiPanel: aiPanel
+        sidebar: sidebar
+    }
+
+    Sidebar {
+        id: sidebar
+        objectName: "sidebar"
+        anchors { left: parent.left; top: toolbar.bottom; bottom: statusBar.top }
+        width: Math.min(320, root.width * 0.35)
+        visible: false
+        appRoot: root
+        controller: controller
+        onCloseRequested: {
+            visible = false
+            root.focusEditor()
+        }
+    }
+
+    CitationPicker {
+        id: citationPicker
+        objectName: "citationPicker"
+        appRoot: root
+        controller: controller
     }
 
     Commands {
@@ -480,6 +543,7 @@ Window {
         controller: controller
         toolbar: toolbar
         aiPanel: aiPanel
+        sidebar: sidebar
     }
 
 
@@ -516,7 +580,7 @@ Window {
 
     PageView {
         id: pageView
-        anchors { left: parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
+        anchors { left: sidebar.visible ? sidebar.right : parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
                   top: toolbar.bottom; bottom: statusBar.top }
         appRoot: root
         controller: controller

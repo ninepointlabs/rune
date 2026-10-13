@@ -217,7 +217,9 @@ QString AiManager::instructions()
 {
     return QStringLiteral("You are the writing assistant built into Rune, a word processor. "
                           "Be concise and write in plain prose unless asked otherwise. "
-                          "When the user's document is provided, use it to answer questions about it.");
+                          "When the user's document is provided, use it to answer questions about it. It may come "
+                          "with the author's story notes (characters, places, research) and the document's "
+                          "sources, as JSON; citations in the text look like [@key], key being a source's id.");
 }
 
 QString AiManager::editInstructions()
@@ -246,7 +248,20 @@ QString AiManager::editInstructions()
         "after the insertion point.\n\n"
         "Choose CHANGES whenever the instruction is about correcting or adjusting what is already written, "
         "and NEW TEXT when it asks for new content. Match the document's language, tone and conventions "
-        "unless told otherwise.");
+        "unless told otherwise.\n\n"
+        "CITATIONS: the document's sources are listed in <story_data> as a ```sources block of CSL-JSON, each "
+        "with an \"id\". Cite one in text as [@id], several as [@id1; @id2], with a page as [@id, p. 12]; Rune "
+        "formats them in the document's citation style and keeps the bibliography. To cite a source that isn't "
+        "listed, add it: after your text (or after your change blocks), write a ```sources block with a JSON "
+        "array of CSL-JSON items (id, type, title, author [{family, given}], issued {\"date-parts\": [[year]]}, "
+        "container-title, publisher, volume, issue, page, DOI, URL). Only add sources you are sure exist, with "
+        "their real details; never invent one. They are marked unreviewed until the author checks them.\n\n"
+        "STORY NOTES: the author's notes on characters, places and research are in <story_data> as a ```notes "
+        "block (a JSON array of {id, kind, name, text}, kind \"character\", \"place\" or \"research\"). When "
+        "your text introduces a character or place, or changes what is known about one, update the notes: "
+        "after your text, a ```notes block with a JSON array of just the new or changed notes (an existing "
+        "note's id to change it). Don't repeat unchanged notes. Data blocks go at the very end of the answer, "
+        "and are the only code blocks you may write.");
 }
 
 void AiManager::setDocument(DocumentController *document)
@@ -301,6 +316,9 @@ QString AiManager::documentContext() const
     else
         out += QStringLiteral("<selection>\n") + context.selection + QStringLiteral("\n</selection>\n");
     out += QStringLiteral("<document_after>\n") + head(context.after, kContextChars) + QStringLiteral("\n</document_after>");
+    const QString data = m_document->agentData();
+    if (!data.isEmpty())
+        out += QStringLiteral("\n<story_data>\n") + data + QStringLiteral("</story_data>");
     return out;
 }
 
@@ -357,6 +375,7 @@ bool AiManager::edit(const QString &instruction)
     m_editText.clear();
     m_editKind = EditKind::Undecided;
     m_editParsed = 0;
+    m_editShown = 0;
     m_editApplied = m_editMissed = 0;
     setCanUndoEdit(false);
     m_transcript.append(QVariantMap{{QStringLiteral("role"), QStringLiteral("user")},
@@ -439,14 +458,25 @@ void AiManager::onEditDelta(const QString &text)
         if (lead.isEmpty() || (lead.size() < kChangesMarker.size() && kChangesMarker.startsWith(lead)))
             return; // can't tell yet
         m_editKind = lead.startsWith(kChangesMarker) ? EditKind::Changes : EditKind::Text;
-        piece = m_editText; // everything so far
     }
     if (!m_document)
         return;
-    if (m_editKind == EditKind::Text)
-        m_document->appendStreamedText(piece);
-    else
+    if (m_editKind == EditKind::Text) {
+        // Up to the first code fence (a data block, which isn't text), and
+        // not a trailing backtick that may start one.
+        qsizetype end = m_editText.indexOf(QStringLiteral("```"));
+        if (end < 0) {
+            end = m_editText.size();
+            while (end > m_editShown && m_editText.at(end - 1) == u'`')
+                --end;
+        }
+        if (end > m_editShown) {
+            m_document->appendStreamedText(m_editText.mid(m_editShown, end - m_editShown));
+            m_editShown = end;
+        }
+    } else {
         applyCompleteChanges();
+    }
 }
 
 void AiManager::applyCompleteChanges()
@@ -470,9 +500,35 @@ void AiManager::applyCompleteChanges()
 }
 
 // The reply is complete: finish the document edit and say what happened.
+QString AiManager::applyDataBlocks()
+{
+    static const QRegularExpression block(QStringLiteral("```[ \\t]*(notes|sources)[ \\t]*\\n(.*?)```"),
+                                          QRegularExpression::DotMatchesEverythingOption);
+    QStringList summary;
+    for (auto it = block.globalMatch(m_editText); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        const int changed = m_document ? m_document->applyAgentData(m.captured(1), m.captured(2)) : 0;
+        if (changed == 0)
+            continue;
+        if (m.captured(1) == QLatin1String("sources"))
+            summary << (changed == 1 ? tr("added 1 source (unreviewed: check it in Sources)")
+                                     : tr("added %1 sources (unreviewed: check them in Sources)").arg(changed));
+        else
+            summary << (changed == 1 ? tr("updated 1 story note") : tr("updated %1 story notes").arg(changed));
+    }
+    m_editText.remove(block);
+    if (summary.isEmpty())
+        return {};
+    QString text = summary.join(QStringLiteral("; "));
+    text[0] = text[0].toUpper();
+    return text + QLatin1Char('.');
+}
+
 void AiManager::finishEdit()
 {
     m_editing = false;
+    // Notes and sources first: the text may cite the sources.
+    const QString dataSummary = applyDataBlocks();
     if (m_editKind == EditKind::Undecided && !m_editText.trimmed().isEmpty()) {
         m_editKind = EditKind::Text; // a reply too short to tell: it's text
         if (m_document)
@@ -506,6 +562,8 @@ void AiManager::finishEdit()
             : replacing ? tr("Replaced the selection (%1).").arg(wordCount(words))
                         : tr("Inserted %1 at the cursor.").arg(wordCount(words));
     }
+    if (!dataSummary.isEmpty())
+        summary = (changed ? summary + QLatin1Char(' ') : QString()) + dataSummary;
     QVariantMap last = m_transcript.last().toMap();
     last.insert(QStringLiteral("text"), summary);
     m_transcript.last() = last;

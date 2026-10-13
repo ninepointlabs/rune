@@ -1,6 +1,6 @@
 # Rune — Modularity Plan
 
-**Status:** All four stages done
+**Status:** All four stages done; author tooling and citations built on them (2026-10-13)
 **Date:** 2026-10-13
 
 Rune will grow features that cut across the whole editor: citations and a
@@ -305,4 +305,40 @@ Stages 1, 2 and 4 are independent enough to interleave; 3 needs 2.
     Someone editing in Word sees text, not live citations. *Not verified
     yet:* how LibreOffice's `.docx` conversion treats the objects; checked
     when stage 3 writes them.
+
+## Built on it: author tooling and citations (2026-10-13)
+
+Both features went in as modules of the structure above:
+- **`document/`:**
+  - `Outline`: sections from headings, word counts, moving a section.
+  - `StoryNotes`: the "notes" store.
+  - `Sources`: CSL-JSON, ids, BibTeX.
+  - `CitationStyles`: APA 7, MLA 9, Chicago author-date, IEEE.
+  - `Citations`: the inline object kind, the rendering engine, the
+    bibliography, resolving saved citations.
+- **`SourceLinks`** (app layer): DOI and URL checks.
+- **QML:** `Sidebar` (`OutlinePanel`, `NotesPanel`, `SourcesPanel`) and
+  `CitationPicker`.
+
+The registries took them without special cases elsewhere:
+- **Inline objects:** a citation is an inline object kind. The kind
+  gained an ODF writer context (the document and the stores being saved),
+  bookmark ranges for kinds saved as text between bookmarks, a Markdown
+  hook for the AI, and the format properties typed text must not inherit.
+- **Parts:** two new part capabilities, `Headings` and `Citations`.
+- **Data stores:** notes, sources, the citation settings, and what saved
+  citations cite (`citations`, written at save time).
+
+Saving a citation was decided by experiment, not assumption.
+LibreOffice's own bibliography marks don't survive `.docx`: the text is
+replaced by the title and the identifier is mangled. Reference marks are
+dropped entirely. Bookmarks survive both ways with their names and text, so
+a citation is its rendered text between `_RuneCite<n>` bookmarks, plus a
+`citations` store saying what each `<n>` cites.
+
+The bibliography is ordinary paragraphs in the "Bibliography Heading" and
+"Bibliography 1" styles. Rune updates them as a follow-up undo step, which
+undo and redo take together with the edit that caused it.
+
+481 checks on Arch and in Debian 13.
 

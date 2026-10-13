@@ -1,6 +1,7 @@
 #include "CharFormatter.h"
 
 #include "EditState.h"
+#include "InlineObjects.h"
 
 #include <QColor>
 #include <QDebug>
@@ -245,7 +246,8 @@ int CharFormatter::typeText(const QString &text)
 {
     QTextCursor cursor = m_state.selectionCursor();
     const bool pending = m_pendingPosition >= 0 && m_pendingPosition == cursor.position() && !cursor.hasSelection();
-    QTextCharFormat format = cursor.charFormat();
+    // Right after a citation or field: its look, not the object itself.
+    QTextCharFormat format = InlineObjects::withoutObject(cursor.charFormat());
     if (pending) {
         format.merge(m_pendingFormat);
         if (m_pendingClearForeground)

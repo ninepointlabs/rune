@@ -30,11 +30,12 @@ InlineObjects::Kind PageParts::fieldKind()
     kind.objectType = kFieldObject;
     kind.allowedIn = {DocumentParts::Kind::PageMargin};
     kind.install = [](QTextDocument *doc) { PageFieldHandler::install(doc); };
-    kind.toOdf = [](const QTextFormat &format) {
+    kind.toOdf = [](const QTextFormat &format, InlineObjects::OdfContext &) {
         return format.intProperty(kFieldKind) == int(Field::PageNumber)
             ? QStringLiteral("<text:page-number text:select-page=\"current\">1</text:page-number>")
             : QStringLiteral("<text:page-count>1</text:page-count>");
     };
+    kind.formatProperties = {kFieldKind, QTextFormat::TextVerticalAlignment};
     kind.odfElements = {{textNs, QStringLiteral("page-number")}, {textNs, QStringLiteral("page-count")}};
     kind.fromOdf = [](const QString &name, const QTextCharFormat &base) {
         return fieldFormat(base, name == QLatin1String("page-number") ? Field::PageNumber : Field::PageCount);

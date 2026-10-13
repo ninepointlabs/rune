@@ -1,5 +1,6 @@
 #include "OdfWriter.h"
 
+#include "Citations.h"
 #include "OdfStyles.h"
 #include "OdfTextWriter.h"
 #include "Package.h"
@@ -27,13 +28,15 @@ QString mm(qreal value)
 // A header or footer's block elements, its styles added to `parts`; "" for
 // none. Its paragraphs get word processors' header tab stops: centre, then
 // right.
-QString pageMargin(const QTextDocument *doc, const QString &prefix, qreal textWidthMm, OdfStyles::Parts &parts)
+QString pageMargin(const QTextDocument *doc, const QString &prefix, qreal textWidthMm, OdfStyles::Parts &parts,
+                   DocumentData::Stores *data)
 {
     if (!doc || PageParts::isEmpty(doc))
         return {};
     OdfTextWriter::Options options;
     options.stylePrefix = prefix;
     options.textWidthMm = textWidthMm;
+    options.data = data;
     options.paragraphProperties = QStringLiteral("<style:tab-stops>"
                                                  "<style:tab-stop style:position=\"%1\" style:type=\"center\"/>"
                                                  "<style:tab-stop style:position=\"%2\" style:type=\"right\"/>"
@@ -52,7 +55,7 @@ QString dataEntryName(const QString &store)
     return QStringLiteral("Rune/") + store + QStringLiteral(".json");
 }
 
-QByteArray write(const Document &document)
+QByteArray write(Document &document)
 {
     if (!document.body) {
         qWarning() << "OdfWriter: no document to write";
@@ -61,8 +64,11 @@ QByteArray write(const Document &document)
     const PageLayout &layout = document.layout;
     const qreal textWidthMm = layout.widthMm - layout.leftMm - layout.rightMm;
 
+    // Rewritten by the objects saved now.
+    document.data.remove(Citations::kSavedStore);
     OdfTextWriter::Options options;
     options.textWidthMm = textWidthMm;
+    options.data = &document.data;
     OdfTextWriter body(options);
     const QString text = body.write(document.body);
     const QString content = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -73,8 +79,8 @@ QByteArray write(const Document &document)
                                 .arg(OdfTextWriter::namespaces(), body.automaticStyles(), text);
 
     OdfStyles::Parts parts;
-    parts.header = pageMargin(document.header, QStringLiteral("Header"), textWidthMm, parts);
-    parts.footer = pageMargin(document.footer, QStringLiteral("Footer"), textWidthMm, parts);
+    parts.header = pageMargin(document.header, QStringLiteral("Header"), textWidthMm, parts, &document.data);
+    parts.footer = pageMargin(document.footer, QStringLiteral("Footer"), textWidthMm, parts, &document.data);
 
     const QByteArray meta = QByteArrayLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                                               "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "

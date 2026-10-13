@@ -34,7 +34,8 @@ struct Document
 // Where a data store goes in the package.
 QString dataEntryName(const QString &store);
 
-// The .odt. Empty on failure, with a warning logged.
-QByteArray write(const Document &document);
+// The .odt. Empty on failure, with a warning logged. `document.data` ends
+// up as the stores written: inline objects add theirs (Citations).
+QByteArray write(Document &document);
 
 } // namespace OdfWriter

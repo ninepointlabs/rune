@@ -1,5 +1,6 @@
 #include "HeaderFooter.h"
 
+#include "InlineObjects.h"
 #include "PageParts.h"
 
 #include <QAbstractTextDocumentLayout>
@@ -75,10 +76,7 @@ int HeaderFooter::insertPageField(bool footer, int position, bool count)
     QTextCursor cursor(part);
     cursor.setPosition(std::clamp(position, 0, part->characterCount() - 1));
     // Formatted like the text before it, unless that is a field itself.
-    QTextCharFormat base = cursor.charFormat();
-    base.clearProperty(QTextFormat::ObjectType);
-    base.clearProperty(PageParts::kFieldKind);
-    base.clearProperty(QTextFormat::TextVerticalAlignment);
+    const QTextCharFormat base = InlineObjects::withoutObject(cursor.charFormat());
     cursor.insertText(QString(QChar::ObjectReplacementCharacter),
                       PageParts::fieldFormat(base, count ? PageParts::Field::PageCount : PageParts::Field::PageNumber));
     return cursor.position();

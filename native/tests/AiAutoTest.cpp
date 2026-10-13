@@ -3,6 +3,7 @@
 #include "AiManager.h"
 #include "AiStorage.h"
 #include "DocumentController.h"
+#include "SourceLinks.h"
 #include "OdfReader.h"
 #include "ChatGptProvider.h"
 #include "Jwt.h"
@@ -558,7 +559,9 @@ void runAiAutoTest(QQuickWindow *window, const Check &check)
     int chatStatus = 200;
     QByteArray nextChat; // the chat stream body; "" = the default "Hi there"
     bool chatHoldOpen = false; // leave that stream open (see HttpResponse::holdOpen)
-    server.routes.insert(QStringLiteral("POST /or/api/v1/chat/completions"), [&](const HttpRequest &) {
+    QByteArray lastChatBody; // the last chat request, as sent
+    server.routes.insert(QStringLiteral("POST /or/api/v1/chat/completions"), [&](const HttpRequest &request) {
+        lastChatBody = request.body;
         if (chatStatus != 200)
             return HttpResponse{chatStatus, "application/json", R"({"error":{"message":"nope"}})"};
         if (!nextChat.isEmpty()) {
@@ -945,6 +948,70 @@ void runAiAutoTest(QQuickWindow *window, const Check &check)
                 reopenedTable = t->rows() == 2 && t->cellAt(1, 1).firstCursorPosition().block().text() == QLatin1String("2");
         check(saved && read && reopenedTable && reopened.toPlainText().contains("Notes:"),
               "AI-written list + table saves to .odt and reads back with the table intact " + readError);
+        // Citations and story notes: the model sees the sources and notes,
+        // cites with [@key], and adds a source and a character in data
+        // blocks, which never reach the text.
+        controller->newDocument();
+        controller->addSource(QVariantMap{{"id", "smith2020"}, {"type", "book"}, {"title", "Harbours"},
+                                          {"author", QVariantList{QVariantMap{{"family", "Smith"}, {"given", "Jane"}}}},
+                                          {"issued", QVariantMap{{"date-parts", QVariantList{QVariantList{2020}}}}}});
+        controller->addNote(QStringLiteral("character"), QStringLiteral("Mara"), QStringLiteral("The narrator."));
+        controller->sourceLinks()->setDoiResolver(server.base() + QStringLiteral("/doi/"));
+        server.routes.insert(QStringLiteral("GET /doi/10.1/tides"), [](const HttpRequest &) {
+            return HttpResponse{200, "text/html", "<html>Tides</html>"};
+        });
+        controller->setSelection(0, 0, 0);
+        nextChat = chatStream({"Harbours shaped the town [@smith2020, p. 4], as tides did [@lee2018].\n\n",
+                               "```sources\n[{\"id\": \"lee2018\", \"type\": \"article-journal\", \"title\": \"Tides\", "
+                               "\"author\": [{\"family\": \"Lee\", \"given\": \"Ann\"}], \"issued\": {\"date-parts\": [[2018]]}, "
+                               "\"container-title\": \"Sea Journal\", \"DOI\": \"10.1/tides\"}]\n```\n",
+                               "```notes\n[{\"kind\": \"character\", \"name\": \"Old Ben\", \"text\": \"Keeps the lighthouse.\"}, "
+                               "{\"name\": \"Mara\", \"text\": \"The narrator, back from the city.\"}]\n```\n"});
+        run([&] { return ai->edit(QStringLiteral("Write a sentence citing sources")); });
+        const QString sentBody = QString::fromUtf8(lastChatBody);
+        check(sentBody.contains("<story_data>") && sentBody.contains("```sources") && sentBody.contains("smith2020")
+                  && sentBody.contains("```notes") && sentBody.contains("The narrator."),
+              "an edit request sends the sources and story notes as fenced JSON in <story_data>");
+        int citations = 0;
+        for (QTextBlock b = doc->begin(); b.isValid(); b = b.next())
+            for (auto it = b.begin(); !it.atEnd(); ++it)
+                if (it.fragment().charFormat().objectType() == QTextFormat::UserObject + 2)
+                    ++citations;
+        const QVariantList sources = controller->sources();
+        const auto source = [&](const QString &id) {
+            for (const QVariant &s : sources)
+                if (s.toMap().value("id") == id)
+                    return s.toMap();
+            return QVariantMap();
+        };
+        check(citations == 2 && !doc->toPlainText().contains("[@") && !doc->toPlainText().contains("```")
+                  && doc->toPlainText().startsWith("Harbours shaped the town"),
+              "both [@key]s became citations, and the data blocks never reached the text: \"" + doc->toPlainText() + "\"");
+        check(source("lee2018").value("unreviewed").toBool() && !source("smith2020").value("unreviewed").toBool(),
+              "the source the AI added is marked unreviewed; the author's own isn't");
+        const auto linkOf = [&](const QString &id) {
+            for (const QVariant &s : controller->sources())
+                if (s.toMap().value("id") == id)
+                    return s.toMap().value("link").toString();
+            return QString();
+        };
+        waitFor([&] { return !linkOf("lee2018").isEmpty(); });
+        check(linkOf("lee2018") == "ok", "its DOI was checked, and resolves: " + linkOf("lee2018"));
+        controller->applyAgentData(QStringLiteral("sources"),
+                                   QStringLiteral(R"([{"id": "ghost2021", "title": "Never Written", "DOI": "10.9/none"}])"));
+        waitFor([&] { return !linkOf("ghost2021").isEmpty(); });
+        check(linkOf("ghost2021") == "broken", "a source whose DOI doesn't resolve is marked broken: " + linkOf("ghost2021"));
+        QStringList noteNames;
+        QString maraText;
+        for (const QVariant &n : controller->notes()) {
+            noteNames << n.toMap().value("name").toString();
+            if (n.toMap().value("name") == "Mara")
+                maraText = n.toMap().value("text").toString();
+        }
+        check(noteNames == QStringList{"Mara", "Old Ben"} && maraText == "The narrator, back from the city.",
+              "the AI's notes: a new character added, an existing one updated by name: " + noteNames.join(", "));
+        check(transcriptText(ai).contains("dded 1 source (unreviewed") && transcriptText(ai).contains("updated 2 story notes"),
+              "the transcript says what changed besides the text: " + transcriptText(ai).section('\n', -1));
         nextChat.clear();
         ai->clearTranscript();
         controller->newDocument();

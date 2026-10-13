@@ -12,17 +12,20 @@ Rectangle {
     required property var appRoot   // the Main.qml Window instance
     required property DocumentController controller
     required property Item aiPanel
+    required property Item sidebar
     readonly property var theme: appRoot.theme
 
     // Toolbar groups that move into the ⋯ menu when the window is too
     // narrow, first to go first. The rest always stay on the toolbar.
-    readonly property var collapseOrder: ["table", "color", "align", "lists", "history"]
+    readonly property var collapseOrder: ["table", "color", "align", "lists", "heading", "history"]
     // The groups in the ⋯ menu now: as many from collapseOrder as it takes
     // for the toolbar (with the ⋯ button) to fit left of the AI button.
     readonly property var collapsedGroups: {
-        const groups = {history: historyGroup, lists: listsGroup, align: alignGroup, color: colorGroup, table: tableGroup}
+        const groups = {history: historyGroup, heading: headingGroup, lists: listsGroup, align: alignGroup, color: colorGroup,
+                        table: tableGroup}
         const gap = toolRow.spacing
         const room = width - toolRow.anchors.leftMargin - aiButton.width - aiButton.anchors.rightMargin - gap
+                     - sidebarButton.width - sidebarButton.anchors.rightMargin
         let used = fileGroup.width + styleGroup.width + fontGroup.width + 2 * gap
         for (const name of collapseOrder)
             used += groups[name].width + gap
@@ -41,7 +44,7 @@ Rectangle {
     readonly property real overflowWidth: overflowMenu.width + 1 + toolRow.spacing
     // File, Save, B/I/U, the font controls, ⋯ and AI: what never collapses.
     readonly property real minimumWidth: fileGroup.width + styleGroup.width + fontGroup.width + overflowWidth
-                                         + aiButton.width + 30
+                                         + aiButton.width + sidebarButton.width + 36
 
     // For the command palette and shortcuts.
     function openFileMenu() {
@@ -147,6 +150,45 @@ Rectangle {
                 label: "U"; underline: true; tip: "Underline (Ctrl+U)"
                 active: bar.appRoot.underlineActive
                 onClicked: bar.controller.toggleUnderline()
+            }
+        }
+
+        // The paragraph's style: body text or a heading (chapters, scenes).
+        Row {
+            id: headingGroup
+            enabled: !bar.appRoot.partEditing
+            opacity: enabled ? 1 : 0.4
+            objectName: "headingGroup"
+            spacing: 4
+            visible: !bar.collapsedGroups.includes("heading")
+            ToolSeparator {}
+            ToolMenu {
+                objectName: "headingButton"
+                menuName: "headingMenu"
+                appRoot: bar.appRoot
+                // Compact: "Body", "H1", ...; the menu names them in full.
+                label: bar.appRoot.headingLevel > 0 ? "H" + bar.appRoot.headingLevel : "Body"
+                onClosed: bar.appRoot.focusEditor()
+                MenuEntry {
+                    objectName: "headingItem0"
+                    text: "Body text"; hint: bar.appRoot.headingLevel === 0 ? "✓" : "Ctrl+Alt+0"
+                    onTriggered: bar.controller.setHeadingLevel(0)
+                }
+                MenuEntry {
+                    objectName: "headingItem1"
+                    text: "Heading 1"; hint: bar.appRoot.headingLevel === 1 ? "✓" : "Ctrl+Alt+1"
+                    onTriggered: bar.controller.setHeadingLevel(1)
+                }
+                MenuEntry {
+                    objectName: "headingItem2"
+                    text: "Heading 2"; hint: bar.appRoot.headingLevel === 2 ? "✓" : "Ctrl+Alt+2"
+                    onTriggered: bar.controller.setHeadingLevel(2)
+                }
+                MenuEntry {
+                    objectName: "headingItem3"
+                    text: "Heading 3"; hint: bar.appRoot.headingLevel === 3 ? "✓" : "Ctrl+Alt+3"
+                    onTriggered: bar.controller.setHeadingLevel(3)
+                }
             }
         }
 
@@ -354,7 +396,40 @@ Rectangle {
                 }
                 MenuDivider {
                     theme: bar.theme
-                    visible: bar.collapsedGroups.includes("lists") && bar.collapsedGroups.includes("history")
+                    visible: bar.collapsedGroups.includes("heading") && bar.collapsedGroups.includes("history")
+                }
+                MenuEntry {
+                    objectName: "overflowHeading0"
+                    visible: bar.collapsedGroups.includes("heading")
+                    enabled: !bar.appRoot.partEditing
+                    text: "Body text"; hint: bar.appRoot.headingLevel === 0 ? "✓" : "Ctrl+Alt+0"
+                    onTriggered: bar.controller.setHeadingLevel(0)
+                }
+                MenuEntry {
+                    objectName: "overflowHeading1"
+                    visible: bar.collapsedGroups.includes("heading")
+                    enabled: !bar.appRoot.partEditing
+                    text: "Heading 1"; hint: bar.appRoot.headingLevel === 1 ? "✓" : "Ctrl+Alt+1"
+                    onTriggered: bar.controller.setHeadingLevel(1)
+                }
+                MenuEntry {
+                    objectName: "overflowHeading2"
+                    visible: bar.collapsedGroups.includes("heading")
+                    enabled: !bar.appRoot.partEditing
+                    text: "Heading 2"; hint: bar.appRoot.headingLevel === 2 ? "✓" : "Ctrl+Alt+2"
+                    onTriggered: bar.controller.setHeadingLevel(2)
+                }
+                MenuEntry {
+                    objectName: "overflowHeading3"
+                    visible: bar.collapsedGroups.includes("heading")
+                    enabled: !bar.appRoot.partEditing
+                    text: "Heading 3"; hint: bar.appRoot.headingLevel === 3 ? "✓" : "Ctrl+Alt+3"
+                    onTriggered: bar.controller.setHeadingLevel(3)
+                }
+                MenuDivider {
+                    theme: bar.theme
+                    visible: bar.collapsedGroups.includes("lists")
+                             && (bar.collapsedGroups.includes("history") || bar.collapsedGroups.includes("heading"))
                 }
                 MenuEntry {
                     objectName: "overflowBullet"
@@ -462,6 +537,17 @@ Rectangle {
                 }
             }
         }
+    }
+
+    // The author's sidebar: outline, notes, sources.
+    ToolButton {
+        id: sidebarButton
+        objectName: "sidebarButton"
+        anchors { verticalCenter: parent.verticalCenter; right: aiButton.left; rightMargin: 4 }
+        appRoot: bar.appRoot
+        label: "☰"; tip: "Outline, notes and sources"
+        active: bar.sidebar.visible
+        onClicked: bar.sidebar.visible = !bar.sidebar.visible
     }
 
     ToolButton {

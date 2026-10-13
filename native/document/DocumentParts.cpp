@@ -7,7 +7,7 @@
 DocumentParts::Capabilities DocumentParts::capabilities(Kind kind)
 {
     switch (kind) {
-    case Kind::Body: return Lists | Tables | Ai | WordUndoSteps;
+    case Kind::Body: return Lists | Tables | Ai | WordUndoSteps | Headings | Citations;
     case Kind::PageMargin: return {};
     }
     return {};

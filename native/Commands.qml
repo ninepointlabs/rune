@@ -13,8 +13,9 @@ QtObject {
     required property DocumentController controller
     required property Item toolbar
     required property Item aiPanel
+    required property Item sidebar
 
-    readonly property var all: [].concat(file, page, edit, format, lists, tables, ai)
+    readonly property var all: [].concat(file, page, edit, format, writing, lists, tables, citations, ai)
 
     readonly property var always: () => true
     // Lists, tables and the AI are the body's only, not a header's or footer's.
@@ -63,6 +64,41 @@ QtObject {
             align("Align left", Qt.AlignLeft),
             align("Align center", Qt.AlignHCenter),
             align("Align right", Qt.AlignRight)
+        ]
+    }
+
+    // Author tooling: headings, the outline, story notes.
+    readonly property var writing: {
+        const heading = (name, level, hint) => ({group: "Write", name: name, hint: hint, available: body,
+                                                 run: () => controller.setHeadingLevel(level)})
+        return [
+            heading("Heading 1 (chapter)", 1, "Ctrl+Alt+1"),
+            heading("Heading 2 (scene)", 2, "Ctrl+Alt+2"),
+            heading("Heading 3", 3, "Ctrl+Alt+3"),
+            heading("Body text", 0, "Ctrl+Alt+0"),
+            {group: "Write", name: "Show outline", available: always, run: () => sidebar.show("outline")},
+            {group: "Write", name: "Show story notes", available: always, run: () => sidebar.show("notes")},
+            {group: "Write", name: "Add character…", available: always, run: () => sidebar.addNote("character")},
+            {group: "Write", name: "Add place…", available: always, run: () => sidebar.addNote("place")},
+            {group: "Write", name: "Add research note…", available: always, run: () => sidebar.addNote("research")},
+            {group: "Write", name: sidebar.visible ? "Hide sidebar" : "Show sidebar", available: always,
+             run: () => sidebar.visible = !sidebar.visible}
+        ]
+    }
+
+    readonly property var citations: {
+        const style = (id, name) => ({group: "Cite", name: "Citation style: " + name,
+                                      hint: controller.citationStyle === id ? "✓" : "", available: always,
+                                      run: () => controller.citationStyle = id})
+        return [
+            {group: "Cite", name: "Insert citation…", hint: "Ctrl+Shift+C",
+             available: () => body() && controller.sources.length > 0, run: () => appRoot.openCitationPicker()},
+            {group: "Cite", name: "Insert bibliography", available: body, run: () => appRoot.insertBibliography()},
+            {group: "Cite", name: "Show sources", available: always, run: () => sidebar.show("sources")},
+            style("apa", "APA 7"),
+            style("mla", "MLA 9"),
+            style("chicago", "Chicago (author-date)"),
+            style("ieee", "IEEE")
         ]
     }
 

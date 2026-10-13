@@ -1,6 +1,7 @@
 #include "StreamedEdit.h"
 
 #include "EditState.h"
+#include "InlineObjects.h"
 #include "Lists.h"
 
 #include <QRegularExpression>
@@ -60,7 +61,23 @@ StreamedEdit::MarkdownContext StreamedEdit::markdownContext() const
         QTextCursor range(body);
         range.setPosition(start);
         range.setPosition(end, QTextCursor::KeepAnchor);
-        return QTextDocumentFragment(range).toMarkdown();
+        // Inline objects as their kind's Markdown ([@key] for a citation):
+        // placeholders Markdown leaves alone, swapped in afterwards.
+        QTextDocument copy;
+        QTextCursor(&copy).insertFragment(QTextDocumentFragment(range));
+        QStringList objects;
+        for (QTextCursor find = copy.find(QString(QChar::ObjectReplacementCharacter)); !find.isNull();
+             find = copy.find(QString(QChar::ObjectReplacementCharacter), find)) {
+            const InlineObjects::Kind *kind = InlineObjects::forFormat(find.charFormat());
+            if (!kind || !kind->toMarkdown)
+                continue;
+            objects << kind->toMarkdown(find.charFormat());
+            find.insertText(QStringLiteral("RUNEOBJECT%1X").arg(objects.size() - 1), QTextCharFormat());
+        }
+        QString out = copy.toMarkdown();
+        for (qsizetype i = objects.size() - 1; i >= 0; --i)
+            out.replace(QStringLiteral("RUNEOBJECT%1X").arg(i), objects.at(i));
+        return out;
     };
     const QTextCursor cursor = m_state.selectionCursor();
     const int end = body->characterCount() - 1;

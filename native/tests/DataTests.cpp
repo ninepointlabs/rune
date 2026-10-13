@@ -96,8 +96,9 @@ void testRegistries(Env &env)
                     && !InlineObjects::forOdfElement(kTextNs, QStringLiteral("page-number"), DocumentParts::Kind::Body),
                 "<text:page-number> is a page field in a header or footer, and not an inline object in the body");
         const QTextCharFormat fieldFormat = field->fromOdf(QStringLiteral("page-count"), QTextCharFormat());
+        InlineObjects::OdfContext context;
         t.check(InlineObjects::forFormat(fieldFormat) == field && !InlineObjects::forFormat(QTextCharFormat())
-                    && field->toOdf(fieldFormat).startsWith(QStringLiteral("<text:page-count")),
+                    && field->toOdf(fieldFormat, context).startsWith(QStringLiteral("<text:page-count")),
                 "a field read from <text:page-count> is found by its format and writes <text:page-count> back");
     }
 }

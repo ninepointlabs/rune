@@ -44,6 +44,9 @@ public:
         QString stylePrefix;
         // The text area's width: tables' widths are relative to it.
         qreal textWidthMm = 165.1;
+        // The data stores being saved, which inline objects may add to
+        // (InlineObjects::OdfContext).
+        DocumentData::Stores *data = nullptr;
         // Extra children of every paragraph style's
         // <style:paragraph-properties> (the header's and footer's tab stops).
         QString paragraphProperties;

@@ -2,6 +2,7 @@
 #include "InlineObjects.h"
 #include "Package.h"
 
+#include "FormatIds.h"
 #include "Lists.h"
 #include "Tables.h"
 
@@ -111,12 +112,38 @@ struct Paragraph
     // tabs and breaks are <text:s>, <text:tab>, <text:line-break>. Qt's
     // writer relies on this: it indents inside spans before a <text:s>.
     bool afterSpace = true;
+    // Bookmark ranges an inline object is saved between (InlineObjects::
+    // forOdfRange()), open so far: the run their text starts at.
+    QHash<QString, qsizetype> openRanges;
+    bool splitNext = false;
 
     void append(const QString &text, const QTextCharFormat &format)
     {
-        if (runs.isEmpty() || runs.constLast().format != format)
+        if (runs.isEmpty() || runs.constLast().format != format || splitNext)
             runs.append({QString(), format});
+        splitNext = false;
         runs.last().text += text;
+    }
+    void openRange(const QString &name)
+    {
+        openRanges.insert(name, runs.size());
+        splitNext = true;
+    }
+    // The range's text becomes one object character of `kind`.
+    void closeRange(const QString &name, const InlineObjects::Kind &kind, const QTextCharFormat &format)
+    {
+        if (!openRanges.contains(name))
+            return;
+        const qsizetype from = openRanges.take(name);
+        if (from > runs.size())
+            return;
+        QString text;
+        for (qsizetype i = from; i < runs.size(); ++i)
+            text += runs.at(i).text;
+        const QTextCharFormat base = from < runs.size() ? runs.at(from).format : format;
+        runs.resize(from);
+        splitNext = false;
+        appendLiteral(QString(QChar::ObjectReplacementCharacter), kind.fromOdfRange(name, text, base));
     }
     void appendXmlText(QStringView text, const QTextCharFormat &format)
     {
@@ -325,6 +352,12 @@ void readStyles(QXmlStreamReader &xml, Context &ctx)
                     readParagraphProperties(xml.attributes(), style.blockFormat);
                 xml.skipCurrentElement();
             }
+            // The bibliography's paragraph styles (LibreOffice's and Word's
+            // too) mark Rune's bibliography (Citations).
+            if (name == QLatin1String("Bibliography_20_Heading"))
+                style.blockFormat.setProperty(FormatIds::kBibliography, 1);
+            else if (name == QLatin1String("Bibliography_20_1"))
+                style.blockFormat.setProperty(FormatIds::kBibliography, 2);
             ctx.styles.insert(attrs.value(kStyleNs, QLatin1String("family")).toString(), name, style);
         } else if (is(xml, kTextNs, QLatin1String("list-style"))) {
             ListStyle list;
@@ -378,9 +411,18 @@ void readInline(QXmlStreamReader &xml, const Context &ctx, Paragraph &paragraph,
             } else if (is(xml, kTextNs, QLatin1String("line-break"))) {
                 paragraph.appendLiteral(QString(QChar::LineSeparator), format);
                 xml.skipCurrentElement();
+            } else if ((is(xml, kTextNs, QLatin1String("bookmark-start")) || is(xml, kTextNs, QLatin1String("bookmark-end")))
+                       && InlineObjects::forOdfRange(xml.attributes().value(kTextNs, QLatin1String("name")), ctx.part)) {
+                const QString name = xml.attributes().value(kTextNs, QLatin1String("name")).toString();
+                if (xml.name() == QLatin1String("bookmark-start"))
+                    paragraph.openRange(name);
+                else
+                    paragraph.closeRange(name, *InlineObjects::forOdfRange(name, ctx.part), format);
+                xml.skipCurrentElement();
             } else if (const InlineObjects::Kind *kind = InlineObjects::forOdfElement(xml.namespaceUri(), xml.name(), ctx.part)) {
-                paragraph.appendLiteral(QString(QChar::ObjectReplacementCharacter),
-                                        kind->fromOdf(xml.name().toString(), format));
+                if (kind->fromOdf)
+                    paragraph.appendLiteral(QString(QChar::ObjectReplacementCharacter),
+                                            kind->fromOdf(xml.name().toString(), format));
                 xml.skipCurrentElement();
             } else if (is(xml, kTextNs, QLatin1String("note")) || is(xml, kOfficeNs, QLatin1String("annotation"))
                        || xml.namespaceUri() == kDrawNs) {

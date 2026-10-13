@@ -29,6 +29,7 @@
 // selection touches, or the cursor's block.
 
 #include "CharFormatter.h"
+#include "Citations.h"
 #include "DocumentData.h"
 #include "DocumentParts.h"
 #include "EditState.h"
@@ -46,9 +47,12 @@
 #include <QTextBlock>
 #include <QTextCharFormat>
 #include <QTextCursor>
+#include <QSet>
+#include <QTimer>
 #include <QTextDocument>
 
 class HeaderFooter;
+class SourceLinks;
 class QPainter;
 
 class DocumentController : public QObject
@@ -89,6 +93,20 @@ class DocumentController : public QObject
     Q_PROPERTY(qreal footerHeightPx READ footerHeightPx NOTIFY pagePartsChanged)
     Q_PROPERTY(qreal headerYPx READ headerYPx NOTIFY pagePartsChanged)
     Q_PROPERTY(qreal footerYPx READ footerYPx NOTIFY pagePartsChanged)
+    // The outline: the body's headings as [{title, level, position, words}]
+    // (see Outline), and its words; refreshed once edits pause.
+    Q_PROPERTY(QVariantList outline READ outline NOTIFY outlineChanged)
+    Q_PROPERTY(int wordCount READ wordCount NOTIFY outlineChanged)
+    // The story notes: [{id, kind, name, text}] (see StoryNotes).
+    Q_PROPERTY(QVariantList notes READ notes NOTIFY notesChanged)
+    // The sources: [{id, label, item (CSL-JSON), unreviewed, link, cited}]
+    // (see Sources), and the citation style ("apa", "mla", "chicago",
+    // "ieee").
+    Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
+    Q_PROPERTY(QString citationStyle READ citationStyle WRITE setCitationStyle NOTIFY sourcesChanged)
+    // The color the view draws unformatted text in, for what is drawn in
+    // the text rather than typed (citations).
+    Q_PROPERTY(QColor inkColor READ inkColor WRITE setInkColor NOTIFY inkColorChanged)
 
 public:
     explicit DocumentController(QObject *parent = nullptr);
@@ -163,6 +181,63 @@ public:
     // DocumentData), saved in the file. Changing one marks the document
     // modified; opening a file replaces them, newDocument() empties them.
     DocumentData *data() const { return m_data; }
+
+    // Headings: the selected paragraphs as a heading of `level` (1-6),
+    // bold and larger, or body text (0); the body only. One undo step. A
+    // paragraph break at a heading's end starts body text.
+    Q_INVOKABLE void setHeadingLevel(int level);
+    Q_INVOKABLE int currentHeadingLevel() const;
+
+    QVariantList outline() const { return m_outline; }
+    int wordCount() const { return m_wordCount; }
+    // Moves outline section `from`, with its subsections, before section
+    // `to` (or to the end, at outline.length); one undo step; the cursor goes
+    // to its heading. False if that is no move.
+    Q_INVOKABLE bool moveSection(int from, int to);
+
+    QVariantList notes() const;
+    // A new note of `kind` ("character", "place", "research"); its id.
+    Q_INVOKABLE QString addNote(const QString &kind, const QString &name, const QString &text);
+    Q_INVOKABLE bool updateNote(const QString &id, const QString &name, const QString &text);
+    Q_INVOKABLE bool removeNote(const QString &id);
+
+    QVariantList sources() const;
+    // A new source (CSL-JSON fields); its id, made unique.
+    Q_INVOKABLE QString addSource(const QVariantMap &item);
+    // Replaces source `id` (reviewed now); its id, which citations of it
+    // follow if it changed. "" if there is no such source.
+    Q_INVOKABLE QString updateSource(const QString &id, const QVariantMap &item);
+    // Citations of a removed source show "[missing source: id]".
+    Q_INVOKABLE bool removeSource(const QString &id);
+    // Adds the sources in `bibtex`; how many.
+    Q_INVOKABLE int importBibTeX(const QString &bibtex);
+    Q_INVOKABLE bool markSourceReviewed(const QString &id);
+    QString citationStyle() const;
+    void setCitationStyle(const QString &style);
+    QColor inkColor() const { return m_engine->color(); }
+    void setInkColor(const QColor &color);
+    // [{id, name}] for a style picker.
+    Q_INVOKABLE QVariantList citationStyles() const;
+    // A citation of `ids` (with a page `locator`) at the cursor, replacing
+    // any selection; the bibliography follows. One undo step; the body only.
+    Q_INVOKABLE bool insertCitation(const QStringList &ids, const QString &locator);
+    // The bibliography at the cursor, or brought up to date where it is.
+    Q_INVOKABLE bool insertBibliography();
+    // The citation at or just before the cursor: {position, ids, locator},
+    // or empty.
+    Q_INVOKABLE QVariantMap citationAtCursor() const;
+
+    // For agents: the notes and sources as fenced JSON blocks (```notes,
+    // ```sources), "" if there are none; and what an agent sends back,
+    // merged (sources it adds or changes are marked unreviewed). How many
+    // entries changed.
+    QString agentData() const;
+    int applyAgentData(const QString &name, const QString &json);
+    // What checks the links of sources agents add (see SourceLinks).
+    SourceLinks *sourceLinks() const { return m_links; }
+    // Each [@key] in the body whose keys are all sources becomes a
+    // citation, as part of the last undo step. How many.
+    int convertMarkdownCitations();
 
     // Whether this locale uses Letter paper (Page setup shows inches then).
     Q_INVOKABLE bool localeUsesLetter() const;
@@ -309,6 +384,10 @@ signals:
     void pageCountChanged();
     // The header or footer changed: content, height or emptiness.
     void pagePartsChanged();
+    void outlineChanged();
+    void inkColorChanged();
+    void notesChanged();
+    void sourcesChanged();
     // The controller moved the cursor (e.g. into a new table cell); the
     // TextEdit should set its cursorPosition to `position`.
     void cursorPositionRequested(int position);
@@ -355,11 +434,39 @@ private:
     template<typename Work, typename Done>
     QFuture<Conversion> runConversion(Work work, Done done);
     void finishOpen(const QString &path, const Conversion &result);
+    // openOdf(), its data stores from `external` if given (a converted
+    // file's, read from the original).
+    bool readOdf(const QString &path, const DocumentData::Stores *external);
+    void bodyAfterHeading(int position);
+    void refreshOutline();
+    void onDataChanged(const QString &name);
+    // After any body edit: citations renumbered, and the bibliography
+    // brought up to date with it (not after undo/redo, which restore it).
+    void checkCitations();
+    // Everything derived from the document after it is replaced.
+    void refreshStructure();
+    void renameCitedSource(const QString &from, const QString &to);
 
     DocumentParts *m_parts;
     QTextDocument *m_document; // the body
     HeaderFooter *m_margins;
     DocumentData *m_data;
+    Citations::Engine *m_engine = nullptr;
+    SourceLinks *m_links;
+    // The stores the last saveToOdf() wrote (the citations' included), for
+    // the .docx it is converted to.
+    DocumentData::Stores m_writtenStores;
+    // Replacing the data stores from a file (no bibliography updates).
+    bool m_loadingData = false;
+    bool m_citationCheckQueued = false;
+    bool m_skipBibliographyUpdate = false;
+    // Undo steps (by their number, availableUndoSteps() after them) Rune
+    // added after an edit as its consequence; undo and redo take them with
+    // the step before.
+    QSet<int> m_followSteps;
+    QTimer m_outlineTimer;
+    QVariantList m_outline;
+    int m_wordCount = 0;
     EditState m_edit;
     CharFormatter m_format;
     StreamedEdit m_stream;

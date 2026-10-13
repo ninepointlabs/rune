@@ -164,6 +164,11 @@ private:
     QString m_editText;
     EditKind m_editKind = EditKind::Undecided;
     qsizetype m_editParsed = 0;
+    // How much of m_editText (new text) is in the document so far: up to
+    // any code fence, which may be a data block (```notes, ```sources).
+    qsizetype m_editShown = 0;
+    // The reply's data blocks, applied when it is complete: their summary.
+    QString applyDataBlocks();
     int m_editApplied = 0;
     int m_editMissed = 0;
     void onEditDelta(const QString &text);

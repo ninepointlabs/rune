@@ -22,7 +22,7 @@ Rectangle {
 
     Text {
         anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 10
-                  right: pageIndicator.left; rightMargin: 10 }
+                  right: wordIndicator.visible ? wordIndicator.left : pageIndicator.left; rightMargin: 10 }
         color: bar.theme.foreground
         font.family: "monospace"
         font.pixelSize: 12
@@ -30,6 +30,18 @@ Rectangle {
         text: bar.controller.busy ? bar.appRoot.busyText
               : bar.appRoot.statusFlash !== "" ? bar.appRoot.statusFlash
               : bar.appRoot.documentName + (bar.controller.dirty ? " ●" : "")
+    }
+
+    // The document's length.
+    Text {
+        id: wordIndicator
+        objectName: "wordIndicator"
+        anchors { verticalCenter: parent.verticalCenter; right: pageIndicator.left; rightMargin: 16 }
+        visible: !bar.appRoot.partEditing
+        color: Qt.alpha(bar.theme.foreground, 0.7)
+        font.family: "monospace"
+        font.pixelSize: 12
+        text: bar.controller.wordCount.toLocaleString(Qt.locale(), "f", 0) + (bar.controller.wordCount === 1 ? " word" : " words")
     }
 
     // The page the cursor is on.

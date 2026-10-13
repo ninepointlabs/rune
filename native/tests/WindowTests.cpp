@@ -397,10 +397,10 @@ void testWindow(Env &env)
 
                 resize(window->minimumWidth());
                 const QStringList atMin = collapsed();
-                t.check(atMin.size() == 5 && fits() && window->findChild<QQuickItem *>(QStringLiteral("boldButton"))->isVisible()
+                t.check(atMin.size() == 6 && fits() && window->findChild<QQuickItem *>(QStringLiteral("boldButton"))->isVisible()
                             && window->findChild<QQuickItem *>(QStringLiteral("fontButton"))->isVisible()
                             && window->findChild<QQuickItem *>(QStringLiteral("saveButton"))->isVisible(),
-                        QStringLiteral("at the minimum width (%1 px) all five groups are in ⋯; File, Save, B/I/U and font stay (%2)")
+                        QStringLiteral("at the minimum width (%1 px) all six groups are in ⋯; File, Save, B/I/U and font stay (%2)")
                             .arg(window->minimumWidth()).arg(edges()));
 
                 QMetaObject::invokeMethod(window->findChild<QObject *>(QStringLiteral("overflowNumbered")), "click");
