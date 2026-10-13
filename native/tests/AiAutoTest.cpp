@@ -929,7 +929,7 @@ void runAiAutoTest(QQuickWindow *window, const Check &check)
                   && transcriptText(ai).endsWith("Couldn't find the text the AI wanted to change, so the document wasn't changed."),
               "changes whose text isn't found leave the document untouched");
 
-        // AI output saves and reopens: list then table goes through the sanitizer.
+        // AI output saves and reopens, a list then a table included.
         controller->newDocument();
         controller->setSelection(0, 0, 0);
         nextChat = chatStream({"Notes:\n\n- a\n- b\n\n| X | Y |\n|---|---|\n| 1 | 2 |\n"});

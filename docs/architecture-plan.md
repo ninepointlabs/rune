@@ -1,6 +1,6 @@
 # Rune — Modularity Plan
 
-**Status:** Stages 1, 2 and 4 done; stage 3 not started
+**Status:** All four stages done
 **Date:** 2026-10-13
 
 Rune will grow features that cut across the whole editor: citations and a
@@ -144,18 +144,44 @@ Not yet, by design:
   whether Word keeps the custom XML part (documented to). Rune itself
   keeps both.
 
-### 3. Own the ODF output
+### 3. Own the ODF output (done)
 
-Write `content.xml` ourselves (`formats/OdfWriter`), from the document
-model, instead of patching `QTextDocumentWriter`'s output. Each inline
-object kind and part kind writes its own elements (`text:note`,
-`text:bibliography-mark`, fields). `OdfReader` dispatches elements to the
-same registry. `PageLayout`'s ODF code moves into `formats/`.
+Rune writes the whole `.odt` itself (`formats/OdfWriter`): mimetype,
+manifest, `content.xml`, `styles.xml`, `meta.xml` and the data stores.
+Qt's `QTextDocumentWriter` and the `sanitize()` workaround are gone.
 
-This is the one large, one-time cost in the plan. It is needed for notes
-and citations to be saved at all, and it retires the `sanitizeForOdfExport()`
-workarounds. `.docx` keeps going through LibreOffice. Round-trip checks
-(save → reopen → compare, and soffice → `.docx` → text) guard it.
+- `formats/OdfTextWriter` writes any of the document's texts (the body;
+  the header and footer, with their tab stops) as ODF blocks with their
+  automatic styles:
+  - headings as `<text:h>` with their outline level, inheriting named
+    "Heading 1–6" styles, so LibreOffice's Navigator and Word (after
+    conversion, `Heading1`…) see them as headings;
+  - links, strikethrough and super/subscript;
+  - relative sizes written as drawn;
+  - lists nested by level, one list resumed after an interruption
+    continuing its numbering;
+  - tables with their width, borders, padding, cell backgrounds, merged
+    cells and nested tables;
+  - inline objects through their InlineObjects kind.
+- `formats/OdfStyles` has the page layout's ODF, moved from
+  `PageLayout`, which is now only the model. `HeaderFooter::asDrawn()`
+  gives the distances saving writes.
+
+Result: 431 checks on Arch and in Debian 13. The new checks cover:
+- the package's layout;
+- the file reopening in Rune with the same text, heading levels and
+  list levels;
+- LibreOffice reading headings as `<h1>`/`<h2>`, the link, the merged cell,
+  a table in a table, and the resumed numbering ("3. Third");
+- the `.docx` carrying Word's `Heading1`/`Heading2`.
+
+Two open issues in `TODO.md` are closed: "headings save as bold body text"
+and "nested tables lose content on export". One A/B check stays as
+evidence: Qt's writer still loses a table placed right after a list.
+
+Still not read back on open: table widths, borders and backgrounds (opened
+tables get the UI's format), and list numbering presentation (see
+`TODO.md`).
 
 ### 4. Split the UI and the tests (done)
 
@@ -187,10 +213,10 @@ Stages 1, 2 and 4 are independent enough to interleave; 3 needs 2.
 
 ## Decisions
 
-- **Write our own ODF (stage 3)?** Recommended, timed with the first of
-  notes or citations. The alternative, keeping Qt's writer and patching
-  more into its output, gets harder with every feature and can't express
-  notes inside paragraphs. *Open: Tim.*
+- **Write our own ODF (stage 3)? Done (2026-10-13).** Tim chose to do it
+  on its own rather than with the first notes or citations feature. The
+  alternative, keeping Qt's writer and patching more into its output, got
+  harder with every feature and couldn't express notes inside paragraphs.
 - **What author tooling is. Decided (2026-10-13): one file.** The
   criterion is what is most efficient and user-friendly.
   - *User-friendly:* a book is one file the author opens, backs up, emails
@@ -279,3 +305,4 @@ Stages 1, 2 and 4 are independent enough to interleave; 3 needs 2.
     Someone editing in Word sees text, not live citations. *Not verified
     yet:* how LibreOffice's `.docx` conversion treats the objects; checked
     when stage 3 writes them.
+

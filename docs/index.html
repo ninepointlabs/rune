@@ -356,7 +356,7 @@
           <h3>Files</h3>
           <ul>
             <li>OdfReader: our own ODF import (Qt has none)</li>
-            <li>Qt's ODF writer + a save-time sanitizer</li>
+            <li>OdfWriter: our own ODF export</li>
             <li>.docx/.doc via soffice, off the UI thread</li>
           </ul>
         </div>
@@ -380,7 +380,7 @@
         </div>
       </div>
 
-    <p style="color: var(--ink-dim);">421 automated checks run headlessly, including both AI sign-in flows against local mock servers. Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
+    <p style="color: var(--ink-dim);">431 automated checks run headlessly, including both AI sign-in flows against local mock servers. Rune started as a two-process LibreOfficeKit design — kept for reference at <a href="https://github.com/ninepointlabs/rune/tree/main/legacy-lok">legacy-lok/</a>. Full rationale for the switch, and every bug found along the way with evidence: <a href="https://github.com/ninepointlabs/rune/blob/main/README.md">README.md</a></p>
   </div>
 </section>
 
@@ -404,7 +404,7 @@
       <tr><td><span class="dot dot-none"></span>Section breaks, images</td><td>Not started</td></tr>
     </table>
 
-    <p class="honest-note">Problems found along the way are documented with the evidence, not hidden — Qt's ODF writer silently dropping a table placed directly after a list (worked around), and dropping heading levels on save (open), nested tables losing content on export. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
+    <p class="honest-note">Problems found along the way are documented with the evidence, not hidden — Qt's ODF writer silently dropping a table placed directly after a list, heading levels and nested tables — fixed by writing ODF ourselves. See the <a href="roadmap.html">full roadmap</a> for the complete, current picture.</p>
   </div>
 </section>
 

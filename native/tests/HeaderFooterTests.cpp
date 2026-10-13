@@ -2,6 +2,10 @@
 
 #include "TestSupport.h"
 
+#include "OdfStyles.h"
+#include "OdfWriter.h"
+#include "Package.h"
+
 namespace TestSupport {
 
 void testHeaderFooter(Env &env)
@@ -49,12 +53,12 @@ void testHeaderFooter(Env &env)
         // PageLayout: with a header, ODF's page margin is the header's distance.
         const PageLayout withParts = PageLayout::fromMap({{QStringLiteral("bottom"), 30.0}, {QStringLiteral("footer"), 10.0}},
                                                          PageLayout());
-        const QByteArray partsXml = withParts.odfStyles({QStringLiteral("<text:p>H</text:p>"), QStringLiteral("<text:p>F</text:p>"), {}});
-        const QByteArray plainXml = withParts.odfStyles();
+        const QByteArray partsXml = OdfStyles::write(withParts, {QStringLiteral("<text:p>H</text:p>"), QStringLiteral("<text:p>F</text:p>"), {}});
+        const QByteArray plainXml = OdfStyles::write(withParts);
         t.check(partsXml.contains("fo:margin-top=\"12.70mm\"") && partsXml.contains("fo:margin-bottom=\"10.00mm\"")
                     && partsXml.contains("<style:header-style><style:header-footer-properties fo:min-height=\"12.70mm\"")
                     && partsXml.contains("<style:footer-style><style:header-footer-properties fo:min-height=\"20.00mm\"")
-                    && PageLayout::fromOdfStyles(partsXml) == withParts
+                    && OdfStyles::readPageLayout(partsXml) == withParts
                     && plainXml.contains("fo:margin-top=\"25.40mm\"") && !plainXml.contains("header-style"),
                 "styles.xml with a header and footer: page margins at their distances, their heights reach the body; reads back the same");
         const QByteArray libreOffice =
@@ -71,14 +75,14 @@ void testHeaderFooter(Env &env)
             "</style:page-layout></office:automatic-styles><office:master-styles>"
             "<style:master-page style:name=\"Standard\" style:page-layout-name=\"Mpm1\"><style:header><text:p>H</text:p></style:header></style:master-page>"
             "</office:master-styles></office:document-styles>";
-        const std::optional<PageLayout> fromLibreOffice = PageLayout::fromOdfStyles(libreOffice);
+        const std::optional<PageLayout> fromLibreOffice = OdfStyles::readPageLayout(libreOffice);
         t.check(fromLibreOffice && qAbs(fromLibreOffice->topMm - 25.4) < 0.01 && qAbs(fromLibreOffice->headerMm - 12.7) < 0.01
                     && qAbs(fromLibreOffice->bottomMm - 12.7) < 0.01,
                 QStringLiteral("LibreOffice's header: 0.5 in from the edge, body at 1 in; its unused footer style changes nothing (top %1, header %2, bottom %3 mm)")
                     .arg(fromLibreOffice ? fromLibreOffice->topMm : -1).arg(fromLibreOffice ? fromLibreOffice->headerMm : -1)
                     .arg(fromLibreOffice ? fromLibreOffice->bottomMm : -1));
 
-        // PageParts::toOdf().
+        // A footer as OdfWriter writes it into styles.xml.
         {
             QTextDocument part;
             QTextCursor c(&part);
@@ -92,17 +96,27 @@ void testHeaderFooter(Env &env)
             QTextCharFormat bold;
             bold.setFontWeight(QFont::Bold);
             c.insertText(QStringLiteral("\t  <draft>"), bold);
-            QString styles;
-            const QString xml = PageParts::toOdf(&part, QStringLiteral("Footer"), 165.1, styles);
-            QString emptyStyles;
-            QTextDocument empty;
+            QTextDocument body, empty;
+            const auto stylesOf = [&](const QTextDocument *header, const QTextDocument *footer) {
+                OdfWriter::Document document;
+                document.body = &body;
+                document.header = header;
+                document.footer = footer;
+                const std::optional<QList<Package::Entry>> entries = Package::read(OdfWriter::write(document));
+                const Package::Entry *styles = entries ? Package::find(*entries, QStringLiteral("styles.xml")) : nullptr;
+                return styles ? QString::fromUtf8(styles->data) : QString();
+            };
+            const QString xml = stylesOf(nullptr, &part);
+            const QString emptyXml = stylesOf(&empty, nullptr);
             t.check(xml.contains(QStringLiteral("Page <text:page-number text:select-page=\"current\">1</text:page-number> of <text:page-count>1</text:page-count>"))
                         && xml.contains(QStringLiteral("<text:tab/> <text:s/>&lt;draft&gt;"))
-                        && styles.contains(QStringLiteral("fo:text-align=\"center\"")) && styles.contains(QStringLiteral("fo:font-weight=\"bold\""))
-                        && styles.contains(QStringLiteral("style:position=\"82.55mm\" style:type=\"center\""))
-                        && styles.contains(QStringLiteral("style:position=\"165.10mm\" style:type=\"right\""))
-                        && PageParts::toOdf(&empty, QStringLiteral("Header"), 165.1, emptyStyles).isEmpty(),
-                    "a footer as ODF: fields, tabs, spaces and escaping, its alignment, bold and tab stops in automatic styles; an empty one is nothing: " + xml);
+                        && xml.contains(QStringLiteral("fo:text-align=\"center\"")) && xml.contains(QStringLiteral("fo:font-weight=\"bold\""))
+                        && xml.contains(QStringLiteral("style:position=\"82.55mm\" style:type=\"center\""))
+                        && xml.contains(QStringLiteral("style:position=\"165.10mm\" style:type=\"right\""))
+                        && xml.contains(QStringLiteral("<style:footer>")) && !emptyXml.isEmpty()
+                        && !emptyXml.contains(QStringLiteral("<style:header>")),
+                    "a footer in styles.xml: fields, tabs, spaces and escaping, its alignment, bold and tab stops in "
+                    "automatic styles; an empty header is left out: " + xml);
         }
 
         // A header and footer through the controller.

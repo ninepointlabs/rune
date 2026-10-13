@@ -745,7 +745,7 @@ bool OdfReader::readPagePart(QTextDocument *doc, const QString &path, bool foote
     zip.close();
 
     // The part of the master page named Standard, else of the first one
-    // (as PageLayout::fromOdfStyles() chooses).
+    // (as OdfStyles::readPageLayout() chooses).
     Context ctx;
     ctx.part = DocumentParts::Kind::PageMargin;
     const QLatin1StringView partName = footer ? QLatin1String("footer") : QLatin1String("header");

@@ -9,14 +9,8 @@
 // the number for whichever page is being drawn; it must be registered on
 // the document's layout (install()).
 //
-// toOdf() writes such a document as the ODF of a <style:header> or
-// <style:footer>, inline objects as their kind writes them (InlineObjects);
-// OdfReader::readPagePart() reads one back.
-//
-// Written: paragraphs with their alignment; bold, italic, underline, font
-// family, size and color; tabs, runs of spaces and line breaks; the two
-// inline objects. Not written: lists and tables (their paragraphs are written as
-// plain paragraphs), images.
+// OdfWriter writes a header or footer (OdfTextWriter, the fields through
+// their InlineObjects kind) and OdfReader::readPagePart() reads one back.
 
 #include "FormatIds.h"
 #include "InlineObjects.h"
@@ -44,13 +38,6 @@ bool isField(const QTextFormat &format);
 // The fields as an inline object kind (see InlineObjects): in headers and
 // footers, written and read as <text:page-number> / <text:page-count>.
 InlineObjects::Kind fieldKind();
-
-// The ODF block elements for `doc`, its automatic styles added to
-// `automaticStyles` under names starting with `stylePrefix`. Every
-// paragraph gets the header and footer tab stops: centre at half
-// `textWidthMm`, right at `textWidthMm`, and `doc`'s default font family
-// and size, which its unformatted text is in. "" for an empty document.
-QString toOdf(const QTextDocument *doc, const QString &stylePrefix, qreal textWidthMm, QString &automaticStyles);
 
 // Whether `doc` has nothing in it but empty paragraphs.
 bool isEmpty(const QTextDocument *doc);

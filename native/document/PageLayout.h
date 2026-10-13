@@ -1,25 +1,9 @@
 #pragma once
 
-// PageLayout: a document's paper size and margins, in millimetres, and how
-// they are stored in ODF.
-//
-// In an .odt the layout lives in styles.xml: a <style:page-layout> in its
-// automatic styles, used by the master page. Qt's ODF writer produces no
-// styles.xml at all, so OdfWriter::write() adds one (and its manifest
-// entry) to what the writer wrote. fromOdfStyles() reads it back from the
-// master page named "Standard", or the first master page if none is.
-//
-// A header sits `headerMm` from the top edge, inside the top margin; the
-// body starts at the top margin. ODF (and LibreOffice) measure it the other
-// way: the page's fo:margin-top is the header's distance, and the header's
-// fo:min-height (spacing included) reaches down to where the body starts.
-// The footer mirrors this at the bottom. odfStyles() writes it that way when
-// there is a header or footer, and fromOdfStyles() reads it back.
-//
-// Not stored: a different first page or left pages, more than one page
-// style.
+// PageLayout: a document's paper size and margins, in millimetres, kept in
+// the body's root frame format (storeIn()). Reading and writing it in ODF
+// is OdfStyles'.
 
-#include <QByteArray>
 #include <QLocale>
 #include <QMarginsF>
 #include <QSizeF>
@@ -73,22 +57,5 @@ struct PageLayout
 
     bool operator==(const PageLayout &other) const;
     bool operator!=(const PageLayout &other) const { return !(*this == other); }
-
-    // The page layout in an ODF styles.xml, if it has one.
-    static std::optional<PageLayout> fromOdfStyles(const QByteArray &stylesXml);
-    // ... in the .odt at `path` (none if it has no styles.xml or isn't one).
-    static std::optional<PageLayout> fromOdtFile(const QString &path);
-
-    // What a styles.xml holds besides the page layout: the header and
-    // footer content (ODF block elements, "" for none) and the automatic
-    // styles they use.
-    struct OdfParts
-    {
-        QString header;
-        QString footer;
-        QString automaticStyles;
-    };
-    // A complete styles.xml holding this page layout and `parts`.
-    QByteArray odfStyles(const OdfParts &parts = {}) const;
 };
 

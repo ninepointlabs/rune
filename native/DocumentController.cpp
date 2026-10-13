@@ -4,6 +4,7 @@
 #include "DocxData.h"
 #include "HeaderFooter.h"
 #include "OdfReader.h"
+#include "OdfStyles.h"
 #include "OdfWriter.h"
 #include "Tables.h"
 
@@ -277,7 +278,13 @@ void DocumentController::newDocument()
 
 bool DocumentController::saveToOdf(const QString &path)
 {
-    const QByteArray odt = OdfWriter::write(m_document, m_margins->odfStyles(pageLayout()), m_data->stores());
+    OdfWriter::Document document;
+    document.body = m_document;
+    document.layout = m_margins->asDrawn(pageLayout());
+    document.header = m_margins->document(false);
+    document.footer = m_margins->document(true);
+    document.data = m_data->stores();
+    const QByteArray odt = OdfWriter::write(document);
     if (odt.isEmpty())
         return false;
     // Committed atomically: a failed write leaves any existing file as it was.
@@ -329,7 +336,7 @@ bool DocumentController::openOdf(const QString &path)
     m_data->replace(stores);
     // The file's own page layout, if it has one, with room for the header
     // and footer as laid out here: not part of the history.
-    const PageLayout layout = PageLayout::fromOdtFile(path).value_or(m_defaultLayout);
+    const PageLayout layout = OdfStyles::readPageLayoutFile(path).value_or(m_defaultLayout);
     m_margins->syncWidths(layout);
     writePageLayout(m_margins->withRoom(layout));
     m_document->clearUndoRedoStacks();

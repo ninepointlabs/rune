@@ -8,7 +8,7 @@
 // in place (install()), with its own undo history. Heights are of their
 // content, in pixels; each sits centred in its margin, headerYPx() /
 // footerYPx() below the page's top edge (so a bigger font grows it both
-// ways). Saving writes those distances (odfStyles()), so other word
+// ways). Saving writes those distances (asDrawn()), so other word
 // processors place them the same.
 
 #include "DocumentParts.h"
@@ -67,9 +67,9 @@ public:
     // Empties both, unmodified with no history.
     void clear();
 
-    // A styles.xml for `layout` with the header and footer where they are
-    // drawn (see PageLayout::odfStyles()).
-    QByteArray odfStyles(PageLayout layout) const;
+    // `layout` with the header's and footer's distances where they are
+    // drawn, as saving writes them (see OdfStyles).
+    PageLayout asDrawn(PageLayout layout) const;
 
 signals:
     // Content, height or emptiness changed.

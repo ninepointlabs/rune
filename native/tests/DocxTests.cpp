@@ -22,7 +22,7 @@ void testDocx(Env &env, const QString &roundTripText)
 
     // Round trip through .docx: heading-like bold title (there's no heading
     // UI), bold/italic words, a bullet list, then a table straight after
-    // the list (the sanitizer's case), then a closing paragraph.
+    // the list (the case Qt's ODF writer got wrong), then a closing paragraph.
     controller->newDocument();
     editor->forceActiveFocus();
     typeText(window, QStringLiteral("Quarterly Report"));
@@ -50,11 +50,8 @@ void testDocx(Env &env, const QString &roundTripText)
     selectWord(editor, doc, QStringLiteral("italic"));
     controller->toggleItalic();
     const QString docxWritten = doc->toPlainText();
-    // What actually goes into the file: the sanitizer adds an empty
-    // paragraph between the list and the table.
-    std::unique_ptr<QTextDocument> exported(doc->clone());
-    OdfWriter::sanitize(exported.get());
-    const QString docxExpected = exported->toPlainText();
+    // What goes into the file: exactly what was written.
+    const QString docxExpected = docxWritten;
 
     QStringList savePaths;
     const auto savePathConn = QObject::connect(controller, &DocumentController::currentPathChanged,

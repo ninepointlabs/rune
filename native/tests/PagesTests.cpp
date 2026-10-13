@@ -3,6 +3,8 @@
 
 #include "TestSupport.h"
 
+#include "OdfStyles.h"
+
 namespace TestSupport {
 
 void testPages(Env &env)
@@ -40,15 +42,15 @@ void testPages(Env &env)
             "<style:master-page style:name=\"Endnote\" style:page-layout-name=\"pm1\"/>"
             "<style:master-page style:name=\"Standard\" style:page-layout-name=\"pm2\"/>"
             "</office:master-styles></office:document-styles>";
-        const std::optional<PageLayout> read = PageLayout::fromOdfStyles(libreOffice);
+        const std::optional<PageLayout> read = OdfStyles::readPageLayout(libreOffice);
         t.check(read && qAbs(read->widthMm - 279.4) < 0.01 && qAbs(read->heightMm - 215.9) < 0.01 && qAbs(read->topMm - 20) < 0.01
                     && qAbs(read->leftMm - 12.7) < 0.01 && qAbs(read->rightMm - 20) < 0.01,
                 "styles.xml: the Standard master page's layout, in any unit, fo:margin overridden by a side");
         const PageLayout custom = PageLayout::fromMap({{QStringLiteral("width"), 297.0}, {QStringLiteral("height"), 210.0},
                                                        {QStringLiteral("top"), 10.0}, {QStringLiteral("bottom"), 15.0},
                                                        {QStringLiteral("left"), 20.0}, {QStringLiteral("right"), 30.0}}, us);
-        t.check(PageLayout::fromOdfStyles(custom.odfStyles()) == custom && !PageLayout::fromOdfStyles("<not xml")
-                    && !PageLayout::fromOdfStyles(QByteArray()),
+        t.check(OdfStyles::readPageLayout(OdfStyles::write(custom)) == custom && !OdfStyles::readPageLayout("<not xml")
+                    && !OdfStyles::readPageLayout(QByteArray()),
                 "a written styles.xml reads back the same; unreadable or missing ones give no layout");
 
         // A new document: the locale's paper, paginated at it, no history.
@@ -136,7 +138,7 @@ void testPages(Env &env)
 
         // Saved in the .odt, read back on open.
         QFile::remove(kPagePath);
-        t.check(controller->saveToOdf(kPagePath) && PageLayout::fromOdtFile(kPagePath) == custom,
+        t.check(controller->saveToOdf(kPagePath) && OdfStyles::readPageLayoutFile(kPagePath) == custom,
                 "saveToOdf() stores the page layout in styles.xml");
         {
             QuaZip zip(kPagePath);
@@ -291,7 +293,7 @@ void testPages(Env &env)
             }
         }
         const bool named = family != QLatin1String("Sans")
-            && content.contains(QStringLiteral("fo:font-family=\"%1\" fo:font-size=\"12pt\"").arg(family))
+            && content.contains(QStringLiteral("fo:font-family=\"'%1'\" fo:font-size=\"12pt\"").arg(family))
             && styles.contains(QStringLiteral("fo:font-family=\"'%1'\" fo:font-size=\"12pt\"").arg(family));
         controller->newDocument();
         controller->openOdf(kFontSizePath);

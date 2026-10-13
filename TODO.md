@@ -1,6 +1,6 @@
 # Rune — Roadmap
 
-Status as of 2026-10-12 (Rune 0.8.1). See [README.md](README.md) for the architecture overview.
+Status as of 2026-10-13 (after Rune 0.8.2). See [README.md](README.md) for the architecture overview.
 
 ## Done (in `native/`, the current app)
 
@@ -8,7 +8,7 @@ Status as of 2026-10-12 (Rune 0.8.1). See [README.md](README.md) for the archite
 - Full text editing: keyboard, mouse, clipboard — all native `TextEdit` behavior, not custom-built
 - Formatting: Bold/Italic/Underline, paragraph styles with named/inherited style resolution on import (`styles.xml` + `content.xml` automatic-styles, parent-style-name chains), bullet/numbered lists with promote/demote nesting, alignment, font family/size, text color
 - Tables: insert, insert/delete row, insert/delete column, Tab/Shift+Tab cell navigation
-- A save-time sanitizer that works around a real Qt ODF-writer bug (a table directly after a list gets silently dropped by LibreOffice on import otherwise) — verified with a direct A/B test, not just a scratch-document assumption
+- Rune's own ODF writer (`native/formats/OdfWriter`, `OdfTextWriter`): headings as headings (Word's Heading 1–6 after conversion), links, strikethrough, super/subscript, lists that keep numbering across interruptions, tables with widths, borders, merged cells and nested tables. It replaced Qt's writer, which dropped heading levels and nested tables and broke a table placed right after a list (still shown by an A/B check against Qt's writer)
 - File flow: Open (Ctrl+O), Save (Ctrl+S), Save As (Ctrl+Shift+S), New (Ctrl+N) with native file dialogs (GTK via the platform theme on Omarchy; Qt's own as a fallback). Save writes to the current file when it's `.odt`/`.docx` and goes through Save As otherwise (untitled, or opened from `.doc`). New/Open/close with unsaved changes ask Save / Discard / Cancel. The editor is read-only while a `.docx`/`.doc` converts
 - Undo/redo: toolbar buttons, Ctrl+Z / Ctrl+Shift+Z. Every formatting, list and table operation is exactly one step (tested per operation); undoing back to the last save makes the document clean again; New and Open clear the history. Typing undoes a word at a time (a word plus its trailing spaces); moving the cursor, Backspace/Delete, Return, typing over a selection, or saving also starts a new step. Qt on its own merges all consecutive typing into one step, so the controller inserts typed text itself to control the grouping
 - Pages: the document is laid out on page-sized sheets at its paper size and margins (Letter in Letter countries, A4 elsewhere; 1 inch margins), scaled down to fit a narrow window; "Page N of M" in the status bar. File → Page setup… sets paper (Letter, Legal, A4, A5), orientation and margins (inches or centimetres to match the paper), one undo step. The layout is saved in `styles.xml` and read back from `.odt` and `.docx`; LibreOffice's `.docx` of a saved file has the same page size and margins (checked in the tests)
@@ -20,13 +20,11 @@ Status as of 2026-10-12 (Rune 0.8.1). See [README.md](README.md) for the archite
 
 | Limitation | Why |
 |---|---|
-| **Nested tables lose the inner table's content on export** | Confirmed via HTML export (plain-text conversion doesn't reliably represent nested structures). Rare pattern in practice; lower priority. |
 | **List numbering restart, custom start values, bullet characters, number formats** | Imported lists always get the UI's own level styles rather than preserving the source document's exact numbering presentation. |
-| **Table/column widths, cell borders, backgrounds** | Not read or written. |
+| **Table/column widths, cell borders, backgrounds** | Written (table width, border, padding, cell backgrounds), not read: opened tables get the UI's table format. Column widths are neither. |
 | **`styles.xml`'s default-style** | Not read — named paragraph styles with `style:parent-style-name` chains are, and the automatic styles headers and footers use. |
 | **One header and one footer per document** | A file's different first-page or left-page header is not shown, and is dropped on save. Only the master page named Standard (or else the first) is read. |
-| **Header and footer placement** | Rune centres them in their margins and saves where that puts them; a file's own header distance only decides where the body starts. Lists and tables in a header are saved as plain paragraphs. Editing them has its own undo history, separate from the body's. |
-| **Headings save as bold body text** | Found 2026-10-09: Qt's ODF writer drops a block's heading level and its relative font size, so headings (opened from a file, or written by the AI) save as bold paragraphs: `text:p` with only bold, no `text:h`/outline level. Pre-existing, affects every saved document; fixing it means post-processing the written XML or our own ODF writer. |
+| **Header and footer placement** | Rune centres them in their margins and saves where that puts them; a file's own header distance only decides where the body starts. Editing them has its own undo history, separate from the body's. |
 
 ## Not started
 
@@ -70,5 +68,5 @@ Status as of 2026-10-12 (Rune 0.8.1). See [README.md](README.md) for the archite
 
 - `native/` is the current app — single process, `QTextDocument`-based. `DocumentController` is the QML-facing API, delegating to the editing model in `native/document/` (formatting, lists, tables, streamed edits, header/footer, page layout); `native/formats/` (`OdfReader`, `OdfWriter`, `DocxBridge`) is plain C++ (not QML-exposed) handling import, export and the `.docx` bridge. `Main.qml` holds the window's state and file flow, with `Toolbar.qml`, `PageView.qml`, `StatusBar.qml` and `Commands.qml` beside it; the `--auto-test` checks are in `native/tests/`, one file per feature. See [docs/architecture-plan.md](docs/architecture-plan.md) for where this is heading.
 - `legacy-lok/` is the **retired** two-process LibreOfficeKit implementation, kept for reference only. See `legacy-lok/README.md`.
-- Run `native/build/rune --auto-test` (headless, `QT_QPA_PLATFORM=offscreen`) after any change — 421 checks covering formatting, tables, lists, undo/redo, pages and Page setup, headers and footers, the command palette, the file Open/Save flow, the File menu and autosave, both AI sign-in flows and AI document edits against mock servers, save/load round-trips verified via real `soffice` conversion, and an empirical proof the `.docx` bridge doesn't block the UI thread. On Arch, Qt sends warnings to the systemd journal when stderr isn't a terminal: run with `QT_FORCE_STDERR_LOGGING=1` to see QML warnings (a null binding once drew every header blank with nothing in the test log).
+- Run `native/build/rune --auto-test` (headless, `QT_QPA_PLATFORM=offscreen`) after any change — 431 checks covering formatting, tables, lists, undo/redo, pages and Page setup, headers and footers, the command palette, the file Open/Save flow, the File menu and autosave, both AI sign-in flows and AI document edits against mock servers, save/load round-trips verified via real `soffice` conversion, and an empirical proof the `.docx` bridge doesn't block the UI thread. On Arch, Qt sends warnings to the systemd journal when stderr isn't a terminal: run with `QT_FORCE_STDERR_LOGGING=1` to see QML warnings (a null binding once drew every header blank with nothing in the test log).
 - **Verify Qt/ODF API behavior against real files before relying on it.** This project has twice found real, silent-failure bugs this way: Qt's ODF writer mangling list-then-table structure (confirmed via `xmllint` + a direct A/B `soffice` conversion test), and earlier, the old LOK engine's `.uno:` commands that returned `ok` while silently doing nothing (confirmed via tile-diffing before/after). Don't assume an API's documented behavior is what actually happens on disk — test it.

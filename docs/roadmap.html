@@ -180,7 +180,7 @@
       <li><span class="dot dot-done"></span><div>Pages: page-sized sheets at the document's paper size and margins (Letter or A4 by locale), &ldquo;Page N of M&rdquo; in the status bar, and <strong>File &rarr; Page setup&hellip;</strong> for paper, orientation and margins &mdash; saved in <code>.odt</code> and <code>.docx</code>, checked against LibreOffice's own <code>.docx</code> conversion</div></li>
       <li><span class="dot dot-done"></span><div>Headers and footers: double-click a margin to edit in place, formatted with the toolbar, with page number and page count fields (each page draws its own) and Ctrl+K &rarr; Page numbers &mdash; saved with real <code>PAGE</code>/<code>NUMPAGES</code> fields, so Word and LibreOffice show them in the same place</div></li>
       <li><span class="dot dot-done"></span><div>Command palette (Ctrl+K): every command, searchable, with its shortcut</div></li>
-      <li><span class="dot dot-done"></span><div>A save-time sanitizer working around a real Qt ODF-writer bug (see below) &mdash; verified with a direct A/B test, not an assumption</div></li>
+      <li><span class="dot dot-done"></span><div>Rune's own ODF writer: headings as headings (Word's Heading 1&ndash;6 after conversion), links, lists that keep their numbering across interruptions, tables with merged cells, nested tables, widths and borders &mdash; it replaced Qt's writer, which dropped heading levels and nested tables and broke a table right after a list (an A/B check against Qt's writer still shows it)</div></li>
       <li><span class="dot dot-done"></span><div><code>.docx</code> conversion runs off the main thread (<code>QtConcurrent</code>) &mdash; empirically proven not to block the UI, not just an API shape change</div></li>
     </ul>
   </section>
@@ -189,13 +189,11 @@
     <h2><span class="dot dot-progress"></span> Known limitations &mdash; found, tested, documented</h2>
     <table class="audit-table">
       <tr><th>Limitation</th><th>Why</th></tr>
-      <tr><td>Nested tables lose the inner table's content on export</td><td>Confirmed via HTML export (plain-text conversion doesn't reliably represent nested structures). Rare pattern; lower priority.</td></tr>
       <tr><td>List numbering restart, custom start values, bullet characters, number formats</td><td>Imported lists get the UI's own level styles rather than preserving the source document's exact presentation.</td></tr>
-      <tr><td>Table/column widths, cell borders, backgrounds</td><td>Not read or written.</td></tr>
+      <tr><td>Table/column widths, cell borders, backgrounds</td><td>Written (table width, borders, padding, cell backgrounds), not read; column widths neither.</td></tr>
       <tr><td><code>styles.xml</code>'s default-style</td><td>Not read &mdash; named paragraph styles with parent chains are, and the automatic styles headers and footers use.</td></tr>
       <tr><td>One header and one footer per document</td><td>A file's different first-page or left-page header isn't shown, and is dropped on save.</td></tr>
-      <tr><td>Header and footer placement</td><td>Centred in their margins, and saved where that puts them; a file's own header distance only decides where the body starts. Lists and tables in a header save as plain paragraphs.</td></tr>
-      <tr><td>Headings save as bold body text</td><td>Qt's ODF writer drops a block's heading level and relative font size: headings (opened from a file, or written by the AI) come back as bold paragraphs. Pre-existing and affects every saved document; needs post-processing the written XML or our own writer.</td></tr>
+      <tr><td>Header and footer placement</td><td>Centred in their margins, and saved where that puts them; a file's own header distance only decides where the body starts.</td></tr>
     </table>
   </section>
 
@@ -231,7 +229,7 @@
     <h2>Architecture notes for contributors</h2>
     <div class="note-box">The current app (<code>native/</code>) is a single process built on <code>QTextDocument</code> &mdash; no sockets, no protocol, no IPC. <code>DocumentController</code> is the QML-facing editing API (including streamed AI edits as one undo step); <code>OdfReader</code>/<code>DocxBridge</code> are plain C++ handling ODF import and the .docx conversion bridge. <code>native/ai/</code> is the AI layer: <code>AiManager</code> (QML-facing), <code>ChatGptProvider</code>/<code>OpenRouterProvider</code>, the OAuth loopback listener, JWT verification (OpenSSL), the SSE parser and keyring storage (libsecret).</div>
     <div class="note-box">An earlier two-process LibreOfficeKit design (<code>legacy-lok/</code>) is kept for reference, not actively developed. See <code>legacy-lok/README.md</code> and the main README's architecture section for why it was replaced.</div>
-    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 421 checks covering formatting, tables, lists, undo/redo, pages and Page setup, headers and footers, the command palette, the file Open/Save flow, the File menu and autosave, save/load round-trips verified via real <code>soffice</code> conversion, and both AI sign-in flows plus every AI edit path against local mock servers. A test run never touches the real keyring, settings or browser.</div>
+    <div class="note-box">Run <code>native/build/rune --auto-test</code> (headless, <code>QT_QPA_PLATFORM=offscreen</code>) after any change &mdash; 431 checks covering formatting, tables, lists, undo/redo, pages and Page setup, headers and footers, the command palette, the file Open/Save flow, the File menu and autosave, save/load round-trips verified via real <code>soffice</code> conversion, and both AI sign-in flows plus every AI edit path against local mock servers. A test run never touches the real keyring, settings or browser.</div>
     <div class="note-box"><strong style="color: var(--ink);">Verify Qt/ODF API behavior against real files and the running app before relying on it.</strong> Silent failures this project has found that way: Qt's ODF writer mangling list-then-table structure (<code>xmllint</code> plus a direct A/B <code>soffice</code> test) and dropping heading levels; <code>QTextDocument::clear()</code> resetting the modified flag and undo history without emitting the signals that say so; Qt 6.11's ahead-of-time compiled QML resolving <code>MessageDialog</code>'s button enums to undefined; and, in the retired LOK engine, <code>.uno:</code> commands that returned <code>ok</code> while doing nothing. Don't assume an API's documented behavior is what actually happens &mdash; test it.</div>
   </section>
 

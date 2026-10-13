@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 421 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 431 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -43,20 +43,20 @@ One process. QML's `TextEdit`, backed directly by a `QTextDocument` — no bitma
 │   DocumentController                            │
 │      │        │          │                      │
 │      ▼        ▼          ▼                      │
-│  OdfReader  (QTextDocument-  DocxBridge          │
-│  (custom)    Writer, Qt's)  (soffice, batch-only)│
+│  OdfReader   OdfWriter       DocxBridge          │
+│  (custom)    (custom)       (soffice, batch-only)│
 └───────────────────────────────────────────────┘
 ```
 
 **This replaced an earlier two-process LibreOfficeKit design** (kept in [`legacy-lok/`](legacy-lok/) for reference). That architecture's tiled bitmap rendering had a real performance ceiling (~150ms per full-page re-render on a page with a table), and its socket/JSON-protocol split existed specifically to isolate LibreOfficeKit's thread-safety and shutdown issues. `QTextDocument` has neither problem — it's a normal in-process Qt object — so the architecture collapsed to one process once we moved to it.
 
-**Qt has no built-in ODF reader**, public or private — only a writer. `OdfReader` (in `native/formats/`) is a from-scratch ODF importer: unzips via `QuaZip`, parses `content.xml`/`styles.xml` via `QXmlStreamReader`, resolves named/inherited paragraph styles, and builds the document via `QTextCursor`. Verified against real LibreOffice-authored files, not just round-tripped through our own writer.
+**Rune reads and writes ODF itself.** Qt has no ODF reader, public or private. `OdfReader` (in `native/formats/`) is a from-scratch ODF importer: unzips via `QuaZip`, parses `content.xml`/`styles.xml` via `QXmlStreamReader`, resolves named/inherited paragraph styles, and builds the document via `QTextCursor`. Verified against real LibreOffice-authored files, not just round-tripped through our own writer. `OdfWriter` writes the whole `.odt` (content, styles, metadata, manifest) from the document: headings as headings (Word's Heading 1–6 after conversion), links, lists that keep their numbering across interruptions, tables with merged cells, nested tables and their widths and borders. Qt's own ODF writer, which Rune used before, dropped heading levels and nested tables and broke a table placed right after a list.
 
 **`.docx` is a batch conversion at the boundary, not a live format.** Opening a `.docx` runs `soffice --headless --convert-to odt` once, then loads the result with the same `OdfReader`; saving does the reverse. LibreOffice never touches the interactive editing path, and the conversion runs on a background thread (`QtConcurrent`) so it never blocks the UI — empirically verified, not just assumed (a synchronous baseline blocked the main thread completely; the async version let other work run throughout an equivalent-length conversion).
 
-**Pages come from `QTextDocument` itself.** The body is paginated at the paper size, with the margins as the root frame's, so text never runs into a margin; the page sheets in the view are drawn behind it. The header and footer are documents of their own, drawn on every page with that page's number. Qt's writer produces no `styles.xml`, so Rune adds one holding the page layout and the master page's header and footer, with real page-number fields; LibreOffice's `.docx` conversion of it is checked in the tests (page size, margins, header text, `PAGE`/`NUMPAGES` fields).
+**Pages come from `QTextDocument` itself.** The body is paginated at the paper size, with the margins as the root frame's, so text never runs into a margin; the page sheets in the view are drawn behind it. The header and footer are documents of their own, drawn on every page with that page's number. `styles.xml` holds the page layout and the master page's header and footer, with real page-number fields; LibreOffice's `.docx` conversion of it is checked in the tests (page size, margins, header text, `PAGE`/`NUMPAGES` fields).
 
-**Qt's own ODF writer has a real bug**, found and worked around: a table immediately following a list produces structurally broken ODF (not malformed XML — `xmllint` passes it — but a table nested inside the preceding list and split across its own rows), and LibreOffice silently drops the table on import. Fixed with a save-time sanitizer that inserts a separating paragraph; verified with a direct A/B test (identical document, sanitizer on vs. off) showing the unsanitized version genuinely loses the table.
+**Qt's own ODF writer has a real bug**, found while Rune still used it: a table immediately following a list produces structurally broken ODF (not malformed XML — `xmllint` passes it — but a table nested inside the preceding list and split across its own rows), and LibreOffice silently drops the table on import. Rune first worked around it with a save-time sanitizer, then replaced the writer; the tests keep an A/B check (Qt's writer vs. Rune's, same document) showing Qt's still loses the table.
 
 Full protocol/implementation notes: [`native/`](native/) source comments (each file documents its own tested limitations) and [TODO.md](TODO.md) for the complete, current feature state.
 
@@ -108,7 +108,7 @@ QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 
 On Arch, Qt sends its warnings to the systemd journal when stderr isn't a terminal; add `QT_FORCE_STDERR_LOGGING=1` to see QML warnings in the test output.
 
-421 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+431 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 

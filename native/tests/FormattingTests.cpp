@@ -1,5 +1,5 @@
 // Typing, character formatting (bold/italic/underline, pending formats), the
-// ODF export sanitizer, alignment, lists, font and colour.
+// list-then-table export case, alignment, lists, font and colour.
 
 #include "TestSupport.h"
 
@@ -52,8 +52,9 @@ void testFormatting(Env &env)
     t.check(controller->currentPath() == kStage1Path, "currentPath = " + controller->currentPath());
     QTextStream(stdout) << "  final text: \"" << doc->toPlainText() << "\"" << Qt::endl;
 
-    // Export sanitizer: list directly followed by a table (the native-spike
-    // bug). Exercised on a scratch controller; Stage 1 has no table UI.
+    // A list directly followed by a table (the native-spike bug in Qt's
+    // ODF writer, which Rune no longer uses). Exercised on a scratch
+    // controller; Stage 1 has no table UI.
     DocumentController scratch;
     QTextDocument *sdoc = scratch.textDocument();
     sdoc->setHtml(QStringLiteral("<ul><li>Alpha</li><li>Beta</li></ul>"
@@ -64,13 +65,12 @@ void testFormatting(Env &env)
     const int blocksBefore = sdoc->blockCount();
     t.check(scratch.saveToOdf(kSanitizePath), "saveToOdf(" + kSanitizePath + ")");
     t.check(sdoc->blockCount() == blocksBefore, "save left the live document unchanged");
-
-    std::unique_ptr<QTextDocument> copy(sdoc->clone());
-    OdfWriter::sanitize(copy.get());
-    const QTextBlock separator = blockBeforeFirstTable(copy.get());
-    t.check(separator.isValid() && !separator.textList() && separator.text().isEmpty(),
-            "sanitized copy: empty non-list paragraph between list and table");
-    t.check(separator.isValid() && separator.previous().textList(), "sanitized copy: list still ends right before it");
+    DocumentController listTableReader;
+    const bool listTableRead = listTableReader.openOdf(kSanitizePath);
+    const QTextBlock readBefore = blockBeforeFirstTable(listTableReader.textDocument());
+    t.check(listTableRead && readBefore.isValid() && readBefore.textList() && readBefore.text() == QStringLiteral("Beta")
+                && listTableReader.textDocument()->toPlainText() == sdoc->toPlainText(),
+            "reopened: the list still directly precedes the table, nothing added between them");
 
     // --- Stage 2: alignment, lists, font, color ---
     controller->newDocument();

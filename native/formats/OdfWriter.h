@@ -1,32 +1,40 @@
 #pragma once
 
-// OdfWriter: a document as an .odt file's bytes.
-//
-// The body is written by Qt's QTextDocumentWriter (format "ODF") from a
-// sanitized copy (see sanitize()); Qt's writer produces no styles.xml, so
-// the page layout, header and footer are added as one afterwards, and the
-// document's data stores (DocumentData) as package entries
-// "Rune/<name>.json". Every added entry is listed in the manifest, as ODF
-// requires of a package's files.
+// OdfWriter: a document as an .odt file's bytes, written by Rune itself
+// (Qt's QTextDocumentWriter wrote malformed ODF in places, and can't write
+// headings, notes or fields):
+//  - content.xml: the body (OdfTextWriter);
+//  - styles.xml: the page layout, header and footer (OdfStyles);
+//  - meta.xml: the generator, Rune and its version;
+//  - Rune/<name>.json: the document's data stores (DocumentData);
+//  - the mimetype first and uncompressed, and a manifest listing it all,
+//    as ODF requires.
 
 #include "DocumentData.h"
+#include "PageLayout.h"
 
 #include <QByteArray>
+#include <QString>
 
 class QTextDocument;
 
 namespace OdfWriter {
 
-// Rewrites `doc` so QTextDocumentWriter's ODF output is well-formed. Every
-// ODF save must go through this (write() does); see the .cpp for each rule.
-void sanitize(QTextDocument *doc);
+struct Document
+{
+    const QTextDocument *body = nullptr;
+    // With the header's and footer's distances where they are drawn.
+    PageLayout layout;
+    // None if null or empty.
+    const QTextDocument *header = nullptr;
+    const QTextDocument *footer = nullptr;
+    DocumentData::Stores data;
+};
 
 // Where a data store goes in the package.
 QString dataEntryName(const QString &store);
 
-// The .odt for `body`, with `stylesXml` as its styles.xml (see
-// PageLayout::odfStyles()) and `data`'s stores. `body` itself is not
-// changed. Empty on failure, with a warning logged.
-QByteArray write(const QTextDocument *body, const QByteArray &stylesXml, const DocumentData::Stores &data = {});
+// The .odt. Empty on failure, with a warning logged.
+QByteArray write(const Document &document);
 
 } // namespace OdfWriter

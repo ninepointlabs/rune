@@ -15,7 +15,7 @@ bool testTables(Env &env)
 
     // --- Stage 3: tables ---
 
-    // The Stage 1 sanitizer bug through the production path: a bullet list
+    // The native-spike list-then-table bug through the production path: a bullet list
     // typed through the UI, then insertTable() straight after its last item
     // with no paragraph in between.
     controller->newDocument();
@@ -50,8 +50,9 @@ bool testTables(Env &env)
             "soffice: list-then-table export has the list (2 <li>) and the table (4 <td>)");
     t.check(textOf(listTableHtml).contains(QStringLiteral("Alpha Beta Cell A Cell B Cell C Cell D")),
             "soffice: list items and all four cells present, in order");
-    // Control: the same document written without the sanitizer loses the
-    // table, so the check above really went through the bug.
+    // Control: Qt's own ODF writer, which Rune used to save with, loses the
+    // table of the same document, so the check above really went through
+    // the bug Rune's writer (OdfTextWriter) doesn't have.
     {
         QTextDocumentWriter raw(kStage3ListTableRawPath, QByteArrayLiteral("ODF"));
         raw.write(doc);
@@ -60,7 +61,7 @@ bool testTables(Env &env)
     logConversion(kStage3ListTableRawPath, rawHtml);
     t.check(!rawHtml.isEmpty() && countOf(rawHtml, QStringLiteral("table")) == 0
                 && !textOf(rawHtml).contains(QStringLiteral("Cell A")),
-            "control: the unsanitized export of the same document loses the table in soffice");
+            "control: Qt's ODF writer's export of the same document loses the table in soffice");
 
     // The toolbar's Table menu, isInTable() and its row/column entries'
     // availability. Entries are clicked as a menu click does (click()).

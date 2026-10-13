@@ -156,16 +156,12 @@ void HeaderFooter::clear()
     }
 }
 
-QByteArray HeaderFooter::odfStyles(PageLayout layout) const
+PageLayout HeaderFooter::asDrawn(PageLayout layout) const
 {
-    const qreal textWidthMm = layout.widthMm - layout.leftMm - layout.rightMm;
-    // Where they are drawn: centred in their margins.
+    // Centred in their margins.
     const qreal headerY = headerYPx(layout);
     const qreal footerY = footerYPx(layout);
     layout.headerMm = headerY * kMmPerPx;
     layout.footerMm = (layout.sizePx().height() - footerY - heightPx(true)) * kMmPerPx;
-    PageLayout::OdfParts parts;
-    parts.header = PageParts::toOdf(m_header, QStringLiteral("Header"), textWidthMm, parts.automaticStyles);
-    parts.footer = PageParts::toOdf(m_footer, QStringLiteral("Footer"), textWidthMm, parts.automaticStyles);
-    return layout.odfStyles(parts);
+    return layout;
 }

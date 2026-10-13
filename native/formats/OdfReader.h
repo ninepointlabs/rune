@@ -63,7 +63,7 @@ bool readInto(QTextDocument *doc, const QString &path, QString *error = nullptr)
 
 // The header (or with `footer`, the footer) of the .odt at `path` into
 // `doc`, replacing its contents: the <style:header>/<style:footer> of the
-// master page PageLayout::fromOdfStyles() takes the page layout from, read
+// master page OdfStyles::readPageLayout() takes the page layout from, read
 // as body text is, with styles.xml's own styles. Page number and page count
 // fields become PageParts fields. A file without one leaves `doc` empty and
 // succeeds; on failure `doc` is not touched. Clears the undo history.

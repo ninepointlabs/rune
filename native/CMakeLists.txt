@@ -32,7 +32,7 @@ qt_standard_project_setup(REQUIRES 6.7)
 qt_add_executable(rune main.cpp
     tests/AutoTest.h tests/AutoTest.cpp tests/TestSupport.h tests/AiAutoTest.h tests/AiAutoTest.cpp
     tests/FormattingTests.cpp tests/TablesTests.cpp tests/OdfTests.cpp tests/DocxTests.cpp tests/AsyncIoTests.cpp
-    tests/UndoTests.cpp tests/PagesTests.cpp tests/HeaderFooterTests.cpp tests/DataTests.cpp tests/WindowTests.cpp)
+    tests/UndoTests.cpp tests/PagesTests.cpp tests/HeaderFooterTests.cpp tests/DataTests.cpp tests/OdfWriterTests.cpp tests/WindowTests.cpp)
 # Interpreted, not compiled ahead of time: see the comment at its top.
 set_source_files_properties(UnsavedChangesDialog.qml PROPERTIES QT_QML_SKIP_CACHEGEN TRUE)
 qt_add_qml_module(rune
@@ -46,7 +46,7 @@ qt_add_qml_module(rune
             document/Lists.h document/Lists.cpp document/Tables.h document/Tables.cpp
             document/StreamedEdit.h document/StreamedEdit.cpp document/HeaderFooter.h document/HeaderFooter.cpp
             document/PageLayout.h document/PageLayout.cpp document/PageParts.h document/PageParts.cpp
-            formats/OdfReader.h formats/OdfReader.cpp formats/OdfWriter.h formats/OdfWriter.cpp
+            formats/OdfReader.h formats/OdfReader.cpp formats/OdfWriter.h formats/OdfWriter.cpp formats/OdfTextWriter.h formats/OdfTextWriter.cpp formats/OdfStyles.h formats/OdfStyles.cpp
             formats/DocxBridge.h formats/DocxBridge.cpp formats/DocxData.h formats/DocxData.cpp formats/Package.h formats/Package.cpp
             ai/AiManager.h ai/AiManager.cpp ai/AiProvider.h ai/AiProvider.cpp
             ai/ChatGptProvider.h ai/ChatGptProvider.cpp ai/OpenRouterProvider.h ai/OpenRouterProvider.cpp

@@ -45,6 +45,7 @@ bool runAutoTest(QQuickWindow *window)
     testHeaderFooter(env);
     testRegistries(env);
     testDocumentData(env);
+    testOdfWriter(env);
 
     // The AI layer (AiAutoTest.cpp): mock servers, no real network.
     runAiAutoTest(window, [&t](bool ok, const QString &what) { t.check(ok, what); });
