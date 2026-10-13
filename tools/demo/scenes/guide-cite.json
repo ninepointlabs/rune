@@ -1,0 +1,203 @@
+{
+ "size": [
+  1440,
+  900
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/essay.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''"
+  },
+  {
+   "eval": "sidebar.show('sources')"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-sources",
+   "crop": "sidebar"
+  },
+  {
+   "click": "addSource",
+   "secs": 0.05
+  },
+  {
+   "click": "sourceAuthors",
+   "secs": 0.05
+  },
+  {
+   "type": "Febvre, Lucien\nMartin, Henri-Jean",
+   "cps": 0
+  },
+  {
+   "click": "sourceTitle",
+   "secs": 0.05
+  },
+  {
+   "type": "The Coming of the Book: The Impact of Printing 1450–1800",
+   "cps": 0
+  },
+  {
+   "click": "sourceYear",
+   "secs": 0.05
+  },
+  {
+   "type": "1976",
+   "cps": 0
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-source-form",
+   "crop": "sidebar"
+  },
+  {
+   "click": "label:Cancel",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "click": "importBibTeX",
+   "secs": 0.05
+  },
+  {
+   "click": "bibtexText",
+   "secs": 0.05
+  },
+  {
+   "type": "@book{febvre1976,\n  author = {Febvre, Lucien and Martin, Henri-Jean},\n  title = {The Coming of the Book},\n  publisher = {NLB},\n  year = {1976}\n}",
+   "cps": 0
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-bibtex",
+   "crop": "sidebar"
+  },
+  {
+   "click": "label:Cancel",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "cursor": "in a thousand identical copies"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "eval": "controller.insertCitation(['eisenstein1979'], '')"
+  },
+  {
+   "cursor": "stories that carry instructions inside them"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "eval": "controller.insertCitation(['ong1982'], '78')"
+  },
+  {
+   "cursor": "one library at a time"
+  },
+  {
+   "type": " ",
+   "cps": 0
+  },
+  {
+   "key": "Ctrl+Shift+C"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "click": "label:Darnton 1982 · What Is the History of Books?#1",
+   "secs": 0.05
+  },
+  {
+   "click": "label:Johns 1998 · The Nature of the Book: Print and Knowledge in the Making#1",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-picker",
+   "crop": [
+    "label:Insert citation",
+    "citationInsert",
+    "citationPage"
+   ],
+   "pad": 16
+  },
+  {
+   "click": "citationInsert",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "cursor": "remembers how it was changed."
+  },
+  {
+   "eval": "root.insertBibliography()"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "scroll": "Print and Its Readers",
+   "at": 0.05,
+   "secs": 0.05
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-cited-apa"
+  },
+  {
+   "eval": "controller.citationStyle = 'ieee'"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-cited-ieee"
+  },
+  {
+   "quit": true
+  }
+ ]
+}

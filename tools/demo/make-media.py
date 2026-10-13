@@ -3,6 +3,7 @@
 
     tools/demo/make-media.py               # everything
     tools/demo/make-media.py shots         # screenshots only
+    tools/demo/make-media.py guide         # the guide's screenshots, then the guide
     tools/demo/make-media.py video         # video only
 
 Needs a built Rune (build/native/rune), ffmpeg, ImageMagick, Chromium, and an
@@ -11,7 +12,8 @@ The AI scenes use your own Rune sign-in (the keyring and ~/.config/Rune), so
 the AI's edits are real; the account name is blanked in the frame. Narration
 is cached in work/tts by its text, so re-runs only pay for changed lines.
 
-Writes docs/images/*.webp (and og.jpg), docs/media/rune-demo.mp4 and its poster.
+Writes docs/images/*.webp (and og.jpg), docs/guide/images/*.webp,
+docs/media/rune-demo.mp4 and its poster.
 """
 
 import hashlib
@@ -89,6 +91,21 @@ def shots():
     # The link preview (og:image): the hero, cropped to 1200×630.
     run("magick", OUT / "shot-hero.png", "-resize", "1200x", "-gravity", "north", "-crop", "1200x630+0+0", "+repage",
         "-quality", "85", dest / "og.jpg")
+
+
+def guide():
+    """The guide's screenshots (docs/guide/images), then the guide itself."""
+    prepare()
+    scene("guide-book", scale=2)
+    scene("guide-cite", scale=2)
+    scene("guide-ai", scale=2, tries=4)
+    dest = DOCS / "guide" / "images"
+    dest.mkdir(parents=True, exist_ok=True)
+    for src in sorted(OUT.glob("g-*.png")):
+        # Whole-window shots at 2× the column; close-ups at their own size.
+        run("magick", src, "-resize", "2080x>", "-quality", "86", "-define", "webp:method=6",
+            dest / (src.stem[2:] + ".webp"))
+    run(sys.executable, ROOT / "tools" / "guide" / "build.py")
 
 
 # ---------------------------------------------------------------------- video
@@ -226,5 +243,7 @@ if __name__ == "__main__":
     build_plugin()
     if what in ("all", "shots"):
         shots()
+    if what in ("all", "guide"):
+        guide()
     if what in ("all", "video"):
         video()

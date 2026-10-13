@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Writing and formatting — Rune Guide</title>
+<meta name="description" content="Bold and italic, headings, lists, alignment, fonts, text colour and tables in Rune.">
+<meta property="og:title" content="Writing and formatting — Rune Guide">
+<meta property="og:description" content="Bold and italic, headings, lists, alignment, fonts, text colour and tables in Rune.">
+<meta property="og:image" content="https://rune.ninepointlabs.com/images/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<!-- Built by tools/guide/build.py from tools/guide/pages/02-formatting.html; edit that, not this. -->
+<header>
+  <div class="nav">
+    <a href="../" class="wordmark"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg> RUNE <span class="sub">Guide</span></a>
+    <nav class="nav-links">
+      <a href="../" class="wide">Home</a>
+      <a href="./" aria-current="page">Guide</a>
+      <a href="../roadmap.html" class="wide">Roadmap</a>
+      <a href="../#get-started">Install</a>
+      <a href="https://github.com/ninepointlabs/rune">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <h2>The guide</h2>
+    <ol>
+      <li><a href="index.html">Overview</a>
+      </li>
+      <li><a href="getting-started.html">Getting started</a>
+      </li>
+      <li><a href="formatting.html" aria-current="page">Writing and formatting</a>
+        <ol class="sections">
+          <li><a href="#text">Bold, italic and underline</a></li>
+          <li><a href="#headings">Paragraph styles and headings</a></li>
+          <li><a href="#lists">Lists</a></li>
+          <li><a href="#align">Alignment</a></li>
+          <li><a href="#fonts">Font and size</a></li>
+          <li><a href="#colour">Text colour</a></li>
+          <li><a href="#tables">Tables</a></li>
+        </ol>
+      </li>
+      <li><a href="pages.html">Pages, headers and footers</a>
+      </li>
+      <li><a href="ai.html">Writing with the AI</a>
+      </li>
+      <li><a href="books.html">Writing a book</a>
+      </li>
+      <li><a href="citations.html">Citations and bibliography</a>
+      </li>
+      <li><a href="shortcuts.html">Commands and shortcuts</a>
+      </li>
+    </ol>
+  </nav>
+  <main>
+    <p class="kicker">Guide</p>
+    <h1>Writing and formatting</h1>
+    <p class="lede">Everything on the toolbar, from bold to tables.</p>
+    <p>Each control works on the selection, or on the text you type next if nothing is selected. All of them are also in the <a href="shortcuts.html">command palette</a>.</p>
+
+    <h2 id="text">Bold, italic and underline</h2>
+    <p><span class="ui">B</span>, <span class="ui">I</span> and <span class="ui">U</span>, or <kbd>Ctrl+B</kbd>, <kbd>Ctrl+I</kbd> and <kbd>Ctrl+U</kbd>. A button is highlighted while that style is on at the cursor.</p>
+
+    <h2 id="headings">Paragraph styles and headings</h2>
+    <figure class="fit">
+      <a class="frame" href="images/heading-menu.webp"><img src="images/heading-menu.webp" width="244" height="168" alt="The paragraph style menu: Body text (checked), Heading 1, Heading 2, Heading 3 with their shortcuts."></a>
+    </figure>
+    <p>The paragraph style button shows <span class="ui">Body</span>, <span class="ui">H1</span>, <span class="ui">H2</span> or <span class="ui">H3</span> for the paragraph you're in. Pick a style from its menu or use the shortcuts:</p>
+    <div class="table-wrap"><table>
+      <tr><th>Style</th><th>Shortcut</th></tr>
+      <tr><td>Body text</td><td><kbd>Ctrl+Alt+0</kbd></td></tr>
+      <tr><td>Heading 1</td><td><kbd>Ctrl+Alt+1</kbd></td></tr>
+      <tr><td>Heading 2</td><td><kbd>Ctrl+Alt+2</kbd></td></tr>
+      <tr><td>Heading 3</td><td><kbd>Ctrl+Alt+3</kbd></td></tr>
+    </table></div>
+    <p>Pressing <kbd>Return</kbd> at the end of a heading starts body text, as in any word processor. Headings are real headings, saved as Heading 1–3 for Word and LibreOffice, and they make up the <a href="books.html#outline">outline</a>.</p>
+
+    <h2 id="lists">Lists</h2>
+    <p><span class="ui">•</span> starts a bullet list and <span class="ui">1.</span> a numbered list. Click it again to turn the list back into plain paragraphs. In a list, <kbd>Tab</kbd> nests an item one level deeper and <kbd>Shift+Tab</kbd> moves it back out.</p>
+
+    <h2 id="align">Alignment</h2>
+    <p>The alignment menu offers <span class="ui">Align left</span>, <span class="ui">Align center</span> and <span class="ui">Align right</span>. Its icon shows the alignment of the paragraph you're in.</p>
+    <div class="limit"><p><strong>Not yet</strong> There is no justified alignment, and no paragraph spacing, indents or tab stop settings yet.</p></div>
+
+    <h2 id="fonts">Font and size</h2>
+    <p>The font button shows the current font, written in that font. Click it and type to search. Each name in the list is shown in its own typeface; pick one with the mouse or with <kbd>↑</kbd> <kbd>↓</kbd> and <kbd>Return</kbd>.</p>
+    <p><span class="ui">−</span> and <span class="ui">+</span> step the size through 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36 and 48 pt.</p>
+
+    <h2 id="colour">Text colour</h2>
+    <figure class="fit">
+      <a class="frame" href="images/color.webp"><img src="images/color.webp" width="318" height="258" alt="The text colour palette: Automatic at the top, a grid of 60 colour swatches, and a Custom field for a hex colour."></a>
+    </figure>
+    <p>The <span class="ui">A</span> button shows the current colour underneath. Its palette has <span class="ui">Automatic</span>, a grid of 60 colours, and <span class="ui">Custom</span>, where you type any <code>#RRGGBB</code> colour and press <kbd>Return</kbd>.</p>
+    <p><span class="ui">Automatic</span> removes the colour you set, so the text is drawn in your theme's text colour.</p>
+
+    <h2 id="tables">Tables</h2>
+    <figure>
+      <a class="frame" href="images/table.webp"><img src="images/table.webp" width="2080" height="1300" alt="A three-column table in the manuscript with the Table menu open: Insert table, rows above and below, delete row, columns left and right, delete column, delete table."></a>
+      <figcaption>The Table menu, with the cursor in a table.</figcaption>
+    </figure>
+    <p><span class="ui">⊞ Table → Insert table</span> puts a 3×3 table at the cursor, the full width of the page. Then:</p>
+    <ul>
+      <li><kbd>Tab</kbd> moves to the next cell, and in the last cell adds a new row. <kbd>Shift+Tab</kbd> moves back.</li>
+      <li>The Table menu inserts rows above or below and columns left or right, and deletes the row, column or whole table. These are only available with the cursor in a table.</li>
+      <li>Deleting rows or columns never removes the last one; use <span class="ui">Delete table</span> for that.</li>
+    </ul>
+    <p>Each of these is one undo step. Tables work in the body of the document, not in headers and footers.</p>
+    <nav class="pager" aria-label="Pages"><a class="prev" href="getting-started.html"><span class="dir">Previous</span>Getting started</a><a class="next" href="pages.html"><span class="dir">Next</span>Pages, headers and footers</a></nav>
+  </main>
+</div>
+<footer>
+  <p>Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>. Something wrong or missing here? <a href="https://github.com/ninepointlabs/rune/issues">Open an issue</a>.</p>
+</footer>
+</body>
+</html>

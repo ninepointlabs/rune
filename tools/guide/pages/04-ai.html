@@ -1,0 +1,84 @@
+<!-- title: Writing with the AI | blurb: Sign in with your ChatGPT plan or OpenRouter, then let Rune's AI correct, rewrite and draft in your document, or answer questions about it. -->
+    <p class="kicker">Guide</p>
+    <h1>Writing with the AI</h1>
+    <p class="lede">The AI in Rune doesn't just chat beside your document. It writes in it: corrections in place, rewrites of a selection, and new text at the cursor, each one a single undo.</p>
+
+    <h2 id="sign-in">Signing in</h2>
+    <p>Open the AI panel with <span class="ui">✦ AI</span> on the toolbar or <kbd>Ctrl+Shift+E</kbd>. There are two ways to sign in, and you can use both:</p>
+    <ul>
+      <li><strong><span class="ui">Continue with ChatGPT</span></strong> uses the ChatGPT plan you already pay for, such as Plus or Pro. Eligible requests are included in your plan; there is no separate bill from Rune.</li>
+      <li><strong><span class="ui">Sign in with OpenRouter</span></strong> reaches Claude, GPT and Grok models, paid from your own OpenRouter credits.</li>
+    </ul>
+    <ol class="steps">
+      <li>Click the button. Your web browser opens the provider's sign-in page, and the button reads <span class="ui">Waiting for the browser…</span>.</li>
+      <li>Sign in and allow Rune. The browser says <span class="ui">Sign-in finished. You can close this tab and return to Rune.</span></li>
+      <li>Back in Rune, the provider shows <span class="ui">● Signed in</span>.</li>
+    </ol>
+    <figure class="fit">
+      <a class="frame" href="images/ai-panel.webp"><img src="images/ai-panel.webp" width="380" height="832" alt="The AI panel signed in to ChatGPT and OpenRouter, with ChatGPT chosen, the model GPT-6-Luna, and the Edit document and Ask buttons above the prompt."></a>
+      <figcaption>Signed in to both. The buttons under the accounts choose which one answers.</figcaption>
+    </figure>
+    <p>Rune has no server and no account of its own. Requests go straight from your computer to ChatGPT or OpenRouter, and your sign-in is kept in your desktop keyring, not in a file. <span class="ui">Sign out</span> removes it.</p>
+    <p>With both signed in, the <span class="ui">ChatGPT</span> and <span class="ui">OpenRouter</span> buttons choose which one answers, and the model list below picks the model. Rune remembers your model for each.</p>
+    <div class="note"><p><strong>Why not Claude or Grok directly?</strong> Anthropic's terms don't allow other apps to offer Claude.ai sign-in, and xAI has no sign-in for other apps. OpenRouter is the sanctioned way to use both.</p></div>
+
+    <h2 id="edit">Changing text</h2>
+    <p>Select the text you want changed, then tell the AI what to do.</p>
+    <ol class="steps">
+      <li>Select a passage. With <kbd>Ctrl+Shift+E</kbd> the panel opens in <span class="ui">Edit document</span> mode, and the hint reads <span class="ui">Rewrites the selected text</span>.</li>
+      <li>Type an instruction such as <em>Fix the typos and tighten this paragraph</em>, and press <kbd>Return</kbd>.</li>
+    </ol>
+    <figure>
+      <a class="frame" href="images/ai-instruct.webp"><img src="images/ai-instruct.webp" width="2080" height="1300" alt="A paragraph with typos selected in the page, and the instruction Fix the typos and tighten this paragraph typed in the AI panel."></a>
+    </figure>
+    <p>Corrections are applied in place, one by one as they arrive. Only the words that change are rewritten, so your italics, bold and other formatting survive. The panel then reports what happened, such as <span class="ui">Made 2 changes.</span></p>
+    <figure>
+      <a class="frame" href="images/ai-edited.webp"><img src="images/ai-edited.webp" width="2080" height="1300" alt="The same paragraph corrected and tightened in the page; the panel reads Made 1 change, with an Undo this edit link."></a>
+    </figure>
+    <p>With nothing selected, an instruction like <em>fix the spelling</em> applies to the whole document. If a change's text can't be found, it is skipped and the panel says so, rather than guessing.</p>
+
+    <h2 id="draft">Writing new text</h2>
+    <p>Put the cursor where the new text should go, with nothing selected; the hint reads <span class="ui">Writes at the cursor</span>. Then ask, for example: <em>Write the next paragraph: Ilse counts the flashes and knows the signal.</em></p>
+    <figure>
+      <a class="frame" href="images/ai-draft.webp"><img src="images/ai-draft.webp" width="2080" height="1300" alt="A new paragraph written by the AI at the cursor, after Far out, past the point, a light answered; the panel reads Inserted 62 words at the cursor."></a>
+    </figure>
+    <p>The text streams in as it's written. Markdown in the reply becomes real formatting: headings, lists, bold, italics and tables. A long answer gets paragraphs of its own, while a short rewrite stays inline.</p>
+    <p>An instruction that asks for a rewrite of the selection, rather than corrections, replaces the selection with new text the same way.</p>
+
+    <h2 id="undo">Undo, stop and errors</h2>
+    <ul>
+      <li>Every instruction is <strong>one undo step</strong>. <kbd>Ctrl+Z</kbd> takes it back, or click <span class="ui">Undo this edit</span> in the panel.</li>
+      <li>While the AI writes, the document is read-only and <span class="ui">Send</span> becomes <span class="ui">Stop</span>. Stopping keeps what was already written.</li>
+      <li>If a request fails, the document goes back exactly to how it was.</li>
+      <li><span class="ui">Clear</span> empties the conversation in the panel.</li>
+    </ul>
+
+    <h2 id="ask">Asking questions</h2>
+    <p>Click <span class="ui">Ask</span> to talk about the document without changing it. The hint reads <span class="ui">Sees your document; answers here</span>. Answers appear in the panel, and Ask remembers the conversation so you can follow up.</p>
+    <figure class="fit">
+      <a class="frame" href="images/ai-ask.webp"><img src="images/ai-ask.webp" width="380" height="832" alt="Ask mode: the question Who is Ilse Varga, and what does she want? answered in the panel from the manuscript and its notes."></a>
+    </figure>
+    <p>In both modes, <kbd>Return</kbd> sends and <kbd>Shift+Return</kbd> starts a new line.</p>
+
+    <h2 id="context">What the AI sees</h2>
+    <p>With each request the AI gets your document, up to about 60,000 characters on each side of the cursor or selection, so it knows where it is. It also gets your <a href="books.html#notes">story notes</a> and <a href="citations.html">sources</a>. So it knows who your characters are, and it can cite your sources the way you would.</p>
+    <p>When it writes, the AI can also update story notes and add sources. The panel says so, for example <span class="ui">Updated 1 story note.</span> Sources it adds are marked for you to check: see <a href="citations.html#ai">Citations and the AI</a>.</p>
+
+    <h2 id="limits">Limits</h2>
+    <div class="limit">
+      <p><strong>Not yet</strong></p>
+      <ul>
+        <li>The AI changes text, not formatting: "make every heading blue" or "bold the names" won't work yet.</li>
+        <li>New text takes the default font, not the surrounding paragraph's. A rewrite of a whole selection loses colours, alignment and fonts in it.</li>
+        <li>Undoing an AI edit doesn't remove story notes or sources it added.</li>
+        <li>There's no way to enter an Anthropic or xAI API key directly.</li>
+      </ul>
+    </div>
+    <h3>Messages you may see</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Message</th><th>What to do</th></tr>
+      <tr><td>Usage limit reached</td><td>Your ChatGPT plan's limit is used up. <span class="ui">Manage usage</span> opens your ChatGPT settings.</td></tr>
+      <tr><td>Your OpenRouter account is out of credits.</td><td>Add credits on OpenRouter, or switch to ChatGPT.</td></tr>
+      <tr><td>No model is available yet…</td><td>Wait a moment for the model list to load.</td></tr>
+      <tr><td>Sign-in timed out waiting for the browser.</td><td>Sign-in waits five minutes. Click the button again.</td></tr>
+    </table></div>

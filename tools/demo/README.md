@@ -6,12 +6,14 @@ made from the real app by `make-media.py`:
 ```sh
 cmake --build build                  # Rune itself
 tools/demo/make-media.py             # screenshots and video
-tools/demo/make-media.py shots       # or just the screenshots
+tools/demo/make-media.py shots       # or just the site's screenshots
+tools/demo/make-media.py guide       # or the guide's screenshots, then the guide
 tools/demo/make-media.py video       # or just the video
 ```
 
-It writes `docs/images/*.webp`, `docs/images/og.jpg`, `docs/media/rune-demo.mp4`
-and its poster.
+It writes `docs/images/*.webp`, `docs/images/og.jpg`, `docs/guide/images/*.webp`,
+`docs/media/rune-demo.mp4` and its poster. The guide's text is in
+`tools/guide/pages/`; `tools/guide/build.py` turns it into `docs/guide/`.
 
 **How.** `RuneDemo.cpp` is a Qt generic plugin. `run-scene.sh` loads it into
 the unmodified `rune` binary (`-plugin runedemo`), offscreen, where it plays a

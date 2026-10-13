@@ -1,0 +1,45 @@
+<!-- title: Pages, headers and footers | blurb: Paper size, margins and orientation, headers and footers edited in place, and page numbers in Rune. -->
+    <p class="kicker">Guide</p>
+    <h1>Pages, headers and footers</h1>
+    <p class="lede">Rune shows your document on real pages, at its real paper size, the way it will print.</p>
+
+    <h2 id="setup">Page setup</h2>
+    <figure class="fit">
+      <a class="frame" href="images/page-setup.webp"><img src="images/page-setup.webp" width="388" height="324" alt="The Page setup dialog: paper Letter, Legal, A4 or A5; Portrait or Landscape; Top, Bottom, Left and Right margins in inches; Cancel and Apply."></a>
+    </figure>
+    <p>Open <span class="ui">File → Page setup…</span>, or <kbd>Ctrl+K</kbd> and <span class="ui">Page setup…</span>.</p>
+    <ul>
+      <li><strong>Paper:</strong> Letter, Legal, A4 or A5. Hover over one to see its size. A document with another size shows it as <span class="ui">Custom</span>.</li>
+      <li><strong>Orientation:</strong> Portrait or Landscape.</li>
+      <li><strong>Margins:</strong> Top, Bottom, Left and Right. They're in inches if your locale uses Letter paper and in centimetres otherwise. A field turns red if its value can't be used, and Apply waits until it can.</li>
+    </ul>
+    <p><span class="ui">Apply</span>, or <kbd>Return</kbd> in a margin field, applies the change as one undo step. <kbd>Escape</kbd> cancels.</p>
+    <p>A new document uses Letter paper in the United States, Canada, Mexico and a few other countries that use it, and A4 everywhere else, with 1-inch (2.54 cm) margins.</p>
+    <p>The page layout is saved in the file, in <code>.odt</code> and in <code>.docx</code>, so Word and LibreOffice open it with the same paper and margins.</p>
+
+    <h2 id="view">The page view</h2>
+    <p>Each page is drawn at its paper size, with a gap between pages. In a window narrower than a page, the pages shrink to fit; they are never enlarged past their real size. The status bar shows <span class="ui">Page N of M</span> for the page the cursor is on.</p>
+
+    <h2 id="headers">Headers and footers</h2>
+    <p>Hover over the empty top or bottom margin of a page and Rune offers <span class="ui">Double-click to add a header</span> (or footer). Double-click to start editing it in place. You can also use <span class="ui">File → Edit header</span> or <span class="ui">Edit footer</span>.</p>
+    <figure>
+      <a class="frame" href="images/header-edit.webp"><img src="images/header-edit.webp" width="1720" height="540" alt="Editing the header in place: the header text at the top of the page, the body dimmed, and an edit bar reading Editing header, # Page, # Pages, Done."></a>
+      <figcaption>Editing a header. The body dims while you work on it.</figcaption>
+    </figure>
+    <p>While you edit a header or footer, the edit bar offers:</p>
+    <ul>
+      <li><span class="ui"># Page</span>: inserts the page number. Each page shows its own.</li>
+      <li><span class="ui"># Pages</span>: inserts the total number of pages.</li>
+      <li><span class="ui">Done</span>: back to the document. <kbd>Escape</kbd>, or a click on the page, does the same.</li>
+    </ul>
+    <p>The toolbar's bold, italic, underline, font, size, colour and alignment buttons work on the header or footer while you edit it. It's the same on every page, apart from its page numbers. It sits centred in its margin. If it grows taller than the margin, the margin grows to make room when you finish.</p>
+    <p>A header or footer keeps its own undo history while you edit it, so <kbd>Ctrl+Z</kbd> there undoes only header or footer changes.</p>
+
+    <h2 id="numbers">Page numbers</h2>
+    <figure>
+      <a class="frame" href="images/footer-edit.webp"><img src="images/footer-edit.webp" width="1720" height="640" alt="Editing the footer at the bottom of a page, with the edit bar reading Editing footer, # Page, # Pages, Done."></a>
+    </figure>
+    <p>The quickest way to number pages is <kbd>Ctrl+K</kbd> and <span class="ui">Page numbers</span>. If the footer is empty, Rune puts a centred page number in it, then opens the footer for editing so you can add to it, for example <span class="ui">Page </span><em>number</em><span class="ui"> of </span><em>pages</em> with # Page and # Pages.</p>
+    <p>Headers and footers are saved with real page number fields, so Word and LibreOffice number the pages in the same places.</p>
+
+    <div class="limit"><p><strong>Not yet</strong> One header and one footer per document: no different first page, no different odd and even pages, and no section breaks with their own margins or numbering. A file opened with a different first-page header shows only the main one, and the other is dropped when Rune saves it.</p></div>

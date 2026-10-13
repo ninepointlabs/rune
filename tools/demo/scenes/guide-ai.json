@@ -1,0 +1,143 @@
+{
+ "size": [
+  1440,
+  900
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/salt-and-ember.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''"
+  },
+  {
+   "eval": "aiPanel.mode = 'edit'; aiPanel.visible = true"
+  },
+  {
+   "eval": "(function w(i){ if (typeof i.text === 'string' && i.text.indexOf('@') >= 0) i.text = '● Signed in'; for (var k = 0; k < i.children.length; ++k) w(i.children[k]); })(aiPanel)"
+  },
+  {
+   "until": "ai.models.length > 0",
+   "timeout": 20
+  },
+  {
+   "scroll": "Ilse touched the scratches",
+   "at": 0.08,
+   "secs": 0.05
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-ai-panel",
+   "crop": "aiPanel"
+  },
+  {
+   "select": "Wren unroled the oldest map on the gallery floor and she held it down flat with both of her hands against the wind, which was very strong and cold. If the square was realy a ship, then it had been anchored in the exact same place for two hundred years. If it was not a ship, she did not yet have a word for it."
+  },
+  {
+   "eval": "aiPanel.startEdit()"
+  },
+  {
+   "type": "Fix the typos and tighten this paragraph.",
+   "cps": 0
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-ai-instruct"
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "until": "!ai.busy",
+   "timeout": 90
+  },
+  {
+   "expect": "(function(){ var t = pageView.editor.getText(0, pageView.editor.length); var a = t.indexOf('out there.\"'); var b = t.indexOf('Far out, past the point'); var mid = t.substring(a + 11, b); return a >= 0 && b > a && t.indexOf('unroled') < 0 && t.indexOf('realy') < 0 && (mid.match(/[\\n\\u2028\\u2029]/g) || []).length === 4; })()"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-ai-edited"
+  },
+  {
+   "cursor": "a light answered."
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "eval": "aiPanel.startEdit()"
+  },
+  {
+   "type": "Write the next paragraph: Ilse counts the flashes and knows the signal.",
+   "cps": 0
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "until": "ai.busy",
+   "timeout": 10
+  },
+  {
+   "until": "!ai.busy",
+   "timeout": 90
+  },
+  {
+   "expect": "pageView.editor.getText(0, pageView.editor.length).indexOf('a light answered.') < pageView.editor.length - 120"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-ai-draft"
+  },
+  {
+   "eval": "aiPanel.mode = 'ask'"
+  },
+  {
+   "click": "aiPrompt",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "type": "Who is Ilse Varga, and what does she want?",
+   "cps": 0
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "until": "ai.busy",
+   "timeout": 10
+  },
+  {
+   "until": "!ai.busy",
+   "timeout": 90
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-ai-ask",
+   "crop": "aiPanel"
+  },
+  {
+   "quit": true
+  }
+ ]
+}

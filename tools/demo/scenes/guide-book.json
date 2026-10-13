@@ -1,0 +1,312 @@
+{
+ "size": [
+  1440,
+  900
+ ],
+ "steps": [
+  {
+   "eval": "root.openPath('$OUT/salt-and-ember.odt')"
+  },
+  {
+   "until": "!controller.busy",
+   "timeout": 10
+  },
+  {
+   "eval": "root.statusFlash = ''"
+  },
+  {
+   "scroll": "",
+   "secs": 0.05
+  },
+  {
+   "cursor": "and the gulls had it to themselves."
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-window"
+  },
+  {
+   "shot": "g-toolbar",
+   "crop": [
+    0,
+    0,
+    945,
+    40
+   ]
+  },
+  {
+   "click": "fileMenuButton",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-file-menu",
+   "crop": [
+    "fileMenuButton",
+    "label:Save As…",
+    "label:Ctrl+Shift+S",
+    "label:Command palette…"
+   ],
+   "pad": 14
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "click": "headingButton",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-heading-menu",
+   "crop": [
+    "headingButton",
+    "label:Heading 3",
+    "label:Ctrl+Alt+3"
+   ],
+   "pad": 14
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "eval": "toolbar.openColorPalette()"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-color",
+   "crop": {
+    "at": [
+     "colorButton",
+     "label:Automatic",
+     "label:Custom"
+    ],
+    "grow": [
+     0,
+     0,
+     190,
+     0
+    ]
+   },
+   "pad": 14
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "eval": "root.openPageSetup()"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-page-setup",
+   "crop": [
+    "label:Page setup",
+    "pageSetupApply",
+    "label:Bottom"
+   ],
+   "pad": 20
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "eval": "root.editPart('header', 1)"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-header-edit",
+   "crop": [
+    290,
+    40,
+    860,
+    270
+   ]
+  },
+  {
+   "eval": "root.finishPartEditing()"
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "scroll": "The door at its foot was open.",
+   "at": 0.1,
+   "secs": 0.05
+  },
+  {
+   "eval": "root.editPart('footer', 1)"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-footer-edit",
+   "crop": [
+    290,
+    480,
+    860,
+    320
+   ]
+  },
+  {
+   "eval": "root.finishPartEditing()"
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "scroll": "",
+   "secs": 0.05
+  },
+  {
+   "eval": "sidebar.show('outline')"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-outline"
+  },
+  {
+   "eval": "sidebar.show('notes')"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-notes",
+   "crop": "sidebar"
+  },
+  {
+   "eval": "sidebar.addNote('place')"
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "click": "noteName",
+   "secs": 0.05
+  },
+  {
+   "type": "The chandler’s",
+   "cps": 0
+  },
+  {
+   "click": "noteText",
+   "secs": 0.05
+  },
+  {
+   "type": "Ship’s chandler on the harbour front. Wren lodges in the room above, with a slanting floor and a window straight out to sea.",
+   "cps": 0
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.3
+  },
+  {
+   "shot": "g-note-edit",
+   "crop": "sidebar"
+  },
+  {
+   "click": "label:Cancel",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "eval": "sidebar.visible = false"
+  },
+  {
+   "cursor": "Far out, past the point, a light answered."
+  },
+  {
+   "key": "Return"
+  },
+  {
+   "eval": "controller.insertTable(3, 3)"
+  },
+  {
+   "type": "Character\tFirst seen\tWants\tWren Aldous\tLow Tide\tThe truth about the map\tIlse Varga\tThe Visitor\tHer father back",
+   "cps": 0
+  },
+  {
+   "scroll": "Far out, past the point, a light answered.",
+   "at": 0.3,
+   "secs": 0.05
+  },
+  {
+   "click": "tableButton",
+   "secs": 0.05
+  },
+  {
+   "pointer": false
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-table"
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "wait": 0.2
+  },
+  {
+   "eval": "controller.undo()"
+  },
+  {
+   "scroll": "",
+   "secs": 0.05
+  },
+  {
+   "key": "Ctrl+K"
+  },
+  {
+   "wait": 0.4
+  },
+  {
+   "shot": "g-palette"
+  },
+  {
+   "key": "Escape"
+  },
+  {
+   "quit": true
+  }
+ ]
+}

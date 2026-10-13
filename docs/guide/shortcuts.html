@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commands and shortcuts — Rune Guide</title>
+<meta name="description" content="Rune&#x27;s command palette (Ctrl+K) and every keyboard shortcut.">
+<meta property="og:title" content="Commands and shortcuts — Rune Guide">
+<meta property="og:description" content="Rune&#x27;s command palette (Ctrl+K) and every keyboard shortcut.">
+<meta property="og:image" content="https://rune.ninepointlabs.com/images/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<!-- Built by tools/guide/build.py from tools/guide/pages/07-shortcuts.html; edit that, not this. -->
+<header>
+  <div class="nav">
+    <a href="../" class="wordmark"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg> RUNE <span class="sub">Guide</span></a>
+    <nav class="nav-links">
+      <a href="../" class="wide">Home</a>
+      <a href="./" aria-current="page">Guide</a>
+      <a href="../roadmap.html" class="wide">Roadmap</a>
+      <a href="../#get-started">Install</a>
+      <a href="https://github.com/ninepointlabs/rune">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <h2>The guide</h2>
+    <ol>
+      <li><a href="index.html">Overview</a>
+      </li>
+      <li><a href="getting-started.html">Getting started</a>
+      </li>
+      <li><a href="formatting.html">Writing and formatting</a>
+      </li>
+      <li><a href="pages.html">Pages, headers and footers</a>
+      </li>
+      <li><a href="ai.html">Writing with the AI</a>
+      </li>
+      <li><a href="books.html">Writing a book</a>
+      </li>
+      <li><a href="citations.html">Citations and bibliography</a>
+      </li>
+      <li><a href="shortcuts.html" aria-current="page">Commands and shortcuts</a>
+        <ol class="sections">
+          <li><a href="#palette">The command palette</a></li>
+          <li><a href="#keys">Keyboard shortcuts</a></li>
+        </ol>
+      </li>
+    </ol>
+  </nav>
+  <main>
+    <p class="kicker">Guide</p>
+    <h1>Commands and shortcuts</h1>
+    <p class="lede">Rune is built to be driven from the keyboard. One shortcut finds everything else.</p>
+
+    <h2 id="palette">The command palette</h2>
+    <figure>
+      <a class="frame" href="images/palette.webp"><img src="images/palette.webp" width="2080" height="1300" alt="The command palette open over the document: a Type a command field and a list of commands grouped as File, Page, Edit and Format, each with its shortcut."></a>
+    </figure>
+    <p>Press <kbd>Ctrl+K</kbd>, or <span class="ui">File → Command palette…</span>, and start typing. Every word you type has to match, so <em>cite mla</em> finds <span class="ui">Citation style: MLA 9</span>. Commands are listed with their shortcuts, so the palette is also a way to learn them.</p>
+    <p>Use <kbd>↑</kbd> <kbd>↓</kbd> to move, <kbd>Return</kbd> to run and <kbd>Escape</kbd> to close. Commands that don't apply right now, such as table commands outside a table, are dimmed.</p>
+    <h3>Everything in it</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Group</th><th>Commands</th></tr>
+      <tr><td>File</td><td>New, Open…, Save, Save As…, Page setup…, Turn autosave on/off</td></tr>
+      <tr><td>Page</td><td>Edit header, Edit footer, Page numbers</td></tr>
+      <tr><td>Edit</td><td>Undo, Redo</td></tr>
+      <tr><td>Format</td><td>Bold, Italic, Underline, Font…, Increase font size, Decrease font size, Text color…, Remove text color, Align left, Align center, Align right</td></tr>
+      <tr><td>Write</td><td>Heading 1 (chapter), Heading 2 (scene), Heading 3, Body text, Show outline, Show story notes, Add character…, Add place…, Add research note…, Show/Hide sidebar</td></tr>
+      <tr><td>List</td><td>Bullet list, Numbered list</td></tr>
+      <tr><td>Table</td><td>Insert table, Insert row above, Insert row below, Delete row, Insert column left, Insert column right, Delete column, Delete table</td></tr>
+      <tr><td>Cite</td><td>Insert citation…, Insert bibliography, Show sources, Citation style: APA 7, MLA 9, Chicago (author-date), IEEE</td></tr>
+      <tr><td>AI</td><td>Edit with AI, Show/Hide AI panel</td></tr>
+    </table></div>
+
+    <h2 id="keys">Keyboard shortcuts</h2>
+    <h3>Files</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>Ctrl+N</kbd></td><td>New document</td></tr>
+      <tr><td><kbd>Ctrl+O</kbd></td><td>Open</td></tr>
+      <tr><td><kbd>Ctrl+S</kbd></td><td>Save</td></tr>
+      <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Save As</td></tr>
+      <tr><td><kbd>Alt+F</kbd></td><td>File menu</td></tr>
+      <tr><td><kbd>Ctrl+K</kbd></td><td>Command palette</td></tr>
+    </table></div>
+    <h3>Editing and formatting</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></td><td>Undo / redo</td></tr>
+      <tr><td><kbd>Ctrl+B</kbd> <kbd>Ctrl+I</kbd> <kbd>Ctrl+U</kbd></td><td>Bold, italic, underline</td></tr>
+      <tr><td><kbd>Ctrl+Alt+0</kbd></td><td>Body text</td></tr>
+      <tr><td><kbd>Ctrl+Alt+1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Heading 1 (chapter), Heading 2 (scene), Heading 3</td></tr>
+      <tr><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td><td>In a list: nest / un-nest the item. In a table: next / previous cell (Tab in the last cell adds a row). Elsewhere, Tab types a tab.</td></tr>
+    </table></div>
+    <h3>Writing tools</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Keys</th><th>Action</th></tr>
+      <tr><td><kbd>Ctrl+Shift+E</kbd></td><td>Edit with AI: the AI panel, ready for an instruction</td></tr>
+      <tr><td><kbd>Return</kbd> / <kbd>Shift+Return</kbd></td><td>In the AI panel: send / new line</td></tr>
+      <tr><td><kbd>Ctrl+Shift+C</kbd></td><td>Insert citation</td></tr>
+      <tr><td><kbd>Escape</kbd></td><td>Leave a header or footer, or close a dialog</td></tr>
+    </table></div>
+    <p>While you edit a header or footer, headings, lists, tables, citations and Edit with AI are switched off, and undo works on the header or footer alone.</p>
+    <nav class="pager" aria-label="Pages"><a class="prev" href="citations.html"><span class="dir">Previous</span>Citations and bibliography</a></nav>
+  </main>
+</div>
+<footer>
+  <p>Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>. Something wrong or missing here? <a href="https://github.com/ninepointlabs/rune/issues">Open an issue</a>.</p>
+</footer>
+</body>
+</html>

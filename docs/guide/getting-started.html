@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Getting started — Rune Guide</title>
+<meta name="description" content="Install Rune, find your way around the window, and open and save .odt, .docx and .doc files.">
+<meta property="og:title" content="Getting started — Rune Guide">
+<meta property="og:description" content="Install Rune, find your way around the window, and open and save .odt, .docx and .doc files.">
+<meta property="og:image" content="https://rune.ninepointlabs.com/images/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<!-- Built by tools/guide/build.py from tools/guide/pages/01-getting-started.html; edit that, not this. -->
+<header>
+  <div class="nav">
+    <a href="../" class="wordmark"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg> RUNE <span class="sub">Guide</span></a>
+    <nav class="nav-links">
+      <a href="../" class="wide">Home</a>
+      <a href="./" aria-current="page">Guide</a>
+      <a href="../roadmap.html" class="wide">Roadmap</a>
+      <a href="../#get-started">Install</a>
+      <a href="https://github.com/ninepointlabs/rune">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <h2>The guide</h2>
+    <ol>
+      <li><a href="index.html">Overview</a>
+      </li>
+      <li><a href="getting-started.html" aria-current="page">Getting started</a>
+        <ol class="sections">
+          <li><a href="#install">Install</a></li>
+          <li><a href="#window">The window</a></li>
+          <li><a href="#files">Opening and saving</a></li>
+          <li><a href="#autosave">Autosave</a></li>
+          <li><a href="#undo">Undo</a></li>
+          <li><a href="#look">Colours and settings</a></li>
+        </ol>
+      </li>
+      <li><a href="formatting.html">Writing and formatting</a>
+      </li>
+      <li><a href="pages.html">Pages, headers and footers</a>
+      </li>
+      <li><a href="ai.html">Writing with the AI</a>
+      </li>
+      <li><a href="books.html">Writing a book</a>
+      </li>
+      <li><a href="citations.html">Citations and bibliography</a>
+      </li>
+      <li><a href="shortcuts.html">Commands and shortcuts</a>
+      </li>
+    </ol>
+  </nav>
+  <main>
+    <p class="kicker">Guide</p>
+    <h1>Getting started</h1>
+    <p class="lede">Install Rune, learn the window, and open and save your first document.</p>
+
+    <h2 id="install">Install</h2>
+    <p>Rune runs on Linux. Packages for Arch / Omarchy, Debian 13 and Fedora 42 are attached to every <a href="https://github.com/ninepointlabs/rune/releases/latest">GitHub release</a>.</p>
+    <h3>With autonomix-cli</h3>
+    <p><a href="https://github.com/ninepointlabs/autonomix-cli">autonomix-cli</a> picks the right package for your system and keeps Rune up to date from GitHub Releases:</p>
+    <pre><code><span class="prompt">$</span> autonomix-cli add https://github.com/ninepointlabs/rune</code></pre>
+    <h3>From a release</h3>
+    <p>Download the package for your distribution from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, then install it:</p>
+    <pre><code><span class="prompt">$</span> sudo pacman -U rune-*-x86_64.pkg.tar.zst   <span class="comment"># Arch / Omarchy</span>
+<span class="prompt">$</span> sudo apt install ./rune_*_amd64.deb        <span class="comment"># Debian 13</span>
+<span class="prompt">$</span> sudo dnf install ./rune-*.x86_64.rpm       <span class="comment"># Fedora 42</span></code></pre>
+    <p>Each package is built against its distribution's own Qt, so use the one that matches your system.</p>
+    <div class="note"><p><strong>Note</strong> Word files (<code>.docx</code> and <code>.doc</code>) are opened and saved through LibreOffice, so install LibreOffice Writer too if you work with them. Rune's own format, <code>.odt</code>, needs nothing else.</p></div>
+
+    <h2 id="window">The window</h2>
+    <p>Start Rune from your launcher, or from a terminal with <code>rune</code>, optionally followed by a file to open: <code>rune chapter-one.docx</code>.</p>
+    <figure>
+      <a class="frame" href="images/window.webp"><img src="images/window.webp" width="2080" height="1300" alt="The Rune window: toolbar at the top, a page with a manuscript in the middle, status bar at the bottom."></a>
+      <figcaption>The toolbar runs along the top, your document sits on pages in the middle, and the status bar is at the bottom.</figcaption>
+    </figure>
+    <h3>The toolbar</h3>
+    <figure class="fit">
+      <a class="frame" href="images/toolbar.webp"><img src="images/toolbar.webp" width="945" height="40" alt="The toolbar, left to right: File, Save, undo and redo, bold, italic, underline, paragraph style, lists, alignment, font, size, text colour and Table."></a>
+    </figure>
+    <p>From left to right:</p>
+    <ul>
+      <li><span class="ui">File ▾</span> opens the File menu (also <kbd>Alt+F</kbd>).</li>
+      <li><span class="ui">Save</span> saves the document. When autosave is on and everything is saved, it reads <span class="ui">✓ Saved</span>.</li>
+      <li><span class="ui">↶</span> and <span class="ui">↷</span> undo and redo.</li>
+      <li><span class="ui">B</span>, <span class="ui">I</span> and <span class="ui">U</span>, then the paragraph style, lists, alignment, font, size, text colour and <span class="ui">⊞ Table</span>. These are covered in <a href="formatting.html">Writing and formatting</a>.</li>
+      <li>On the right, <span class="ui">☰</span> opens the sidebar with the outline, notes and sources, and <span class="ui">✦ AI</span> opens the AI panel.</li>
+    </ul>
+    <p>In a narrow window, groups that don't fit move into a <span class="ui">⋯</span> menu, starting with Table. File, Save, bold, italic, underline and the font controls always stay on the toolbar.</p>
+    <h3>The status bar</h3>
+    <p>On the left is the file name, with <span class="ui">●</span> when there are unsaved changes. Messages such as <span class="ui">Saved …</span> or <span class="ui">Opening…</span> appear there briefly. On the right are the word count and <span class="ui">Page N of M</span>.</p>
+
+    <h2 id="files">Opening and saving</h2>
+    <figure class="fit">
+      <a class="frame" href="images/file-menu.webp"><img src="images/file-menu.webp" width="236" height="347" alt="The File menu: New, Open, Save, Save As, Page setup, Edit header, Edit footer, Autosave, Command palette, each with its shortcut."></a>
+    </figure>
+    <div class="table-wrap"><table>
+      <tr><th>Command</th><th>Shortcut</th><th>What it does</th></tr>
+      <tr><td>New</td><td><kbd>Ctrl+N</kbd></td><td>A blank document.</td></tr>
+      <tr><td>Open…</td><td><kbd>Ctrl+O</kbd></td><td>Opens <code>.odt</code>, <code>.docx</code> or <code>.doc</code>.</td></tr>
+      <tr><td>Save</td><td><kbd>Ctrl+S</kbd></td><td>Saves to the current file if it's <code>.odt</code> or <code>.docx</code>; otherwise asks where, like Save As.</td></tr>
+      <tr><td>Save As…</td><td><kbd>Ctrl+Shift+S</kbd></td><td>Saves as <code>.odt</code> (OpenDocument Text) or <code>.docx</code> (Word Document).</td></tr>
+    </table></div>
+    <h3>Formats</h3>
+    <p><strong><code>.odt</code> is Rune's own format.</strong> It is read and written directly, and it keeps everything, including your story notes, sources and citations.</p>
+    <p><strong><code>.docx</code> and <code>.doc</code> are converted</strong> by LibreOffice in the background, so the window never freezes. While a Word file opens, the document is read-only for a moment. Rune can save <code>.docx</code> but not <code>.doc</code>: a <code>.doc</code> is saved as <code>.odt</code> or <code>.docx</code> through Save As.</p>
+    <h3>Unsaved changes</h3>
+    <p>New, Open and closing the window check for unsaved changes first and ask <span class="ui">Save changes to …?</span>, with Save, Discard and Cancel. Escape counts as Cancel.</p>
+
+    <h2 id="autosave">Autosave</h2>
+    <p>Autosave is on by default. Once you pause typing, Rune saves on its own: after 5 seconds for an <code>.odt</code> and 30 seconds for a <code>.docx</code>. It also saves when you switch to another window, and after the AI finishes an edit.</p>
+    <p>Autosave only works for a document that already has a file, in <code>.odt</code> or <code>.docx</code>. A new document needs a first Save to give it one. Turn autosave off or on with <span class="ui">File → Autosave</span>, or <kbd>Ctrl+K</kbd> and <span class="ui">Turn autosave off</span>.</p>
+    <p>A successful autosave shows quietly on the Save button as <span class="ui">✓ Saved</span>. If one fails, the status bar says <span class="ui">Autosave failed: …</span> and the button reads <span class="ui">Save failed</span>. Click it to try again.</p>
+
+    <h2 id="undo">Undo</h2>
+    <p><kbd>Ctrl+Z</kbd> undoes and <kbd>Ctrl+Shift+Z</kbd> redoes. Typing is undone a word at a time, not a letter or a whole paragraph at a time. Every formatting change, list and table operation, and every AI edit is exactly one step. Undoing back to your last save marks the document as saved again.</p>
+    <p>New and Open start a fresh undo history.</p>
+
+    <h2 id="look">Colours and settings</h2>
+    <p>Rune takes its colours from your <a href="https://github.com/basecamp/omarchy">Omarchy</a> theme when it starts (<code>~/.local/state/omarchy/current/theme/colors.toml</code>), and uses a dark default elsewhere. Restart Rune after changing theme.</p>
+    <p>Settings, such as autosave and your AI model, are kept in <code>~/.config/Rune/Rune.conf</code>. AI sign-in secrets are not: they are in your desktop keyring.</p>
+    <nav class="pager" aria-label="Pages"><a class="prev" href="index.html"><span class="dir">Previous</span>Overview</a><a class="next" href="formatting.html"><span class="dir">Next</span>Writing and formatting</a></nav>
+  </main>
+</div>
+<footer>
+  <p>Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>. Something wrong or missing here? <a href="https://github.com/ninepointlabs/rune/issues">Open an issue</a>.</p>
+</footer>
+</body>
+</html>

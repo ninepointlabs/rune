@@ -1,0 +1,74 @@
+<!-- title: Citations and bibliography | blurb: Add sources or import BibTeX, cite as you write in APA, MLA, Chicago or IEEE, and let Rune keep the bibliography up to date. -->
+    <p class="kicker">Guide</p>
+    <h1>Citations and bibliography</h1>
+    <p class="lede">Keep your sources in the document, cite them as you write, and let the bibliography look after itself.</p>
+
+    <h2 id="sources">Your sources</h2>
+    <p>Open the sidebar's <span class="ui">Sources</span> tab: <span class="ui">☰</span> on the toolbar, or <kbd>Ctrl+K</kbd> and <span class="ui">Show sources</span>.</p>
+    <div class="pair">
+      <figure>
+        <a class="frame" href="images/sources.webp"><img src="images/sources.webp" width="320" height="832" alt="The Sources tab: the Style picker set to APA 7, the Insert citation, Add source, Import BibTeX and Insert bibliography buttons, and four sources."></a>
+        <figcaption>The Sources tab.</figcaption>
+      </figure>
+      <figure>
+        <a class="frame" href="images/source-form.webp"><img src="images/source-form.webp" width="320" height="832" alt="The source form for a book: authors one per line, title, year, and further fields for series, publisher, place, DOI and URL."></a>
+        <figcaption>Adding a book by hand.</figcaption>
+      </figure>
+    </div>
+    <h3>Adding a source by hand</h3>
+    <ol class="steps">
+      <li>Click <span class="ui">+ Add source</span> and choose the type: Book, Journal article, Book chapter, Web page, Report or Thesis. The fields change to suit it; a journal article, for example, asks for volume, issue and pages.</li>
+      <li>Enter the authors <strong>one per line, as <em>Family, Given</em></strong> (for example <em>Ong, Walter J.</em>). A line without a comma is read as given names followed by the family name.</li>
+      <li>Fill in the title and anything else you have, and click <span class="ui">Save</span>. Only the title is required.</li>
+    </ol>
+    <p>Each source gets a short key, such as <code>@ong1982</code>, made from the first author's family name and the year. Click a source to edit it; <span class="ui">Delete</span> removes it.</p>
+    <h3 id="bibtex">Importing BibTeX</h3>
+    <figure class="fit">
+      <a class="frame" href="images/bibtex.webp"><img src="images/bibtex.webp" width="320" height="832" alt="The BibTeX import box with a pasted @book entry, and the Import and Cancel buttons."></a>
+    </figure>
+    <p>Reference managers, Google Scholar and most journals' "cite" links give you BibTeX. Click <span class="ui">Import BibTeX</span>, paste one or more entries, and click <span class="ui">Import</span>. The status bar reports how many sources were imported.</p>
+    <p>Articles, books, chapters, conference papers, theses, reports and web pages are recognised, with their authors and editors, title, journal or book, year, volume, issue, pages, publisher, place, DOI and URL. Entries without a title are skipped. Importing never replaces a source you already have: a clashing key gets a new one.</p>
+
+    <h2 id="cite">Citing as you write</h2>
+    <figure class="fit">
+      <a class="frame" href="images/picker.webp"><img src="images/picker.webp" width="464" height="424" alt="The Insert citation dialog with two sources ticked, an optional page field, and the button Cite 2 sources."></a>
+    </figure>
+    <ol class="steps">
+      <li>Put the cursor where the citation goes and press <kbd>Ctrl+Shift+C</kbd>, or click <span class="ui">Insert citation…</span>.</li>
+      <li>Type to search by author, title or key. Use <kbd>↑</kbd> <kbd>↓</kbd> to move.</li>
+      <li>Press <kbd>Return</kbd> to cite the highlighted source. To cite several at once, click each to tick it; the button then reads <span class="ui">Cite N sources</span>. Double-click a source to cite just that one.</li>
+      <li>Optionally, enter a page in <span class="ui">Page (optional)</span>, such as <em>78</em> or <em>12–15</em>.</li>
+    </ol>
+    <p>The citation appears in the current style, for example <em>(Ong, 1982, p. 78)</em>. It is one character as far as editing goes: one <kbd>Backspace</kbd> removes it, and one undo brings it back.</p>
+    <div class="limit"><p><strong>Not yet</strong> You can't edit a citation in place: delete it and insert it again. The page is a page number only, with no chapter or section locators.</p></div>
+
+    <h2 id="styles">Citation styles</h2>
+    <p>Choose the style with the <span class="ui">Style</span> picker at the top of the Sources tab, or <kbd>Ctrl+K</kbd> and <span class="ui">Citation style: …</span>. Every citation in the document and the bibliography change to match.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Style</th><th>A citation</th><th>Bibliography heading</th></tr>
+      <tr><td>APA 7</td><td>(Smith, 2020, p. 12)</td><td>References</td></tr>
+      <tr><td>MLA 9</td><td>(Smith 12)</td><td>Works Cited</td></tr>
+      <tr><td>Chicago (author-date)</td><td>(Smith 2020, 12)</td><td>References</td></tr>
+      <tr><td>IEEE</td><td>[1, p. 12]</td><td>References</td></tr>
+    </table></div>
+    <p>Two authors are joined (<em>Smith &amp; Jones</em> in APA, <em>Smith and Jones</em> in MLA), and more become <em>et al.</em> IEEE numbers sources in the order they're first cited.</p>
+    <figure>
+      <a class="frame" href="images/cited-apa.webp"><img src="images/cited-apa.webp" width="2080" height="1300" alt="An essay with APA citations in the text, including a page reference and a two-source citation, and a References list at the end."></a>
+      <figcaption>APA 7: citations in the text, and the References list at the end.</figcaption>
+    </figure>
+    <figure>
+      <a class="frame" href="images/cited-ieee.webp"><img src="images/cited-ieee.webp" width="2080" height="1300" alt="The same essay in IEEE style: numbered citations in square brackets and a numbered reference list."></a>
+      <figcaption>The same essay switched to IEEE.</figcaption>
+    </figure>
+
+    <h2 id="bibliography">The bibliography</h2>
+    <p>Put the cursor at the end of the document and click <span class="ui">Insert bibliography</span>, or <kbd>Ctrl+K</kbd> and <span class="ui">Insert bibliography</span>. Rune writes a heading (<em>References</em>, or <em>Works Cited</em> for MLA) and an entry for every source you cite. Entries are sorted by author, or in citation order for IEEE.</p>
+    <p>From then on it <strong>keeps itself up to date</strong>. Cite a new source, delete a citation, edit a source or switch styles, and the bibliography follows. Deleting a citation and undoing it brings back its entry too. Sources you haven't cited stay out of it. In the Sources tab, the ones you have cited are marked <span class="ui">CITED</span>.</p>
+
+    <h2 id="files">In other programs</h2>
+    <p>Each citation is saved as its text, so Word and LibreOffice show your citations and bibliography as ordinary text. Rune also stores which sources each citation points to, and your sources themselves, inside the file. When you open it in Rune again, the citations are live: through <code>.docx</code> as well as <code>.odt</code>.</p>
+    <div class="limit"><p><strong>Watch out</strong> If another program saves the file, Rune's data may be lost and the citations would become plain text. LibreOffice is expected to drop it (not verified). Word is documented to keep it (not verified). Changing sources or the style isn't part of undo.</p></div>
+
+    <h2 id="ai">Citations and the AI</h2>
+    <p>The AI sees your sources and cites them the same way. When it writes <code>[@ong1982]</code> or <code>[@ong1982, p. 12]</code> and that key is one of your sources, it becomes a real citation in the current style.</p>
+    <p>The AI can also add sources it needs. You'll see <span class="ui">Added 1 source (unreviewed: check it in Sources)</span>, and the source is marked <span class="ui">ADDED BY AI · CHECK IT</span>. Rune tests its DOI or link and marks it <span class="ui">LINK BROKEN</span> if that doesn't resolve. Check the details, then click <span class="ui">Mark reviewed</span>; editing the source marks it reviewed too.</p>

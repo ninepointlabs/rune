@@ -1,0 +1,51 @@
+<!-- title: Writing a book | blurb: Write a book in one Rune file: chapters and scenes as headings, an outline with word counts, drag to reorder, and story notes saved in the file. -->
+    <p class="kicker">Guide</p>
+    <h1>Writing a book</h1>
+    <p class="lede">A whole book in one file: chapters and scenes as headings, an outline to find and move them, and story notes that travel with the manuscript.</p>
+
+    <h2 id="chapters">Chapters and scenes</h2>
+    <p>Chapters are <strong>Heading 1</strong> and scenes are <strong>Heading 2</strong>. Use the paragraph style menu on the toolbar, or:</p>
+    <ul>
+      <li><kbd>Ctrl+Alt+1</kbd> makes the paragraph a chapter heading,</li>
+      <li><kbd>Ctrl+Alt+2</kbd> a scene heading,</li>
+      <li><kbd>Ctrl+Alt+3</kbd> a Heading 3, if you need a level below scenes,</li>
+      <li><kbd>Ctrl+Alt+0</kbd> turns it back into body text.</li>
+    </ul>
+    <p>Press <kbd>Return</kbd> after a heading and you're back in body text. In Word and LibreOffice these are ordinary Heading 1–3 paragraphs, so a manuscript keeps its structure when you send it on.</p>
+
+    <h2 id="outline">The outline</h2>
+    <p>Click <span class="ui">☰</span> on the toolbar, or <kbd>Ctrl+K</kbd> and <span class="ui">Show outline</span>, to open the sidebar on its <span class="ui">Outline</span> tab.</p>
+    <figure>
+      <a class="frame" href="images/outline.webp"><img src="images/outline.webp" width="2080" height="1300" alt="The outline sidebar: the total word count, then three chapters in bold with their scenes indented beneath, each with a word count."></a>
+      <figcaption>The outline lists every chapter and scene with its word count.</figcaption>
+    </figure>
+    <ul>
+      <li>The top line is the word count of the whole document. The status bar shows it too.</li>
+      <li>Each heading has its own count, which includes the scenes inside it.</li>
+      <li><strong>Click a heading</strong> to jump to it.</li>
+      <li><strong>Drag a heading by its <span class="ui">⠿</span> handle</strong> to move it. A line shows where it will land. The whole section moves, the heading and everything under it up to the next heading at the same level, so a chapter takes its scenes with it.</li>
+    </ul>
+    <p>A move is one undo step, so <kbd>Ctrl+Z</kbd> puts the chapter straight back.</p>
+    <p>Until there are headings, the outline explains how to add them.</p>
+
+    <h2 id="notes">Story notes</h2>
+    <p>The sidebar's <span class="ui">Notes</span> tab keeps what you need to remember about the story, in three kinds: <span class="ui">Characters</span>, <span class="ui">Places</span> and <span class="ui">Research</span>. Each tab shows how many notes it has.</p>
+    <div class="pair">
+      <figure>
+        <a class="frame" href="images/notes.webp"><img src="images/notes.webp" width="320" height="832" alt="The Notes tab on Characters: Wren Aldous, Captain Ilse Varga and Tomas Varga, each with a short description."></a>
+        <figcaption>Characters, with the start of each description.</figcaption>
+      </figure>
+      <figure>
+        <a class="frame" href="images/note-edit.webp"><img src="images/note-edit.webp" width="320" height="832" alt="Adding a place: the Name field reads The chandler's and the Description field describes it, with Save and Cancel buttons."></a>
+        <figcaption>Adding a place.</figcaption>
+      </figure>
+    </div>
+    <ol class="steps">
+      <li>Pick a kind and click <span class="ui">+ Add character</span>, <span class="ui">+ Add place</span> or <span class="ui">+ Add note</span>. From anywhere, <kbd>Ctrl+K</kbd> and <span class="ui">Add character…</span>, <span class="ui">Add place…</span> or <span class="ui">Add research note…</span> do the same.</li>
+      <li>Enter a <span class="ui">Name</span> and a <span class="ui">Description</span> (for research, <span class="ui">Notes</span>). <kbd>Return</kbd> in the name moves to the description.</li>
+      <li>Click <span class="ui">Save</span>.</li>
+    </ol>
+    <p>Click a note to edit it. While editing, <span class="ui">Delete</span> removes it.</p>
+    <p><strong>Notes are saved inside the document</strong>, in <code>.odt</code> and in <code>.docx</code>, so they go wherever the manuscript goes. Word and LibreOffice don't show them, but Rune finds them again when it opens the file.</p>
+    <p><strong>The AI reads your notes</strong> with every request, so it knows your characters and places when it drafts or answers. It can also update them as it writes, and the AI panel tells you when it has.</p>
+    <div class="limit"><p><strong>Watch out</strong> Changes to notes aren't part of undo. That includes notes the AI updates: undoing its edit leaves them changed. If LibreOffice saves the file again, it is expected to drop Rune's notes; this hasn't been verified.</p></div>

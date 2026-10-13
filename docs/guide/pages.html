@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pages, headers and footers — Rune Guide</title>
+<meta name="description" content="Paper size, margins and orientation, headers and footers edited in place, and page numbers in Rune.">
+<meta property="og:title" content="Pages, headers and footers — Rune Guide">
+<meta property="og:description" content="Paper size, margins and orientation, headers and footers edited in place, and page numbers in Rune.">
+<meta property="og:image" content="https://rune.ninepointlabs.com/images/og.jpg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230a0908'/%3E%3Cpath d='M30 20 L30 80 M30 20 L62 40 L30 55 M62 40 L70 80' stroke='%23d98f4e' stroke-width='6' fill='none' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<!-- Built by tools/guide/build.py from tools/guide/pages/03-pages.html; edit that, not this. -->
+<header>
+  <div class="nav">
+    <a href="../" class="wordmark"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M30 15 L30 85 M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg> RUNE <span class="sub">Guide</span></a>
+    <nav class="nav-links">
+      <a href="../" class="wide">Home</a>
+      <a href="./" aria-current="page">Guide</a>
+      <a href="../roadmap.html" class="wide">Roadmap</a>
+      <a href="../#get-started">Install</a>
+      <a href="https://github.com/ninepointlabs/rune">GitHub</a>
+    </nav>
+  </div>
+</header>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <h2>The guide</h2>
+    <ol>
+      <li><a href="index.html">Overview</a>
+      </li>
+      <li><a href="getting-started.html">Getting started</a>
+      </li>
+      <li><a href="formatting.html">Writing and formatting</a>
+      </li>
+      <li><a href="pages.html" aria-current="page">Pages, headers and footers</a>
+        <ol class="sections">
+          <li><a href="#setup">Page setup</a></li>
+          <li><a href="#view">The page view</a></li>
+          <li><a href="#headers">Headers and footers</a></li>
+          <li><a href="#numbers">Page numbers</a></li>
+        </ol>
+      </li>
+      <li><a href="ai.html">Writing with the AI</a>
+      </li>
+      <li><a href="books.html">Writing a book</a>
+      </li>
+      <li><a href="citations.html">Citations and bibliography</a>
+      </li>
+      <li><a href="shortcuts.html">Commands and shortcuts</a>
+      </li>
+    </ol>
+  </nav>
+  <main>
+    <p class="kicker">Guide</p>
+    <h1>Pages, headers and footers</h1>
+    <p class="lede">Rune shows your document on real pages, at its real paper size, the way it will print.</p>
+
+    <h2 id="setup">Page setup</h2>
+    <figure class="fit">
+      <a class="frame" href="images/page-setup.webp"><img src="images/page-setup.webp" width="388" height="324" alt="The Page setup dialog: paper Letter, Legal, A4 or A5; Portrait or Landscape; Top, Bottom, Left and Right margins in inches; Cancel and Apply."></a>
+    </figure>
+    <p>Open <span class="ui">File → Page setup…</span>, or <kbd>Ctrl+K</kbd> and <span class="ui">Page setup…</span>.</p>
+    <ul>
+      <li><strong>Paper:</strong> Letter, Legal, A4 or A5. Hover over one to see its size. A document with another size shows it as <span class="ui">Custom</span>.</li>
+      <li><strong>Orientation:</strong> Portrait or Landscape.</li>
+      <li><strong>Margins:</strong> Top, Bottom, Left and Right. They're in inches if your locale uses Letter paper and in centimetres otherwise. A field turns red if its value can't be used, and Apply waits until it can.</li>
+    </ul>
+    <p><span class="ui">Apply</span>, or <kbd>Return</kbd> in a margin field, applies the change as one undo step. <kbd>Escape</kbd> cancels.</p>
+    <p>A new document uses Letter paper in the United States, Canada, Mexico and a few other countries that use it, and A4 everywhere else, with 1-inch (2.54 cm) margins.</p>
+    <p>The page layout is saved in the file, in <code>.odt</code> and in <code>.docx</code>, so Word and LibreOffice open it with the same paper and margins.</p>
+
+    <h2 id="view">The page view</h2>
+    <p>Each page is drawn at its paper size, with a gap between pages. In a window narrower than a page, the pages shrink to fit; they are never enlarged past their real size. The status bar shows <span class="ui">Page N of M</span> for the page the cursor is on.</p>
+
+    <h2 id="headers">Headers and footers</h2>
+    <p>Hover over the empty top or bottom margin of a page and Rune offers <span class="ui">Double-click to add a header</span> (or footer). Double-click to start editing it in place. You can also use <span class="ui">File → Edit header</span> or <span class="ui">Edit footer</span>.</p>
+    <figure>
+      <a class="frame" href="images/header-edit.webp"><img src="images/header-edit.webp" width="1720" height="540" alt="Editing the header in place: the header text at the top of the page, the body dimmed, and an edit bar reading Editing header, # Page, # Pages, Done."></a>
+      <figcaption>Editing a header. The body dims while you work on it.</figcaption>
+    </figure>
+    <p>While you edit a header or footer, the edit bar offers:</p>
+    <ul>
+      <li><span class="ui"># Page</span>: inserts the page number. Each page shows its own.</li>
+      <li><span class="ui"># Pages</span>: inserts the total number of pages.</li>
+      <li><span class="ui">Done</span>: back to the document. <kbd>Escape</kbd>, or a click on the page, does the same.</li>
+    </ul>
+    <p>The toolbar's bold, italic, underline, font, size, colour and alignment buttons work on the header or footer while you edit it. It's the same on every page, apart from its page numbers. It sits centred in its margin. If it grows taller than the margin, the margin grows to make room when you finish.</p>
+    <p>A header or footer keeps its own undo history while you edit it, so <kbd>Ctrl+Z</kbd> there undoes only header or footer changes.</p>
+
+    <h2 id="numbers">Page numbers</h2>
+    <figure>
+      <a class="frame" href="images/footer-edit.webp"><img src="images/footer-edit.webp" width="1720" height="640" alt="Editing the footer at the bottom of a page, with the edit bar reading Editing footer, # Page, # Pages, Done."></a>
+    </figure>
+    <p>The quickest way to number pages is <kbd>Ctrl+K</kbd> and <span class="ui">Page numbers</span>. If the footer is empty, Rune puts a centred page number in it, then opens the footer for editing so you can add to it, for example <span class="ui">Page </span><em>number</em><span class="ui"> of </span><em>pages</em> with # Page and # Pages.</p>
+    <p>Headers and footers are saved with real page number fields, so Word and LibreOffice number the pages in the same places.</p>
+
+    <div class="limit"><p><strong>Not yet</strong> One header and one footer per document: no different first page, no different odd and even pages, and no section breaks with their own margins or numbering. A file opened with a different first-page header shows only the main one, and the other is dropped when Rune saves it.</p></div>
+    <nav class="pager" aria-label="Pages"><a class="prev" href="formatting.html"><span class="dir">Previous</span>Writing and formatting</a><a class="next" href="ai.html"><span class="dir">Next</span>Writing with the AI</a></nav>
+  </main>
+</div>
+<footer>
+  <p>Rune is MIT-licensed and built by <a href="https://ninepointlabs.com">Nine Point Labs</a>. Something wrong or missing here? <a href="https://github.com/ninepointlabs/rune/issues">Open an issue</a>.</p>
+</footer>
+</body>
+</html>

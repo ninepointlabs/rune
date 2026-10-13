@@ -35,7 +35,10 @@
 //                           {"at": target, "dx": x, "dy": y}
 //   click: target           glide there and click; drag: [from, to] drags
 //   pointer: false          hide the pointer
-//   shot: "name"            save the frame as <out>/<name>.png
+//   shot: "name"            save the frame as <out>/<name>.png; crop:
+//                           an item spec, [x, y, w, h], a list of them
+//                           (their union), or {"at": crop, "grow": [l, t,
+//                           r, b]} saves just that; pad: n around it
 //   record: "name"          start encoding frames to <out>/<name>.mp4;
 //   record: false           stop (also on quit)
 //   mark: "name"            note the current video time in <out>/marks.json
@@ -234,7 +237,10 @@ private:
             m_pointerShown = step.value(QLatin1String("pointer")).toBool();
         } else if (step.contains(QLatin1String("shot"))) {
             const QString path = m_outDir + '/' + step.value(QLatin1String("shot")).toString() + QStringLiteral(".png");
-            if (!grab().save(path))
+            QImage image = grab();
+            if (step.contains(QLatin1String("crop")))
+                image = cropped(image, step.value(QLatin1String("crop")), step.value(QLatin1String("pad")).toDouble(0));
+            if (image.isNull() || !image.save(path))
                 fail(QStringLiteral("could not write ") + path);
         } else if (step.contains(QLatin1String("record"))) {
             const QJsonValue v = step.value(QLatin1String("record"));
@@ -378,6 +384,46 @@ private:
         };
         walk(m_window->contentItem());
         return found;
+    }
+
+    // The window rectangle of an item spec (as target() takes), or [x, y, w,
+    // h]; several specs in an array of arrays/strings give their union.
+    QRectF rectOf(const QJsonValue &spec)
+    {
+        // {"at": spec, "grow": [left, top, right, bottom]} widens it.
+        if (spec.isObject()) {
+            const QJsonObject o = spec.toObject();
+            const QJsonArray g = o.value(QLatin1String("grow")).toArray({0, 0, 0, 0});
+            return rectOf(o.value(QLatin1String("at")))
+                .adjusted(-g.at(0).toDouble(), -g.at(1).toDouble(), g.at(2).toDouble(), g.at(3).toDouble());
+        }
+        if (spec.isArray() && spec.toArray().size() == 4 && spec.toArray().at(0).isDouble()) {
+            const QJsonArray a = spec.toArray();
+            return QRectF(a.at(0).toDouble(), a.at(1).toDouble(), a.at(2).toDouble(), a.at(3).toDouble());
+        }
+        if (spec.isArray()) {
+            QRectF all;
+            for (const QJsonValue &part : spec.toArray())
+                all = all.united(rectOf(part));
+            return all;
+        }
+        const QString s = spec.toString();
+        QQuickItem *it = s.startsWith(QLatin1String("label:")) ? labelled(s.mid(6), 0) : item(s);
+        if (!it) {
+            fail(QStringLiteral("no visible item ") + s);
+            return {};
+        }
+        return it->mapRectToScene(QRectF(0, 0, it->width(), it->height()));
+    }
+
+    QImage cropped(const QImage &image, const QJsonValue &spec, double pad)
+    {
+        const qreal dpr = image.devicePixelRatio();
+        QRectF r = rectOf(spec).adjusted(-pad, -pad, pad, pad);
+        r = r.intersected(QRectF(QPointF(0, 0), QSizeF(image.size()) / dpr));
+        QImage out = image.copy(QRectF(r.topLeft() * dpr, r.size() * dpr).toRect());
+        out.setDevicePixelRatio(dpr);
+        return out;
     }
 
     QPointF target(const QJsonValue &spec)
@@ -570,6 +616,9 @@ private:
     QImage grab()
     {
         QImage image = m_window->grabWindow();
+        // Offscreen grabs come back at device pixels but claim a ratio of 1
+        // (with QT_SCALE_FACTOR); set it so logical coordinates map right.
+        image.setDevicePixelRatio(qreal(image.width()) / m_window->width());
         if (m_pointerShown)
             drawPointer(image);
         return image;
@@ -578,12 +627,10 @@ private:
     // An arrow pointer, since the offscreen platform draws none.
     void drawPointer(QImage &image)
     {
-        const qreal dpr = image.devicePixelRatio();
         QPainter p(&image);
         p.setRenderHint(QPainter::Antialiasing);
         p.translate(m_pointer);
         p.scale(m_pressed ? 0.92 : 1.0, m_pressed ? 0.92 : 1.0);
-        Q_UNUSED(dpr);
         QPainterPath arrow;
         arrow.moveTo(0, 0);
         arrow.lineTo(0, 17);
