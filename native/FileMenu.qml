@@ -3,7 +3,7 @@ import QtQuick.Controls.Basic
 
 // The toolbar's first button: the Rune mark and "File", opening a menu with
 // New, Open, Save, Save As, Page setup, Edit header / footer, the Autosave
-// toggle and the command palette. Each item runs the same Main.qml function as its keyboard
+// toggle, the command palette and About Rune. Each item runs the same Main.qml function as its keyboard
 // shortcut (the Shortcut items in Main.qml), so the menu only shows the key
 // as a hint rather than binding it a second time.
 Rectangle {
@@ -128,6 +128,11 @@ Rectangle {
             objectName: "commandPaletteMenuItem"
             text: "Command palette…"; hint: "Ctrl+K"
             onTriggered: fileMenu.appRoot.openCommandPalette()
+        }
+        MenuEntry {
+            objectName: "aboutMenuItem"
+            text: "About Rune"
+            onTriggered: fileMenu.appRoot.openAbout()
         }
     }
 }
