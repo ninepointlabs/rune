@@ -122,6 +122,11 @@ Window {
         }
     }
 
+    // File → About Rune, and "About Rune" in the command palette.
+    function openAbout() {
+        aboutDialog.show()
+    }
+
     // Ctrl+K, and File → Command palette….
     function openCommandPalette() {
         commandPalette.open()
@@ -560,6 +565,13 @@ Window {
         objectName: "commandPalette"
         appRoot: root
         commands: root.commands
+        onClosed: root.focusEditor()
+    }
+
+    AboutDialog {
+        id: aboutDialog
+        objectName: "aboutDialog"
+        appRoot: root
         onClosed: root.focusEditor()
     }
 

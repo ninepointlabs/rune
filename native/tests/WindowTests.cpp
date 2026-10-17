@@ -520,6 +520,72 @@ void testWindow(Env &env)
             }
         }
 
+        // About Rune: from the command palette and File, with the real
+        // license, the version, the support address and the privacy note.
+        {
+            QObject *about = window->findChild<QObject *>(QStringLiteral("aboutDialog"));
+            QObject *palette = window->findChild<QObject *>(QStringLiteral("commandPalette"));
+            t.check(about && palette, "found the About dialog");
+            if (about && palette) {
+                const auto settle = [] {
+                    QElapsedTimer w;
+                    w.start();
+                    while (w.elapsed() < 50)
+                        QCoreApplication::processEvents();
+                };
+                const auto shownAbout = [&] { return about->property("visible").toBool(); };
+                auto *contentItem = about->property("contentItem").value<QQuickItem *>();
+                const auto text = [&](const char *name) {
+                    QQuickItem *item = contentItem ? findItem(contentItem, QString::fromLatin1(name)) : nullptr;
+                    return item ? item->property("text").toString() : QString();
+                };
+
+                editor->forceActiveFocus();
+                pressSystemKey(window, Qt::Key_K, Qt::ControlModifier);
+                typeText(window, QStringLiteral("about"));
+                pressReturn(window);
+                settle();
+                t.check(shownAbout(), "Ctrl+K → \"about\" opens About Rune");
+                t.check(text("aboutVersion") == QStringLiteral("Version " RUNE_VERSION),
+                        "About shows the version (" + text("aboutVersion") + ")");
+
+                QFile license(QStringLiteral(RUNE_SAMPLES_DIR "/../LICENSE"));
+                const QString repoLicense = license.open(QIODevice::ReadOnly | QIODevice::Text)
+                    ? QString::fromUtf8(license.readAll()).simplified() : QStringLiteral("(LICENSE not found)");
+                QQuickItem *licenseText = contentItem ? findItem(contentItem, QStringLiteral("aboutLicenseText")) : nullptr;
+                const bool hiddenFirst = licenseText && !licenseText->isVisible();
+                about->setProperty("showLicense", true);
+                settle();
+                t.check(hiddenFirst && licenseText->isVisible()
+                            && text("aboutLicenseText").startsWith(QStringLiteral("MIT License"))
+                            && text("aboutLicenseText").simplified() == repoLicense,
+                        "Read it shows the license, the repo's LICENSE word for word");
+
+                const QString privacy = text("aboutPrivacy");
+                t.check(privacy.contains(QStringLiteral("no telemetry")) && privacy.contains(QStringLiteral("keyring"))
+                            && privacy.contains(QStringLiteral("OpenRouter")),
+                        "About states what leaves the machine");
+                const bool checked = waitUntil([&] { return !text("aboutBuiltWith").contains(QStringLiteral("checking")); }, 30000);
+                const QString builtWith = text("aboutBuiltWith");
+                t.check(checked && builtWith.startsWith(QStringLiteral("Qt ") + QString::fromLatin1(qVersion()))
+                            && builtWith.contains(QStringLiteral("LibreOffice")),
+                        "About lists what Rune is built with (" + builtWith + ")");
+
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+                t.check(!shownAbout() && editor->hasActiveFocus(), "Escape closes About, back to the document");
+
+                QObject *fileEntry = window->findChild<QObject *>(QStringLiteral("aboutMenuItem"));
+                if (fileEntry)
+                    QMetaObject::invokeMethod(fileEntry, "click");
+                settle();
+                t.check(fileEntry && shownAbout() && !about->property("showLicense").toBool(),
+                        "File → About Rune opens it again, license folded");
+                pressKey(window, Qt::Key_Escape, Qt::NoModifier, QString());
+                settle();
+            }
+        }
+
         // The unsaved-changes guard.
         QTextCursor(doc).insertText(QStringLiteral("Unsaved "));
         callRoot(window, "requestOpen");

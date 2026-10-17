@@ -42,8 +42,8 @@ qt_add_qml_module(rune
               FileMenu.qml FontPicker.qml ColorPicker.qml CommandPalette.qml PageSetup.qml UnsavedChangesDialog.qml AiPanel.qml
               Toolbar.qml PageView.qml StatusBar.qml Commands.qml
               PanelButton.qml PanelField.qml PanelArea.qml Sidebar.qml OutlinePanel.qml NotesPanel.qml SourcesPanel.qml
-              CitationPicker.qml
-    SOURCES DocumentController.h DocumentController.cpp PagePartView.h PagePartView.cpp SourceLinks.h SourceLinks.cpp
+              CitationPicker.qml AboutDialog.qml
+    SOURCES AppInfo.h AppInfo.cpp DocumentController.h DocumentController.cpp PagePartView.h PagePartView.cpp SourceLinks.h SourceLinks.cpp
             document/EditState.h document/EditState.cpp document/DocumentParts.h document/DocumentParts.cpp document/FormatIds.h document/DocumentData.h document/DocumentData.cpp document/Outline.h document/Outline.cpp document/StoryNotes.h document/StoryNotes.cpp document/Sources.h document/Sources.cpp document/CitationStyles.h document/CitationStyles.cpp document/Citations.h document/Citations.cpp document/InlineObjects.h document/InlineObjects.cpp document/CharFormatter.h document/CharFormatter.cpp
             document/Lists.h document/Lists.cpp document/Tables.h document/Tables.cpp
             document/StreamedEdit.h document/StreamedEdit.cpp document/HeaderFooter.h document/HeaderFooter.cpp
@@ -55,6 +55,10 @@ qt_add_qml_module(rune
             ai/AiStorage.h ai/SystemAiStorage.cpp ai/OAuthLoopback.h ai/OAuthLoopback.cpp
             ai/Jwt.h ai/Jwt.cpp ai/SseParser.h ai/SseParser.cpp
 )
+
+# The repo's LICENSE, for File → About Rune (AppInfo::licenseText()).
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE PROPERTIES QT_RESOURCE_ALIAS LICENSE)
+qt_add_resources(rune "license" PREFIX "/rune" FILES ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE)
 
 target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Network Qt6::Test QuaZip::QuaZip
                                    OpenSSL::Crypto PkgConfig::LIBSECRET)

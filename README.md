@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 487 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 495 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -23,6 +23,7 @@ Early and moving fast. Core editing — open, type, format, save, tables, lists,
 | Pages: paper size by locale, margins, orientation (File → Page setup) | ✅ Working |
 | Headers and footers, with page number and page count fields | ✅ Working |
 | Command palette (Ctrl+K) | ✅ Working |
+| About Rune (File → About Rune, or Ctrl+K → About) | ✅ Working |
 | Named/inherited paragraph styles on import (`styles.xml`) | ✅ Working |
 | Async `.docx` conversion (doesn't block the UI) | ✅ Working |
 | AI sign-in (ChatGPT plan, OpenRouter) + streaming chat panel | ✅ Working |
@@ -108,13 +109,20 @@ QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 
 On Arch, Qt sends its warnings to the systemd journal when stderr isn't a terminal; add `QT_FORCE_STDERR_LOGGING=1` to see QML warnings in the test output.
 
-487 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+495 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 
 Before relying on a Qt or ODF API behaving the way its documentation suggests, verify it against a real file first — this project has twice found real, silent-failure bugs (Qt's ODF writer mangling list-then-table structure; a Unix-socket LOK engine's commands that looked valid but silently did nothing) that only surfaced by testing actual output, not by reading documentation. Every `native/` source file documents what it verified and how.
 
 See [TODO.md](TODO.md) for what's not built yet.
+
+## About and support
+
+**File → About Rune** (or Ctrl+K → "About Rune") shows the version, the license, Nine Point Labs, the
+support address, [help@ninepointlabs.com](mailto:help@ninepointlabs.com), what Rune sends over the network
+(only AI sign-in, model lists and the requests you send, to the provider you signed in with; no telemetry), and the
+Qt and LibreOffice versions it runs with. Its **Email** button starts a message with those details filled in.
 
 ## License
 

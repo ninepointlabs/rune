@@ -31,7 +31,8 @@ QtObject {
             {group: "File", name: "Save As…", hint: "Ctrl+Shift+S", available: idle, run: () => appRoot.saveAs()},
             {group: "File", name: "Page setup…", available: always, run: () => appRoot.openPageSetup()},
             {group: "File", name: appRoot.autosaveEnabled ? "Turn autosave off" : "Turn autosave on", available: always,
-             run: () => appRoot.autosaveEnabled = !appRoot.autosaveEnabled}
+             run: () => appRoot.autosaveEnabled = !appRoot.autosaveEnabled},
+            {group: "Help", name: "About Rune", available: always, run: () => appRoot.openAbout()}
         ]
     }
 
