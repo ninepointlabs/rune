@@ -138,7 +138,8 @@ pre .comment { color: var(--ink-faint); }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; margin: 28px 0; }
 .card { display: block; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 3px; padding: 20px 22px; }
 .card:hover { border-color: var(--ember); text-decoration: none; }
-.card h3 { margin: 0 0 6px; color: var(--ember-bright); font-size: 17px; }
+/* Card titles are h2s (they sit right under the h1); styled as the h3s they used to be. */
+.card h2 { font-size: 17px; line-height: inherit; letter-spacing: 0.02em; margin: 0 0 6px; padding-top: 0; border-top: 0; color: var(--ember-bright); }
 .card p { margin: 0; font-size: 15px; color: var(--ink-dim); }
 
 .pager { display: flex; justify-content: space-between; gap: 16px; margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border); }
