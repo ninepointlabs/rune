@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://rune.ninepointlabs.com/sitemap.xml
