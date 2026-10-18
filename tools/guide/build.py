@@ -22,6 +22,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 DEST = ROOT / "docs" / "guide"
+URL = "https://rune.ninepointlabs.com/guide/"
 
 MARK = ('<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M30 15 L30 85 '
         'M30 15 L68 38 L30 56 M68 38 L78 85" stroke="#d98f4e" stroke-width="7" fill="none" stroke-linecap="square"/></svg>')
@@ -36,6 +37,7 @@ SHELL = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title} — Rune Guide</title>
 <meta name="description" content="{blurb}">
+<link rel="canonical" href="{canonical}">
 <meta property="og:title" content="{title} — Rune Guide">
 <meta property="og:description" content="{blurb}">
 <meta property="og:image" content="https://rune.ninepointlabs.com/images/og.jpg">
@@ -144,8 +146,9 @@ def main():
         sys.exit("pages/00-index.html must come first")
     problems = []
     for i, page in enumerate(pages):
+        canonical = URL if page["slug"] == "index" else URL + page["file"]
         out = SHELL.format(title=html.escape(page["title"]), blurb=html.escape(page["blurb"]), favicon=FAVICON,
-                           mark=MARK, source=page["source"], toc=toc(pages, page), body=page["body"],
+                           canonical=canonical, mark=MARK, source=page["source"], toc=toc(pages, page), body=page["body"],
                            pager=pager(pages, i))
         (DEST / page["file"]).write_text(out)
         print(f"wrote docs/guide/{page['file']}")
