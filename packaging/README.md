@@ -1,7 +1,9 @@
 # Packaging
 
-`cmake --install` puts the `rune` binary, `rune.desktop`, the icon and the
-license under the install prefix. Packages are built from that.
+`cmake --install` puts the `rune` binary, `rune.desktop`, the icons (SVG and
+16–512px PNGs), the AppStream metainfo
+(`share/metainfo/com.ninepointlabs.rune.metainfo.xml`) and the license under
+the install prefix. Packages are built from that.
 
 ## Arch
 
