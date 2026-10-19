@@ -118,8 +118,12 @@ cmake --build "$work/tls-probe" >/dev/null
 echo "== Desktop entry, icons, metainfo"
 share="$appdir/usr/share"
 echo "X-AppImage-Version=$version" >>"$share/applications/rune.desktop"
-install -Dm644 "$here/packaging/rune.appdata.xml" "$share/metainfo/rune.appdata.xml"
-cp -r "$here/packaging/icons/hicolor" "$share/icons/"
+# CMake installs the metainfo and PNGs; a tag from before it did (built with
+# today's packaging/ by CI) gets them here.
+if [[ ! -d "$share/metainfo" ]]; then
+  install -Dm644 "$here/packaging/rune.appdata.xml" "$share/metainfo/com.ninepointlabs.rune.metainfo.xml"
+fi
+cp -rn "$here/packaging/icons/hicolor" "$share/icons/"
 
 echo "== Libraries and Qt plugins"
 # linuxdeploy copies every library Rune links to (except what its excludelist

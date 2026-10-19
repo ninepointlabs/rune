@@ -31,10 +31,11 @@ echo "== Desktop entry, metainfo and icons inside"
 desktop-file-validate "$appdir/rune.desktop" && desktop-file-validate "$appdir/usr/share/applications/rune.desktop" \
   && ok "desktop files validate" || fail "desktop-file-validate"
 grep -q '^X-AppImage-Version=' "$appdir/rune.desktop" && ok "X-AppImage-Version set" || fail "no X-AppImage-Version"
-if appstreamcli validate --no-net "$appdir/usr/share/metainfo/rune.appdata.xml"; then
-  ok "metainfo validates"
+metainfo=("$appdir"/usr/share/metainfo/*.xml)
+if [[ ${#metainfo[@]} == 1 && -f "${metainfo[0]}" ]] && appstreamcli validate --no-net "${metainfo[0]}"; then
+  ok "metainfo validates: ${metainfo[0]##*/}"
 else
-  fail "appstreamcli validate"
+  fail "want one valid metainfo file, have: ${metainfo[*]##*/}"
 fi
 for size in 16 24 32 48 64 128 256 512; do
   png="$appdir/usr/share/icons/hicolor/${size}x${size}/apps/rune.png"

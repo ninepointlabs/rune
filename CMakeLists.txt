@@ -22,6 +22,11 @@ add_subdirectory(native)
 include(GNUInstallDirs)
 install(FILES packaging/rune.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES packaging/rune.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+# PNGs for docks and menus that don't draw SVG icons (packaging/icons/render.sh).
+install(DIRECTORY packaging/icons/hicolor DESTINATION ${CMAKE_INSTALL_DATADIR}/icons)
+# AppStream metainfo, for software centres (GNOME Software, Discover); named after its id.
+install(FILES packaging/rune.appdata.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
+        RENAME com.ninepointlabs.rune.metainfo.xml)
 install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/rune)
 
 set(CPACK_PACKAGE_NAME rune)
@@ -48,8 +53,14 @@ set(CPACK_RPM_PACKAGE_LICENSE MIT)
 set(CPACK_RPM_PACKAGE_GROUP Applications/Productivity)
 set(CPACK_RPM_PACKAGE_REQUIRES "qt6-qtdeclarative")
 set(CPACK_RPM_PACKAGE_SUGGESTS "libreoffice-writer")
-set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+# Directories the distro already owns (filesystem, hicolor-icon-theme), so
+# the package doesn't claim them too.
+set(rune_rpm_shared_dirs
     /usr/share/applications /usr/share/icons /usr/share/icons/hicolor /usr/share/icons/hicolor/scalable
-    /usr/share/icons/hicolor/scalable/apps /usr/share/licenses)
+    /usr/share/icons/hicolor/scalable/apps /usr/share/licenses /usr/share/metainfo)
+foreach(size 16 24 32 48 64 128 256 512)
+    list(APPEND rune_rpm_shared_dirs /usr/share/icons/hicolor/${size}x${size} /usr/share/icons/hicolor/${size}x${size}/apps)
+endforeach()
+set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION ${rune_rpm_shared_dirs})
 
 include(CPack)
