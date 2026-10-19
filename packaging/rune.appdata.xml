@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ninepointlabs.rune</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Rune</name>
+  <summary>A word processor that writes with you</summary>
+  <developer_name>Nine Point Labs</developer_name>
+  <description>
+    <p>
+      Rune is an ODF-first word processor with the AI built into the page, not
+      bolted on in a sidebar. Open, write, format and save documents, then have
+      the AI correct, rewrite or continue them in place, one undo step at a time.
+    </p>
+    <ul>
+      <li>Edits .odt natively; opens and saves .docx and .doc through LibreOffice, if it is installed</li>
+      <li>Styles, lists, tables, pages, headers and footers with page numbers</li>
+      <li>An outline, story notes, sources and citations beside the document</li>
+      <li>Sign in with a ChatGPT plan or with OpenRouter (Claude, GPT, Grok); sign-ins stay in the desktop keyring</li>
+      <li>A command palette for everything (Ctrl+K)</li>
+    </ul>
+    <p>
+      Made for Omarchy, where it follows the desktop theme, and at home on any
+      Linux desktop, where it follows the light or dark setting.
+    </p>
+  </description>
+  <launchable type="desktop-id">rune.desktop</launchable>
+  <provides>
+    <binary>rune</binary>
+    <mediatype>application/vnd.oasis.opendocument.text</mediatype>
+    <mediatype>application/vnd.openxmlformats-officedocument.wordprocessingml.document</mediatype>
+    <mediatype>application/msword</mediatype>
+  </provides>
+  <url type="homepage">https://rune.ninepointlabs.com</url>
+  <url type="bugtracker">https://github.com/ninepointlabs/rune/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>A manuscript open in Rune</caption>
+      <image>https://rune.ninepointlabs.com/guide/images/window.webp</image>
+    </screenshot>
+    <screenshot>
+      <caption>A paragraph the AI corrected and tightened in place</caption>
+      <image>https://rune.ninepointlabs.com/guide/images/ai-edited.webp</image>
+    </screenshot>
+    <screenshot>
+      <caption>A table, with the Table menu open</caption>
+      <image>https://rune.ninepointlabs.com/guide/images/table.webp</image>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.8.5" date="2026-10-17"/>
+  </releases>
+</component>

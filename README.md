@@ -63,7 +63,7 @@ Full protocol/implementation notes: [`native/`](native/) source comments (each f
 
 ## Install
 
-Packages for Arch/Omarchy, Debian 13 and Fedora 42 are attached to each [GitHub release](https://github.com/ninepointlabs/rune/releases/latest).
+Packages for Arch/Omarchy, Debian 13 and Fedora 42, and an AppImage for every other distro, are attached to each [GitHub release](https://github.com/ninepointlabs/rune/releases/latest).
 
 **With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)**, which picks the right package for your system and keeps Rune updated from GitHub Releases:
 
@@ -80,6 +80,31 @@ sudo dnf install ./rune-*.x86_64.rpm          # Fedora 42
 ```
 
 Each package is built against that distro's own Qt, so use the one that matches your system. Install LibreOffice Writer too if you want to open and save `.docx`/`.doc`.
+
+### Other Linux distros (AppImage)
+
+On any other x86_64 distro (Ubuntu 22.04 or newer, Debian 12 or newer, Fedora 39 or newer, openSUSE Leap 15.6, ...), download `rune-<version>-x86_64.AppImage` from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and run it. It brings its own Qt, so nothing else needs installing:
+
+```sh
+chmod +x rune-*-x86_64.AppImage
+./rune-*-x86_64.AppImage
+```
+
+To get Rune into your app menu and dock with its icon, open the AppImage with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher), which can also update it from GitHub releases. Or let it add itself, for your user only:
+
+```sh
+./rune-*-x86_64.AppImage --install-desktop-entry   # menu entry and icons in ~/.local/share
+./rune-*-x86_64.AppImage --remove-desktop-entry    # take them out again
+```
+
+Run `--install-desktop-entry` again if you move or rename the file.
+
+- **`.docx`/`.doc`** go through LibreOffice, as with the packages: install your distro's LibreOffice Writer for them. `.odt` needs nothing else.
+- **AI sign-ins** are kept in the desktop keyring (GNOME Keyring, KWallet or any other Secret Service).
+- **Theme:** on Omarchy Rune follows the Omarchy theme; elsewhere it follows your desktop's light or dark setting.
+- **If it won't start** with a FUSE error, install your distro's `fuse3` package (it provides `fusermount3`), or run it without FUSE: `./rune-*-x86_64.AppImage --appimage-extract-and-run`.
+
+On Omarchy itself, the Arch package above is still the one to use: it runs on the system Qt with your GTK font, file dialogs and input method.
 
 ## Building
 
