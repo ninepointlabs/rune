@@ -7,4 +7,7 @@ Exec=rune %f
 Icon=rune
 Terminal=false
 Categories=Office;WordProcessor;Qt;
+Keywords=document;writer;word;odt;docx;text;AI;
 MimeType=application/vnd.oasis.opendocument.text;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/msword;
+StartupNotify=true
+StartupWMClass=rune
