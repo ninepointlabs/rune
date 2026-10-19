@@ -8,39 +8,84 @@
 #include "AiManager.h"
 
 #include <QCommandLineParser>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVariant>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTextStream>
 #include <QTimer>
 
 namespace {
 
-// Pull the active Omarchy palette; fall back to a neutral dark palette.
-QVariantMap omarchyTheme()
+// The Omarchy palette in use, if this is Omarchy (where it is now, then where
+// older Omarchy kept it). Empty elsewhere.
+QVariantMap omarchyColors()
 {
-    QVariantMap m{
+    static const QRegularExpression re(R"(^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6,8})\")");
+    for (const char *dir : {"/.local/state/omarchy/current/theme", "/.config/omarchy/current/theme"}) {
+        QFile f(QDir::homePath() + QLatin1String(dir) + QStringLiteral("/colors.toml"));
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
+            continue;
+        QVariantMap m;
+        QTextStream in(&f);
+        while (!in.atEnd()) {
+            const auto match = re.match(in.readLine());
+            if (match.hasMatch())
+                m.insert(match.captured(1), match.captured(2));
+        }
+        return m;
+    }
+    return {};
+}
+
+// Off Omarchy: whether the desktop asks for light or dark, from the
+// freedesktop Settings portal (GNOME, KDE and most others), then from Qt.
+bool desktopPrefersLight()
+{
+    QDBusMessage call = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.portal.Desktop"), QStringLiteral("/org/freedesktop/portal/desktop"),
+        QStringLiteral("org.freedesktop.portal.Settings"), QStringLiteral("ReadOne"));
+    call << QStringLiteral("org.freedesktop.appearance") << QStringLiteral("color-scheme");
+    const QDBusMessage reply = QDBusConnection::sessionBus().call(call, QDBus::Block, 500);
+    if (reply.type() == QDBusMessage::ReplyMessage && !reply.arguments().isEmpty()) {
+        // 0 no preference, 1 dark, 2 light.
+        const uint scheme = qvariant_cast<QDBusVariant>(reply.arguments().constFirst()).variant().toUInt();
+        if (scheme != 0)
+            return scheme == 2;
+    }
+    return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Light;
+}
+
+// The active Omarchy palette, else a neutral dark (or light) one.
+QVariantMap theme()
+{
+    const QVariantMap dark{
         {"background", "#1a1b26"}, {"foreground", "#c0caf5"},
         {"accent", "#7aa2f7"},     {"muted", "#414868"},
         {"lighter_background", "#24283b"}, {"red", "#f7768e"},
         {"green", "#9ece6a"},      {"yellow", "#e0af68"},
     };
-    QFile f(QDir::homePath() + "/.local/state/omarchy/current/theme/colors.toml");
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return m;
-    static const QRegularExpression re(R"(^\s*(\w+)\s*=\s*"(#[0-9A-Fa-f]{6,8})\")");
-    QTextStream in(&f);
-    while (!in.atEnd()) {
-        const auto match = re.match(in.readLine());
-        if (match.hasMatch())
-            m.insert(match.captured(1), match.captured(2));
-    }
+    const QVariantMap colors = omarchyColors();
+    QVariantMap m = colors.isEmpty() && desktopPrefersLight()
+        ? QVariantMap{
+              {"background", "#e1e2e7"}, {"foreground", "#3760bf"},
+              {"accent", "#2e7de9"},     {"muted", "#a8aecb"},
+              {"lighter_background", "#d0d5e3"}, {"red", "#f52a65"},
+              {"green", "#587539"},      {"yellow", "#8c6c3e"},
+          }
+        : dark;
+    for (auto it = colors.cbegin(); it != colors.cend(); ++it)
+        m.insert(it.key(), it.value());
     return m;
 }
 
@@ -96,6 +141,9 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(RUNE_VERSION));
     // Matches packaging/rune.desktop, so the window gets its icon and name.
     QGuiApplication::setDesktopFileName(QStringLiteral("rune"));
+    // For desktops that take the window's own icon (X11), also when Rune runs
+    // from an AppImage and its icon isn't installed anywhere.
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/rune/rune.png")));
     const Options options = parseOptions(app);
 
     // A test run keeps its settings (e.g. File → Autosave) out of the
@@ -109,7 +157,7 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
-    engine.setInitialProperties({{"theme", omarchyTheme()}});
+    engine.setInitialProperties({{"theme", theme()}});
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Rune", "Main");

@@ -21,3 +21,24 @@ against that distro's Qt:
 
 `build-release.sh` does this in Docker for every target and collects the
 results in `dist/`.
+
+## AppImage (every other distro)
+
+`build-appimage.sh` builds `dist/rune-<version>-x86_64.AppImage` (with its
+`.zsync` and `.sha256`) in an Ubuntu 22.04 container, so it runs on glibc
+2.34 or newer:
+
+    packaging/build-appimage.sh --test   # --test also runs appimage/smoke.sh
+
+`appimage/build.sh` does the work: Qt 6.12 from aqtinstall, QuaZip built
+against it, Rune, then linuxdeploy and its Qt plugin to copy in the libraries,
+Qt plugins and QML modules, and appimagetool. Every download is pinned. The
+hicolor PNGs in `icons/` are rendered from `rune.svg` by `icons/render.sh`.
+
+CI (`.github/workflows/appimage.yml`) builds and checks it on pull requests
+that touch packaging, and attaches it to each published release next to the
+other packages, adding its line to `SHA256SUMS`. To attach one to an existing
+release, run the workflow by hand with the tag.
+
+When bumping the version, add a `<release>` line to `rune.appdata.xml` too;
+the AppImage build stops if it is missing.

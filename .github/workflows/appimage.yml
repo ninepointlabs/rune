@@ -1,0 +1,194 @@
+# The AppImage: built on Ubuntu 22.04, checked, and attached to the release
+# next to the Arch, .deb and .rpm packages (which packaging/build-release.sh
+# and makepkg still make). Only adds files: the AppImage, its .zsync and
+# .sha256, and its line in SHA256SUMS. Nothing else on the release is touched.
+#
+# - A published release builds and attaches it.
+# - "Run workflow" with a tag (e.g. v0.8.5) builds that tag and attaches it.
+#   A tag from before the AppImage existed is built with today's packaging/.
+# - A pull request that touches packaging or the app builds and checks it,
+#   without uploading.
+
+name: AppImage
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach to (e.g. v0.8.5)
+        required: true
+  pull_request:
+    paths:
+      - packaging/**
+      - native/**
+      - CMakeLists.txt
+      - .github/workflows/appimage.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: appimage-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.what.outputs.tag }}
+    steps:
+      - name: What to build
+        id: what
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: echo "tag=$TAG" >>"$GITHUB_OUTPUT"
+
+      - name: Check out the packaging
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Check out the release
+        if: steps.what.outputs.tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.what.outputs.tag }}
+          path: src
+
+      - name: Use the pull request's tree
+        if: steps.what.outputs.tag == ''
+        run: cp -a tooling src
+
+      - name: Bring in the AppImage packaging, if the tag is older than it
+        id: overlay
+        working-directory: src
+        run: |
+          if [[ -f packaging/appimage/build.sh ]]; then
+            echo "legacy=0" >>"$GITHUB_OUTPUT"
+          else
+            echo "::notice::This tag predates the AppImage packaging; using it from ${GITHUB_SHA::7}."
+            cp -a ../tooling/packaging/appimage ../tooling/packaging/icons packaging/
+            # The desktop entry with StartupWMClass (the binary already used that class).
+            cp ../tooling/packaging/rune.desktop ../tooling/packaging/rune.appdata.xml packaging/
+            echo "legacy=1" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Check the tag matches the version
+        if: steps.what.outputs.tag != ''
+        working-directory: src
+        env:
+          TAG: ${{ steps.what.outputs.tag }}
+        run: |
+          version="$(sed -n 's/^project(rune VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)"
+          [[ "$TAG" == "v$version" ]] || { echo "::error::$TAG does not match CMakeLists.txt version $version"; exit 1; }
+
+      - name: Install build tools
+        working-directory: src
+        run: |
+          sudo apt-get update -qq
+          sed 's/#.*//' packaging/appimage/apt-packages.txt | xargs sudo apt-get install -y -qq --no-install-recommends
+
+      - name: Build
+        working-directory: src
+        run: packaging/appimage/build.sh
+
+      - name: Check
+        working-directory: src
+        env:
+          # Tags before the AppImage don't set their own window icon (X11 only).
+          SMOKE_LEGACY: ${{ steps.overlay.outputs.legacy }}
+        run: packaging/appimage/smoke.sh dist/rune-*-x86_64.AppImage
+
+      - name: Rune's own test suite, from the AppImage, on Arch with LibreOffice and no Qt
+        working-directory: src
+        # --auto-test opens samples/ by the path it was built at, so the checkout
+        # is mounted at that same path.
+        run: |
+          docker run --rm -v "$PWD:$PWD:ro" -w /tmp archlinux:latest bash -euc "
+            pacman -Syu --noconfirm --needed libreoffice-fresh ttf-dejavu >/dev/null
+            soffice --version
+            QT_QPA_PLATFORM=offscreen APPIMAGE_EXTRACT_AND_RUN=1 timeout 1200 $PWD/dist/rune-*-x86_64.AppImage --auto-test >auto-test.log 2>&1 \
+              || { cat auto-test.log; exit 1; }
+            grep -c '^  ok' auto-test.log | sed 's/\$/ checks ok/'
+            tail -1 auto-test.log"
+
+      - name: appimagelint (glibc / libstdc++ compatibility, icons, desktop file)
+        working-directory: src
+        run: |
+          curl -fsSL -o appimagelint.AppImage \
+            https://github.com/TheAssassin/appimagelint/releases/download/continuous/appimagelint-x86_64.AppImage
+          if echo "61dc4ec2d5697249644bb559ac917bd60196bc2eebb9752582f976f717ab7869  appimagelint.AppImage" | sha256sum -c; then
+            chmod +x appimagelint.AppImage
+            # A report, not a gate: it also lists the old distros (glibc < 2.34) this does not aim at.
+            ./appimagelint.AppImage dist/rune-*-x86_64.AppImage >appimagelint.log 2>&1 || true
+            cat appimagelint.log
+            { echo '```'; grep -E '\[(✔|✖)\]|WARNING|ERROR' appimagelint.log; echo '```'; } >>"$GITHUB_STEP_SUMMARY"
+          else
+            # Its only release is "continuous"; when it moves, say so rather than run something unpinned.
+            echo "::warning::appimagelint's continuous build changed; update the pinned sha256 to run it."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: |
+            src/dist/rune-*-x86_64.AppImage
+            src/dist/rune-*-x86_64.AppImage.zsync
+            src/dist/rune-*-x86_64.AppImage.sha256
+          if-no-files-found: error
+
+  attach:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.build.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: appimage
+          path: out
+
+      - name: Assets before
+        run: gh release view "$TAG" --json assets --jq '.assets[].name' | sort | tee before.txt
+
+      - name: Attach the AppImage, .zsync and .sha256
+        working-directory: out
+        run: gh release upload "$TAG" rune-*-x86_64.AppImage rune-*-x86_64.AppImage.zsync rune-*-x86_64.AppImage.sha256 --clobber
+
+      - name: Add the AppImage to SHA256SUMS, keeping every existing line
+        working-directory: out
+        run: |
+          if grep -qx SHA256SUMS ../before.txt; then
+            gh release download "$TAG" --pattern SHA256SUMS --dir old
+            cp old/SHA256SUMS SHA256SUMS
+          else
+            : >SHA256SUMS
+          fi
+          image="$(ls rune-*-x86_64.AppImage)"
+          for file in "$image" "$image.zsync"; do
+            grep -v "  $file\$" SHA256SUMS >SHA256SUMS.new || true
+            mv SHA256SUMS.new SHA256SUMS
+            sha256sum "$file" >>SHA256SUMS
+          done
+          if [[ -f old/SHA256SUMS ]]; then
+            # Every line that was there is still there.
+            grep -vE "  $image(\.zsync)?\$" old/SHA256SUMS | while IFS= read -r line; do
+              grep -qxF "$line" SHA256SUMS || { echo "::error::lost a line: $line"; exit 1; }
+            done
+          fi
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --clobber
+
+      - name: Assets after (only additions)
+        run: |
+          gh release view "$TAG" --json assets --jq '.assets[].name' | sort | tee after.txt
+          missing="$(comm -23 before.txt after.txt)"
+          [[ -z "$missing" ]] || { echo "::error::assets disappeared: $missing"; exit 1; }
+          echo "Added:"; comm -13 before.txt after.txt

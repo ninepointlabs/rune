@@ -1,0 +1,14 @@
+# What packaging/appimage/build.sh and smoke.sh need on Ubuntu 22.04.
+ca-certificates curl file binutils patchelf zsync desktop-file-utils appstream
+build-essential ninja-build pkg-config python3-venv
+# What Rune links to that Qt does not bring: copied into the AppImage.
+libsecret-1-dev libssl-dev zlib1g-dev
+# The libraries Qt links to, so linuxdeploy can copy them in (or, for GL,
+# fontconfig and X11 itself, link against the host's).
+libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libfontconfig1-dev libfreetype6-dev
+libdbus-1-dev libglib2.0-dev libx11-xcb1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4
+libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0
+libxcb-xkb1 libxcb-xfixes0 libxcb-sync1 libxcb-shm0 libxcb-util1 libwayland-client0
+libwayland-cursor0 libwayland-egl1 libxrender1 libxi6 libsm6 libice6
+# The smoke test: headless X and Wayland servers, and tools to look at their windows.
+xvfb xauth x11-utils xdotool weston procps

@@ -17,7 +17,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 6.7: QQuickTextDocument::setTextDocument(), which DocumentController relies on.
 # Test: QTest::keyClick() for --auto-test's real-keyboard shortcut checks.
 # Network: the AI providers' sign-in and streaming requests (ai/).
-find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick Concurrent Network Test)
+# DBus: off Omarchy, the desktop's light/dark preference (main.cpp).
+find_package(Qt6 6.7 REQUIRED COMPONENTS Gui Quick Concurrent Network DBus Test)
 # ai/: OpenSSL verifies ChatGPT ID-token signatures (RS256); libsecret keeps
 # sign-in secrets in the desktop keyring (Secret Service).
 find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
@@ -59,8 +60,12 @@ qt_add_qml_module(rune
 # The repo's LICENSE, for File → About Rune (AppInfo::licenseText()).
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE PROPERTIES QT_RESOURCE_ALIAS LICENSE)
 qt_add_resources(rune "license" PREFIX "/rune" FILES ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE)
+# The window icon (main.cpp).
+set(rune_icon ${CMAKE_CURRENT_SOURCE_DIR}/../packaging/icons/hicolor/256x256/apps/rune.png)
+set_source_files_properties(${rune_icon} PROPERTIES QT_RESOURCE_ALIAS rune.png)
+qt_add_resources(rune "icon" PREFIX "/rune" FILES ${rune_icon})
 
-target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Network Qt6::Test QuaZip::QuaZip
+target_link_libraries(rune PRIVATE Qt6::Gui Qt6::Quick Qt6::Concurrent Qt6::Network Qt6::DBus Qt6::Test QuaZip::QuaZip
                                    OpenSSL::Crypto PkgConfig::LIBSECRET)
 target_include_directories(rune PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} document formats ai tests)
 
