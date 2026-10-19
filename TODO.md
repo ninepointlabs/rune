@@ -1,6 +1,6 @@
 # Rune — Roadmap
 
-Status as of 2026-10-17 (Rune 0.8.5). See [README.md](README.md) for the architecture overview.
+Status as of 2026-10-19 (Rune 0.8.6). See [README.md](README.md) for the architecture overview.
 
 ## Done (in `native/`, the current app)
 
