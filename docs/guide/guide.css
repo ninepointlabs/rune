@@ -39,7 +39,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* Links inside running text are underlined, not told apart by color alone. */
 p a:not([class]) { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 a:focus-visible, summary:focus-visible { outline: 2px solid var(--ember-bright); outline-offset: 3px; }
-code { font-family: var(--mono); font-size: 0.82em; color: var(--ember-bright); }
+code { font-family: var(--mono); font-size: 0.82em; color: var(--ember-bright); overflow-wrap: break-word; }
 kbd {
   font-family: var(--mono); font-size: 0.76em; color: var(--ink); white-space: nowrap;
   border: 1px solid var(--border-bright); border-bottom-width: 2px; border-radius: 3px;
@@ -80,7 +80,7 @@ header {
 .toc .sections a { padding: 3px 12px 3px 26px; font-size: 14px; color: var(--ink-faint); }
 .toc .sections a:hover { color: var(--ink-dim); }
 
-main { padding: 44px 0 80px; max-width: 780px; }
+main { padding: 44px 0 80px; max-width: 780px; min-width: 0; }
 .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ember); margin: 0 0 12px; }
 h1 { font-family: var(--serif-display); font-weight: 600; font-size: clamp(30px, 4.5vw, 42px); line-height: 1.2; margin: 0 0 16px; }
 .lede { font-size: 20px; color: var(--ink-dim); font-style: italic; margin: 0 0 36px; }
