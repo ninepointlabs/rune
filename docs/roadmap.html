@@ -117,6 +117,15 @@
   .audit-table td:first-child { color: var(--ink); font-weight: 500; white-space: nowrap; }
   .audit-table td:last-child { color: var(--ink-dim); }
   .audit-table tr:last-child td { border-bottom: none; }
+  /* Tables scroll in their own box rather than widening the page. */
+  .table-scroll { overflow-x: auto; }
+  ul.checklist li > div { min-width: 0; overflow-wrap: anywhere; }
+  .note-box { overflow-wrap: anywhere; }
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px; }
+    .audit-table th, .audit-table td { padding: 12px 10px; }
+    .audit-table td:first-child { white-space: normal; width: 38%; }
+  }
 
   /* Architecture note box */
   .note-box {
@@ -200,19 +209,19 @@
 
   <section class="roadmap-section">
     <h2><span class="dot dot-progress"></span> Known limitations &mdash; found, tested, documented</h2>
-    <table class="audit-table">
+    <div class="table-scroll"><table class="audit-table">
       <tr><th>Limitation</th><th>Why</th></tr>
       <tr><td>List numbering restart, custom start values, bullet characters, number formats</td><td>Imported lists get the UI's own level styles rather than preserving the source document's exact presentation.</td></tr>
       <tr><td>Table/column widths, cell borders, backgrounds</td><td>Written (table width, borders, padding, cell backgrounds), not read; column widths neither.</td></tr>
       <tr><td><code>styles.xml</code>'s default-style</td><td>Not read &mdash; named paragraph styles with parent chains are, and the automatic styles headers and footers use.</td></tr>
       <tr><td>One header and one footer per document</td><td>A file's different first-page or left-page header isn't shown, and is dropped on save.</td></tr>
       <tr><td>Header and footer placement</td><td>Centred in their margins, and saved where that puts them; a file's own header distance only decides where the body starts.</td></tr>
-    </table>
+    </table></div>
   </section>
 
   <section class="roadmap-section">
     <h2><span class="dot dot-none"></span> Not started</h2>
-    <table class="audit-table">
+    <div class="table-scroll"><table class="audit-table">
       <tr><th>Feature</th><th>Notes</th></tr>
       <tr><td>Images</td><td>No insertion, no text wrap, no import/export at all</td></tr>
       <tr><td>Header &amp; footer variants</td><td>"Different first page," "different odd/even," "link to previous"</td></tr>
@@ -222,7 +231,7 @@
       <tr><td>Exact paragraph spacing / keep-together / widow-orphan</td><td>Was a documented dead end in the old LibreOfficeKit engine; not yet investigated against <code>QTextBlockFormat</code> directly &mdash; may actually be achievable now that we're not routing through <code>.uno:</code> commands. Worth a fresh look.</td></tr>
       <tr><td>Find/replace</td><td>Not built.</td></tr>
       <tr><td>Live spell check</td><td>No underlines as you type. (The AI corrects spelling on request &mdash; see below.)</td></tr>
-    </table>
+    </table></div>
   </section>
 
   <section class="roadmap-section">
