@@ -587,6 +587,14 @@
 <span class="prompt">$</span> sudo apt install ./rune_*_amd64.deb <span class="comment"># Debian 13</span>
 <span class="prompt">$</span> sudo dnf install ./rune-*.x86_64.rpm <span class="comment"># Fedora 42</span></div>
       </div>
+      <div class="install-card" style="grid-column: 1 / -1; min-width: 0;">
+        <h3>Other Linux distros (AppImage)</h3>
+        <p>One file with its own Qt, for x86_64 distros with glibc 2.34 or newer: Ubuntu 22.04, Debian 12, Fedora 39 and newer. Download <code>rune-0.8.6-x86_64.AppImage</code> from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, then:</p>
+        <div class="code-block"><span class="prompt">$</span> chmod +x rune-0.8.6-x86_64.AppImage
+<span class="prompt">$</span> ./rune-0.8.6-x86_64.AppImage
+<span class="prompt">$</span> ./rune-0.8.6-x86_64.AppImage --install-desktop-entry <span class="comment"># add it to your app menu</span></div>
+        <p style="margin-top: 12px;">Or let <a href="https://flathub.org/apps/it.mijorus.gearlever">Gear Lever</a> or <a href="https://github.com/TheAssassin/AppImageLauncher">AppImageLauncher</a> add it to your menu and keep it updated.</p>
+      </div>
     </div>
 
     <details class="build">
