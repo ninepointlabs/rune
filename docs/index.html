@@ -328,7 +328,12 @@
   .install-card h3 { font-family: var(--serif-display); font-size: 17px; color: var(--ember-bright); margin: 0 0 6px; font-weight: 600; }
   .install-card p { margin: 0 0 4px; color: var(--ink-dim); font-size: 16px; }
   .install-card .code-block { margin: 14px 0 0; padding: 14px 16px; font-size: 13px; white-space: pre; }
-  @media (max-width: 820px) { .install-grid { grid-template-columns: 1fr; } }
+  /* Below 1220px the two columns can't fit their code blocks: let them shrink so code scrolls in its box. */
+  @media (max-width: 1220px) { .install-grid > * { min-width: 0; } }
+  @media (max-width: 820px) {
+    .install-grid { grid-template-columns: 1fr; }
+    .install-card code { overflow-wrap: anywhere; }
+  }
 
   details.build { margin-top: 36px; border-top: 1px solid var(--border); padding-top: 22px; }
   details.build summary { cursor: pointer; font-family: var(--serif-display); font-size: 18px; color: var(--ink); }
