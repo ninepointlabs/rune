@@ -83,7 +83,7 @@ Each package is built against that distro's own Qt, so use the one that matches 
 
 ### Other Linux distros (AppImage)
 
-On any other x86_64 distro (Ubuntu 22.04 or newer, Debian 12 or newer, Fedora 39 or newer, openSUSE Leap 15.6, ...), download `rune-<version>-x86_64.AppImage` from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and run it. It brings its own Qt, so nothing else needs installing:
+On any other x86_64 distro (Ubuntu 22.04 or newer, Debian 12 or newer, Fedora 39 or newer, openSUSE Leap 15.6, ...), download `rune-<version>-x86_64.AppImage` from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and run it. It brings its own Qt, so nothing else needs installing; it only needs glibc 2.34 or newer, which covers most distributions from 2022 on:
 
 ```sh
 chmod +x rune-*-x86_64.AppImage
