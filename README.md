@@ -12,7 +12,7 @@ Word processors on Linux are either heavyweight ports (LibreOffice Writer, OnlyO
 
 ## Status
 
-Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 495 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
+Early and moving fast. Core editing — open, type, format, save, tables, lists, pages with headers and footers, real-world `.docx`/`.odt` round-trips — works end to end and is covered by 504 passing, independently-verified checks. Sign in with your ChatGPT plan or with OpenRouter (Claude, GPT, Grok), then have the AI write into or rewrite your document directly, or ask it questions about it. See [TODO.md](TODO.md) for the complete, honest state of every feature, including the two things we tried and couldn't make work and documented with evidence rather than hiding.
 
 | Area | State |
 |---|---|
@@ -65,11 +65,14 @@ Full protocol/implementation notes: [`native/`](native/) source comments (each f
 
 Packages for Arch/Omarchy, Debian 13 and Fedora 42, and an AppImage for every other distro, are attached to each [GitHub release](https://github.com/ninepointlabs/rune/releases/latest).
 
-**With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)**, which picks the right package for your system and keeps Rune updated from GitHub Releases:
+**With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)**, which picks the right package for your system and keeps Rune updated from GitHub Releases. It takes two steps: `add` starts tracking Rune, then `install` installs it (it asks for your password):
 
 ```sh
 autonomix-cli add https://github.com/ninepointlabs/rune
+autonomix-cli install rune
 ```
+
+After that, `autonomix-cli update` installs new releases.
 
 **Or download the package for your distro** from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and install it:
 
@@ -101,7 +104,7 @@ Run `--install-desktop-entry` again if you move or rename the file.
 
 - **`.docx`/`.doc`** go through LibreOffice, as with the packages: install your distro's LibreOffice Writer for them. `.odt` needs nothing else.
 - **AI sign-ins** are kept in the desktop keyring (GNOME Keyring, KWallet or any other Secret Service).
-- **Theme:** on Omarchy Rune follows the Omarchy theme; elsewhere it follows your desktop's light or dark setting.
+- **Theme:** on Omarchy Rune follows the Omarchy theme; elsewhere it follows your desktop's light or dark setting, and is dark if the desktop has none.
 - **If it won't start** with a FUSE error, install your distro's `fuse3` package (it provides `fusermount3`), or run it without FUSE: `./rune-*-x86_64.AppImage --appimage-extract-and-run`.
 
 On Omarchy itself, the Arch package above is still the one to use: it runs on the system Qt with your GTK font, file dialogs and input method.
@@ -134,7 +137,7 @@ QT_QPA_PLATFORM=offscreen ./build/native/rune --auto-test
 
 On Arch, Qt sends its warnings to the systemd journal when stderr isn't a terminal; add `QT_FORCE_STDERR_LOGGING=1` to see QML warnings in the test output.
 
-495 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
+504 checks, run headlessly: typing, formatting, tables, lists, pages and Page setup, headers and footers (double-click to edit, fields, formatting), the File menu and autosave, save/load round-trips through real `soffice` conversion (not just "the code said it succeeded" — e.g. the `.docx` round-trip is independently re-verified by converting the saved file back to text with real LibreOffice and diffing the content), and an empirical proof that `.docx` conversion doesn't block the UI thread (a background ticker's fire count during conversion, not just an API shape check).
 
 ## Contributing
 
