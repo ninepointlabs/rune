@@ -80,10 +80,10 @@
 <span class="prompt">$</span> sudo dnf install ./rune-*.x86_64.rpm       <span class="comment"># Fedora 42</span></code></pre>
     <p>Each package is built against its distribution's own Qt, so use the one that matches your system.</p>
     <h3>Other Linux distributions (AppImage)</h3>
-    <p>On any other x86_64 distribution with glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 39 and newer), use the AppImage: one file that brings its own Qt. Download <code>rune-0.8.6-x86_64.AppImage</code> from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, make it executable and run it. The last line adds Rune to your app menu:</p>
-    <pre><code><span class="prompt">$</span> chmod +x rune-0.8.6-x86_64.AppImage
-<span class="prompt">$</span> ./rune-0.8.6-x86_64.AppImage
-<span class="prompt">$</span> ./rune-0.8.6-x86_64.AppImage --install-desktop-entry</code></pre>
+    <p>On any other x86_64 distribution with glibc 2.34 or newer (Ubuntu 22.04, Debian 12, Fedora 39 and newer), use the AppImage: one file that brings its own Qt. Download <code>rune-0.8.7-x86_64.AppImage</code> from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, make it executable and run it. The last line adds Rune to your app menu:</p>
+    <pre><code><span class="prompt">$</span> chmod +x rune-0.8.7-x86_64.AppImage
+<span class="prompt">$</span> ./rune-0.8.7-x86_64.AppImage
+<span class="prompt">$</span> ./rune-0.8.7-x86_64.AppImage --install-desktop-entry</code></pre>
     <p>From then on you can start Rune from your app menu like any other app. If you move or rename the AppImage, run it with <code>--install-desktop-entry</code> again so the menu entry follows it. To take the entry out, run it with <code>--remove-desktop-entry</code>; the AppImage itself stays where it is.</p>
     <p>Or open it with <a href="https://flathub.org/apps/it.mijorus.gearlever">Gear Lever</a> or <a href="https://github.com/TheAssassin/AppImageLauncher">AppImageLauncher</a>, which add it to your menu and can keep it updated.</p>
     <div class="note"><p><strong>Note</strong> Word files (<code>.docx</code> and <code>.doc</code>) are opened and saved through LibreOffice, so install LibreOffice Writer too if you work with them. Rune's own format, <code>.odt</code>, needs nothing else.</p></div>
@@ -92,7 +92,7 @@
     <p>How you start Rune depends on how you installed it:</p>
     <ul>
       <li><strong>From a package</strong> (Arch / Omarchy, Debian 13 or Fedora 42): open Rune from your app menu, or run <code>rune</code> in a terminal, optionally followed by a file to open: <code>rune chapter-one.docx</code>.</li>
-      <li><strong>From the AppImage</strong>: once you've run <code>./rune-0.8.6-x86_64.AppImage --install-desktop-entry</code>, open Rune from your app menu. Or run the AppImage directly, again optionally followed by a file: <code>./rune-0.8.6-x86_64.AppImage chapter-one.docx</code>.</li>
+      <li><strong>From the AppImage</strong>: once you've run <code>./rune-0.8.7-x86_64.AppImage --install-desktop-entry</code>, open Rune from your app menu. Or run the AppImage directly, again optionally followed by a file: <code>./rune-0.8.7-x86_64.AppImage chapter-one.docx</code>.</li>
     </ul>
     <figure>
       <a class="frame" href="images/window.webp"><img src="images/window.webp" width="2080" height="1300" alt="The Rune window: toolbar at the top, a page with a manuscript in the middle, status bar at the bottom."></a>
