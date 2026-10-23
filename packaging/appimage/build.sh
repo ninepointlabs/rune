@@ -132,8 +132,9 @@ echo "== Libraries and Qt plugins"
 # Wayland and X11 platform plugins and the rest, and writes a qt.conf, so no
 # environment variable is needed to find any of it.
 # libssl is loaded at run time by Qt's TLS plugin, so it is named here.
-# No platform themes (the GTK 3 one would drag GTK in): file dialogs are Qt
-# Quick's own, light/dark comes from the portal (main.cpp).
+# Of the platform themes, only the portal one (no GTK 3, which would drag GTK
+# in): AppRun picks it, for the desktop's own file dialogs; light/dark comes
+# from the portal too (main.cpp).
 # The plugin knows the Wayland platform plugin but not, for Qt 6.12, the shell,
 # decoration and graphics plugins it loads (xdg-shell, client-side title bars
 # on GNOME, EGL), so they are put in place first and only their libraries deployed.
@@ -152,6 +153,12 @@ export QMAKE="$qt/bin/qmake" LD_LIBRARY_PATH="$qt/lib:$quazip/lib" \
   "${deps_only[@]}" --plugin qt) >"$work/linuxdeploy.log" 2>&1 \
   || { cat "$work/linuxdeploy.log" >&2; exit 1; }
 unset LD_LIBRARY_PATH
+# libxkbcommon comes from the host, like libc and the GL drivers: it reads the
+# host's keyboard data (/usr/share/X11/locale's Compose files), and Ubuntu
+# 22.04's copy doesn't know keysyms newer distros' Compose files use. With it
+# bundled, every launch logged dozens of "unrecognized keysym" errors and those
+# compose sequences were lost. Every desktop with Wayland or X11 has it.
+rm -f "$appdir"/usr/lib/libxkbcommon.so* "$appdir"/usr/lib/libxkbcommon-x11.so*
 grep -E '^(\[qt/stdout\] )?(-- |ERROR)' "$work/linuxdeploy.log" || true
 # linuxdeploy carries on past a library it cannot find; a bundle missing one is broken.
 if grep -E 'ERROR: Could not find dependency' "$work/linuxdeploy.log"; then

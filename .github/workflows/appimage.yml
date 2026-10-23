@@ -107,7 +107,8 @@ jobs:
         # is mounted at that same path.
         run: |
           docker run --rm -v "$PWD:$PWD:ro" -w /tmp archlinux:latest bash -euc "
-            pacman -Syu --noconfirm --needed libreoffice-fresh ttf-dejavu >/dev/null
+            # libxkbcommon: left to the host (every desktop has it), not in the bare image.
+            pacman -Syu --noconfirm --needed libreoffice-fresh ttf-dejavu libxkbcommon >/dev/null
             soffice --version
             QT_QPA_PLATFORM=offscreen APPIMAGE_EXTRACT_AND_RUN=1 timeout 1200 $PWD/dist/rune-*-x86_64.AppImage --auto-test >auto-test.log 2>&1 \
               || { cat auto-test.log; exit 1; }

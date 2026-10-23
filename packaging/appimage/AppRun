@@ -73,4 +73,9 @@ case "${1:-}" in
     --install-desktop-entry|--remove-desktop-entry) desktop_entry "$1"; exit 0 ;;
 esac
 
-exec "$APPDIR/usr/bin/rune" "$@"
+# The bundled Qt has one platform theme, the portal one; it is named on the
+# command line (QT_QPA_PLATFORMTHEME, often gtk3, names one not bundled here)
+# rather than in the environment, which Rune's children inherit. File dialogs
+# are then the desktop's own, through xdg-desktop-portal, and Qt Quick's own
+# where no portal runs.
+exec "$APPDIR/usr/bin/rune" -platformtheme xdgdesktopportal "$@"

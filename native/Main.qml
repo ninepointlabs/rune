@@ -319,6 +319,21 @@ Window {
         sidebar.show(tab)
     }
 
+    // The sidebar and the AI panel side by side leave the page this much
+    // at least; below it (a half-width tile, say) the page shrank to an
+    // unreadable thumbnail. Then only the panel opened last stays open.
+    readonly property real minPageViewWidth: 360
+    property var lastOpenedPanel: null
+    function makeRoom() {
+        if (!sidebar.visible || !aiPanel.visible || width - sidebar.width - aiPanel.width >= minPageViewWidth)
+            return
+        if (lastOpenedPanel === sidebar)
+            aiPanel.visible = false
+        else
+            sidebar.visible = false
+    }
+    onWidthChanged: makeRoom()
+
     // Back to the body's text, after a menu or dialog closes.
     function focusEditor() {
         pageView.editor.forceActiveFocus()
@@ -529,6 +544,7 @@ Window {
         visible: false
         appRoot: root
         controller: controller
+        onVisibleChanged: if (visible) { root.lastOpenedPanel = sidebar; root.makeRoom() }
         onCloseRequested: {
             visible = false
             root.focusEditor()
@@ -584,6 +600,7 @@ Window {
         appRoot: root
         ai: ai
         controller: controller
+        onVisibleChanged: if (visible) { root.lastOpenedPanel = aiPanel; root.makeRoom() }
         onCloseRequested: {
             visible = false
             root.focusEditor()
@@ -592,6 +609,7 @@ Window {
 
     PageView {
         id: pageView
+        objectName: "pageView"
         anchors { left: sidebar.visible ? sidebar.right : parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
                   top: toolbar.bottom; bottom: statusBar.top }
         appRoot: root
