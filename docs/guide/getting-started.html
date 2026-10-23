@@ -69,8 +69,10 @@
     <h2 id="install">Install</h2>
     <p>Rune runs on Linux. Packages for Arch / Omarchy, Debian 13 and Fedora 42 are attached to every <a href="https://github.com/ninepointlabs/rune/releases/latest">GitHub release</a>.</p>
     <h3>With autonomix-cli</h3>
-    <p><a href="https://github.com/ninepointlabs/autonomix-cli">autonomix-cli</a> picks the right package for your system and keeps Rune up to date from GitHub Releases:</p>
-    <pre><code><span class="prompt">$</span> autonomix-cli add https://github.com/ninepointlabs/rune</code></pre>
+    <p><a href="https://github.com/ninepointlabs/autonomix-cli">autonomix-cli</a> picks the right package for your system and keeps Rune up to date from GitHub Releases. It takes two steps: <code>add</code> starts tracking Rune, then <code>install</code> installs it (it asks for your password):</p>
+    <pre><code><span class="prompt">$</span> autonomix-cli add https://github.com/ninepointlabs/rune
+<span class="prompt">$</span> autonomix-cli install rune</code></pre>
+    <p>After that, <code>autonomix-cli update</code> installs new releases.</p>
     <h3>From a release</h3>
     <p>Download the package for your distribution from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, then install it:</p>
     <pre><code><span class="prompt">$</span> sudo pacman -U rune-*-x86_64.pkg.tar.zst   <span class="comment"># Arch / Omarchy</span>
@@ -139,7 +141,7 @@
     <p>New and Open start a fresh undo history.</p>
 
     <h2 id="look">Colours and settings</h2>
-    <p>Rune takes its colours from your <a href="https://github.com/basecamp/omarchy">Omarchy</a> theme when it starts (<code>~/.local/state/omarchy/current/theme/colors.toml</code>), and uses a dark default elsewhere. Restart Rune after changing theme.</p>
+    <p>Rune takes its colours from your <a href="https://github.com/basecamp/omarchy">Omarchy</a> theme when it starts (<code>~/.local/state/omarchy/current/theme/colors.toml</code>). Elsewhere it follows your desktop's light or dark setting, and is dark if the desktop has none. Restart Rune after changing either.</p>
     <p>Settings, such as autosave and your AI model, are kept in <code>~/.config/Rune/Rune.conf</code>. AI sign-in secrets are not: they are in your desktop keyring.</p>
     <nav class="pager" aria-label="Pages"><a class="prev" href="index.html"><span class="dir">Previous</span>Overview</a><a class="next" href="formatting.html"><span class="dir">Next</span>Writing and formatting</a></nav>
   </main>
