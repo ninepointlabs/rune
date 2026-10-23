@@ -130,6 +130,61 @@ void testWindow(Env &env)
             }
         }
 
+        // Opening a file: at its top, on page 1, whatever the last document's
+        // cursor and scroll were; its words counted in the status bar, a
+        // .docx's and .doc's too (their open used to leave "0 words").
+        {
+            auto *pageView = window->findChild<QQuickItem *>(QStringLiteral("pageView"));
+            auto *wordLabel = window->findChild<QQuickItem *>(QStringLiteral("wordIndicator"));
+            auto *pageLabel = window->findChild<QQuickItem *>(QStringLiteral("pageIndicator"));
+            t.check(pageView && wordLabel && pageLabel, "found the page view, the word count and the page indicator");
+            if (pageView && wordLabel && pageLabel) {
+                const auto shown = [&] { return wordLabel->property("text").toString(); };
+                const auto counted = [&] {
+                    const int n = controller->wordCount();
+                    return QString::number(n) + (n == 1 ? QStringLiteral(" word") : QStringLiteral(" words"));
+                };
+                controller->newDocument();
+                QStringList paragraphs;
+                for (int i = 0; i < 300; ++i)
+                    paragraphs << QStringLiteral("Paragraph %1 of a long document.").arg(i + 1);
+                doc->setPlainText(paragraphs.join(u'\n'));
+                editor->setProperty("cursorPosition", editor->property("length"));
+                QCoreApplication::processEvents();
+                const qreal scrolledTo = pageView->property("contentY").toReal();
+                QFile::remove(kOpenLongPath);
+                const IoRun saved = saveAndWait(controller, kOpenLongPath);
+                controller->newDocument();
+                doc->setPlainText(paragraphs.join(u'\n'));
+                editor->setProperty("cursorPosition", editor->property("length"));
+                QCoreApplication::processEvents();
+                const IoRun opened = runIo(controller, &DocumentController::fileOpened,
+                                           [&] { callRoot(window, "openPath", kOpenLongPath); });
+                QCoreApplication::processEvents();
+                t.check(saved.success && opened.success && scrolledTo > 0 && controller->pageCount() > 1
+                            && editor->property("cursorPosition").toInt() == 0 && pageView->property("contentY").toReal() == 0
+                            && pageLabel->property("text").toString().startsWith(QStringLiteral("Page 1 of ")),
+                        QStringLiteral("a long .odt opens at its top: cursor %1, scrolled to %2 (was %3), \"%4\"")
+                                .arg(editor->property("cursorPosition").toInt()).arg(pageView->property("contentY").toReal())
+                                .arg(scrolledTo).arg(pageLabel->property("text").toString())
+                            + errorNote(saved) + errorNote(opened));
+
+                for (const QString &path : {kSampleDocx, kSampleDoc}) {
+                    controller->newDocument();
+                    QCoreApplication::processEvents();
+                    const QString before = shown();
+                    const IoRun run = runIo(controller, &DocumentController::fileOpened,
+                                            [&] { callRoot(window, "openPath", path); });
+                    QCoreApplication::processEvents();
+                    t.check(run.success && before == QStringLiteral("0 words") && controller->wordCount() > 0
+                                && shown() == counted() && editor->property("cursorPosition").toInt() == 0,
+                            "opening " + QFileInfo(path).fileName() + " shows its words: \"" + shown() + "\" (counted: "
+                                + counted() + ")" + errorNote(run));
+                }
+                controller->newDocument();
+            }
+        }
+
         // Autosave, and the Save button showing where the document stands.
         // The timer isn't waited out: autosaveNow() is what it calls.
         {

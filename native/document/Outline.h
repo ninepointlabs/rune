@@ -20,7 +20,7 @@ struct Section
     QString title;
     int level = 1;
     int position = 0; // the heading block's
-    int words = 0; // in the section, its subsections included
+    int words = 0; // in the section, its heading and subsections included
 };
 
 QList<Section> sections(const QTextDocument *doc);

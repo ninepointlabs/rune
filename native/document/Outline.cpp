@@ -51,12 +51,13 @@ int wordCount(const QTextDocument *doc)
 QList<Section> sections(const QTextDocument *doc)
 {
     QList<Section> out;
-    QList<int> blockWords; // per section, its own text only
+    QList<int> blockWords; // per section, its own heading and text only
     for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
         const int level = b.blockFormat().headingLevel();
         if (level > 0) {
             out.append({b.text().trimmed(), level, b.position(), 0});
-            blockWords.append(0);
+            // Counted as wordCount(doc) counts it, so the sections add up to the total.
+            blockWords.append(wordCount(b.text()));
             continue;
         }
         if (!blockWords.isEmpty())

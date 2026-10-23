@@ -609,10 +609,15 @@ void DocumentController::saveFile(const QString &path)
 
 void DocumentController::finishConvertedIo(const QString &path, const QString &oldPath)
 {
-    // openOdf()/saveToOdf() ran with this object's signals blocked.
+    // openOdf()/saveToOdf() ran with this object's signals blocked,
+    // refreshStructure()'s included: the outline and word count were
+    // updated but never announced.
     emit pageLayoutChanged();
     emit pageCountChanged();
     emit pagePartsChanged();
+    emit outlineChanged();
+    emit sourcesChanged();
+    emit notesChanged();
     m_currentPath = QFileInfo(path).absoluteFilePath();
     if (m_currentPath != oldPath)
         emit currentPathChanged();
