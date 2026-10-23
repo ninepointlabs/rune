@@ -100,8 +100,13 @@ Options parseOptions(const QCoreApplication &app)
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addVersionOption();
-    const QCommandLineOption autoTestOpt(QStringLiteral("auto-test"),
-                                         QStringLiteral("Run the headless self-test, then quit."));
+    QCommandLineOption autoTestOpt(QStringLiteral("auto-test"),
+                                   QStringLiteral("Run the headless self-test, then quit."));
+    // The self-test reads samples/ and LICENSE from the source checkout it
+    // was built in; a packaged build has none (CI runs it with the checkout
+    // at the same path), so it only offers the option where it can pass.
+    if (!QFileInfo::exists(QStringLiteral(RUNE_SAMPLES_DIR)))
+        autoTestOpt.setFlags(QCommandLineOption::HiddenFromHelp);
     parser.addOption(autoTestOpt);
     parser.addPositionalArgument(QStringLiteral("document"),
                                  QStringLiteral("A .odt, .docx, or .doc file to open at startup."));
@@ -145,6 +150,11 @@ int main(int argc, char *argv[])
     // from an AppImage and its icon isn't installed anywhere.
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/rune/rune.png")));
     const Options options = parseOptions(app);
+    if (options.autoTest && !QFileInfo::exists(QStringLiteral(RUNE_SAMPLES_DIR))) {
+        QTextStream(stderr) << "--auto-test needs the source checkout Rune was built from (its samples/ and LICENSE, at "
+                            << QDir::cleanPath(QStringLiteral(RUNE_SAMPLES_DIR "/..")) << "), and it isn't there." << Qt::endl;
+        return 2;
+    }
 
     // A test run keeps its settings (e.g. File → Autosave) out of the
     // user's. QSettings() and QML's Settings use NativeFormat.

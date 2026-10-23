@@ -50,12 +50,16 @@ for dir in platforms/libqwayland.so platforms/libqxcb.so wayland-shell-integrati
   [[ -f "$appdir/usr/plugins/$dir" ]] || fail "Qt plugin missing: $dir"
 done
 [[ -f "$appdir/usr/lib/libssl.so.3" ]] && ok "Wayland, X11 and TLS plugins and libssl bundled" || fail "libssl not bundled"
+[[ -f "$appdir/usr/plugins/platformthemes/libqxdgdesktopportal.so" ]] && ok "portal platform theme bundled" \
+  || fail "platformthemes/libqxdgdesktopportal.so missing"
+bundled_xkb="$(find "$appdir/usr/lib" -name 'libxkbcommon*' 2>/dev/null)"
+[[ -z "$bundled_xkb" ]] && ok "libxkbcommon left to the host" || fail "libxkbcommon bundled: $bundled_xkb"
 
 echo "== Command line"
 # Rune makes its QGuiApplication before reading options, so even these need a display.
 version="$(QT_QPA_PLATFORM=offscreen "$image" --version)"
 grep -q '^Rune [0-9]' <<<"$version" && ok "--version: $version" || fail "--version: $version"
-QT_QPA_PLATFORM=offscreen "$image" --help | grep -q -- --auto-test && ok "--help" || fail "--help"
+QT_QPA_PLATFORM=offscreen "$image" --help | grep -q -- --version && ok "--help" || fail "--help"
 
 echo "== The window, offscreen"
 set +e

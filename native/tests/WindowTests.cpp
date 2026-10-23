@@ -475,6 +475,60 @@ void testWindow(Env &env)
             }
         }
 
+        // The sidebar and the AI panel in a narrow window (a half-width
+        // tile): opening one closes the other rather than squeezing the
+        // page to a thumbnail between them; a wide window keeps both.
+        {
+            QObject *sidebar = window->findChild<QObject *>(QStringLiteral("sidebar"));
+            QObject *aiPanel = window->findChild<QObject *>(QStringLiteral("aiPanel"));
+            auto *pageView = window->findChild<QQuickItem *>(QStringLiteral("pageView"));
+            t.check(sidebar && aiPanel && pageView, "found the sidebar, the AI panel and the page view");
+            if (sidebar && aiPanel && pageView) {
+                const auto resize = [&](int width) {
+                    window->setWidth(width);
+                    QElapsedTimer settle;
+                    settle.start();
+                    while (settle.elapsed() < 100)
+                        QCoreApplication::processEvents();
+                };
+                const auto setOpen = [&](QObject *panel, bool open) {
+                    panel->setProperty("visible", open);
+                    QCoreApplication::processEvents();
+                };
+                const auto state = [&] {
+                    return QStringLiteral("window %1 px, sidebar %2, AI panel %3, page view %4 px")
+                        .arg(window->width())
+                        .arg(sidebar->property("visible").toBool() ? QStringLiteral("open") : QStringLiteral("closed"))
+                        .arg(aiPanel->property("visible").toBool() ? QStringLiteral("open") : QStringLiteral("closed"))
+                        .arg(pageView->width());
+                };
+                const qreal minPage = window->property("minPageViewWidth").toReal();
+                const int originalWidth = window->width();
+                const int narrow = qMax(686, window->minimumWidth());
+
+                resize(1600);
+                setOpen(sidebar, true);
+                setOpen(aiPanel, true);
+                t.check(sidebar->property("visible").toBool() && aiPanel->property("visible").toBool() && pageView->width() >= minPage,
+                        "a wide window keeps the sidebar and the AI panel open together (" + state() + ")");
+
+                resize(narrow);
+                t.check(aiPanel->property("visible").toBool() && !sidebar->property("visible").toBool() && pageView->width() >= minPage,
+                        "narrowing it to a half-width tile closes the panel opened first, the sidebar (" + state() + ")");
+
+                setOpen(sidebar, true);
+                t.check(sidebar->property("visible").toBool() && !aiPanel->property("visible").toBool() && pageView->width() >= minPage,
+                        "opening the sidebar there closes the AI panel (" + state() + ")");
+                setOpen(aiPanel, true);
+                t.check(aiPanel->property("visible").toBool() && !sidebar->property("visible").toBool() && pageView->width() >= minPage,
+                        "... and opening the AI panel closes the sidebar (" + state() + ")");
+
+                setOpen(sidebar, false);
+                setOpen(aiPanel, false);
+                resize(originalWidth);
+            }
+        }
+
         // Ctrl+K: the command palette, driven with real keys from the document.
         {
             QObject *palette = window->findChild<QObject *>(QStringLiteral("commandPalette"));
