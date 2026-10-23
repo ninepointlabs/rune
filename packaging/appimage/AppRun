@@ -73,9 +73,27 @@ case "${1:-}" in
     --install-desktop-entry|--remove-desktop-entry) desktop_entry "$1"; exit 0 ;;
 esac
 
-# The bundled Qt has one platform theme, the portal one; it is named on the
-# command line (QT_QPA_PLATFORMTHEME, often gtk3, names one not bundled here)
-# rather than in the environment, which Rune's children inherit. File dialogs
-# are then the desktop's own, through xdg-desktop-portal, and Qt Quick's own
-# where no portal runs.
-exec "$APPDIR/usr/bin/rune" -platformtheme xdgdesktopportal "$@"
+# The bundled Qt has one platform theme, the portal one, used where there is
+# a portal to ask: a session bus, and xdg-desktop-portal installed (D-Bus
+# starts it on demand). Without one, Qt logs failed portal calls at start-up
+# and falls back to Qt Quick's own dialogs anyway. It is named on the command
+# line (QT_QPA_PLATFORMTHEME, often gtk3, names one not bundled here) rather
+# than in the environment, which Rune's children inherit. File dialogs are
+# then the desktop's own, through the portal.
+has_portal() {
+    [ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ] || return 1
+    old_ifs="$IFS"
+    IFS=:
+    for dir in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+        if [ -e "$dir/dbus-1/services/org.freedesktop.portal.Desktop.service" ]; then
+            IFS="$old_ifs"
+            return 0
+        fi
+    done
+    IFS="$old_ifs"
+    return 1
+}
+if has_portal; then
+    exec "$APPDIR/usr/bin/rune" -platformtheme xdgdesktopportal "$@"
+fi
+exec "$APPDIR/usr/bin/rune" "$@"
