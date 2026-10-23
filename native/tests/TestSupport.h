@@ -82,6 +82,7 @@ inline const QString kUndoPath = QStringLiteral("/tmp/rune-native-undo.odt");
 inline const QString kDialogBasePath = QStringLiteral("/tmp/rune-native-dialog");
 inline const QString kDialogOdtPath = kDialogBasePath + QStringLiteral(".odt");
 inline const QString kDialogDocxPath = QStringLiteral("/tmp/rune-native-dialog.docx");
+inline const QString kOpenLongPath = QStringLiteral("/tmp/rune-native-open-long.odt");
 inline const QString kPagePath = QStringLiteral("/tmp/rune-native-pages.odt");
 inline const QString kPageDocxPath = QStringLiteral("/tmp/rune-native-pages.docx");
 inline const QString kPageBarePath = QStringLiteral("/tmp/rune-native-pages-bare.odt");

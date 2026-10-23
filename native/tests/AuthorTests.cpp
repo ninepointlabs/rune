@@ -137,9 +137,11 @@ void testAuthorTools(Env &env)
         }
         return out;
     };
-    t.check(outline() == QStringList({"1:Chapter One:4", "2:Scene A:2", "1:Chapter Two:4", "1:Chapter Three:1"})
+    // Headings' own words count too, so the chapters add up to the total.
+    t.check(outline() == QStringList({"1:Chapter One:8", "2:Scene A:4", "1:Chapter Two:6", "1:Chapter Three:3"})
                 && controller->wordCount() == 17,
-            "the outline: chapters and scenes with their words, a chapter's counting its scenes'; "
+            "the outline: chapters and scenes with their words, headings included, a chapter's counting its scenes' "
+            "and the chapters adding up to the total; "
             + QString::number(controller->wordCount()) + " words in all: " + outline().join(QStringLiteral(" | ")));
     const QStringList original = blockTexts(doc);
     t.check(controller->moveSection(3, 0), "moveSection(): Chapter Three before Chapter One");

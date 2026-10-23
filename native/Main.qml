@@ -448,8 +448,13 @@ Window {
                 root.editingPart = "" // the header and footer were replaced
             root.statusFlash = success ? "Opened " + path : "Open failed: " + error
             flashTimer.restart()
-            if (success)
+            if (success) {
+                // Open at the top, on page 1, whatever the last document's
+                // cursor and scroll were.
+                pageView.editor.cursorPosition = 0
+                pageView.contentY = 0
                 root.syncSelection()
+            }
         }
     }
 
@@ -592,6 +597,7 @@ Window {
 
     PageView {
         id: pageView
+        objectName: "pageView"
         anchors { left: sidebar.visible ? sidebar.right : parent.left; right: aiPanel.visible ? aiPanel.left : parent.right
                   top: toolbar.bottom; bottom: statusBar.top }
         appRoot: root
