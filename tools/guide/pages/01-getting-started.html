@@ -6,10 +6,11 @@
     <h2 id="install">Install</h2>
     <p>Rune runs on Linux. Packages for Arch / Omarchy, Debian 13 and Fedora 42 are attached to every <a href="https://github.com/ninepointlabs/rune/releases/latest">GitHub release</a>.</p>
     <h3>With autonomix-cli</h3>
-    <p><a href="https://github.com/ninepointlabs/autonomix-cli">autonomix-cli</a> picks the right package for your system and keeps Rune up to date from GitHub Releases. It takes two steps: <code>add</code> starts tracking Rune, then <code>install</code> installs it (it asks for your password):</p>
+    <p>On Arch / Omarchy, Debian 13 or Fedora 42, <a href="https://github.com/ninepointlabs/autonomix-cli">autonomix-cli</a> installs the package for your system and keeps Rune up to date from GitHub Releases. It takes two steps: <code>add</code> only starts tracking Rune, then <code>install</code> installs it:</p>
     <pre><code><span class="prompt">$</span> autonomix-cli add https://github.com/ninepointlabs/rune
 <span class="prompt">$</span> autonomix-cli install rune</code></pre>
-    <p>After that, <code>autonomix-cli update</code> installs new releases.</p>
+    <p><code>install</code> runs your package manager as root, so it asks for your password: through <code>sudo</code> in a terminal, or in a polkit password dialog when there is no terminal. After that, <code>autonomix-cli update</code> installs new releases.</p>
+    <p>autonomix-cli installs only these system packages, not the AppImage. On Ubuntu, Linux Mint and other Debian-based distributions it would pick the Debian 13 <code>.deb</code>, which needs Debian 13's Qt (6.8.2 or newer) and won't install where the distribution's Qt is older, such as Ubuntu 24.04. Use the AppImage there.</p>
     <h3>From a release</h3>
     <p>Download the package for your distribution from the <a href="https://github.com/ninepointlabs/rune/releases/latest">latest release</a>, then install it:</p>
     <pre><code><span class="prompt">$</span> sudo pacman -U rune-*-x86_64.pkg.tar.zst   <span class="comment"># Arch / Omarchy</span>
