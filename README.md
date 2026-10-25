@@ -65,14 +65,16 @@ Full protocol/implementation notes: [`native/`](native/) source comments (each f
 
 Packages for Arch/Omarchy, Debian 13 and Fedora 42, and an AppImage for every other distro, are attached to each [GitHub release](https://github.com/ninepointlabs/rune/releases/latest).
 
-**With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)**, which picks the right package for your system and keeps Rune updated from GitHub Releases. It takes two steps: `add` starts tracking Rune, then `install` installs it (it asks for your password):
+**With [autonomix-cli](https://github.com/ninepointlabs/autonomix-cli)** on Arch / Omarchy, Debian 13 or Fedora 42. It installs the package for your system (`.pkg.tar.zst`, `.deb` or `.rpm`) and keeps Rune updated from GitHub Releases. It takes two steps: `add` only starts tracking Rune, then `install` installs it:
 
 ```sh
 autonomix-cli add https://github.com/ninepointlabs/rune
 autonomix-cli install rune
 ```
 
-After that, `autonomix-cli update` installs new releases.
+`install` runs your package manager as root, so it asks for your password: through `sudo` in a terminal, or in a polkit password dialog when there is no terminal. After that, `autonomix-cli update` installs new releases.
+
+autonomix-cli installs only these system packages, not the AppImage. On Ubuntu, Linux Mint and other Debian-based distros it would pick the Debian 13 `.deb`, which needs Debian 13's Qt (6.8.2 or newer) and won't install where the distro's Qt is older, such as Ubuntu 24.04. Use the [AppImage](#other-linux-distros-appimage) there.
 
 **Or download the package for your distro** from the [latest release](https://github.com/ninepointlabs/rune/releases/latest) and install it:
 
@@ -93,7 +95,7 @@ chmod +x rune-*-x86_64.AppImage
 ./rune-*-x86_64.AppImage
 ```
 
-To get Rune into your app menu and dock with its icon, open the AppImage with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher), which can also update it from GitHub releases. Or let it add itself, for your user only:
+To get Rune into your app menu and dock with its icon, open the AppImage with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher), which can also update it from GitHub releases (autonomix-cli doesn't handle AppImages). Or let it add itself, for your user only:
 
 ```sh
 ./rune-*-x86_64.AppImage --install-desktop-entry   # menu entry and icons in ~/.local/share
