@@ -1,3 +1,13 @@
+> **Rune is no longer being developed, and this repository is archived.**
+>
+> Thank you to everyone who tried Rune. I built it because I wanted a word processor for Linux and Omarchy with AI as part of the writing surface. Since then I found [WordCraft](https://getartcraft.com/apps/wordcraft), and it does what Rune set out to do and more. It's a fast, free and open-source word processor written in Rust ([source on GitHub](https://github.com/storytold/wordcraft)). It runs on Linux (as a Flatpak), macOS, Windows, FreeBSD and the web. It works with .docx natively, along with .odt, and it has agent support built in: its commands are available through a CLI, a JSON control channel and an MCP server, so AI assistants can work in your documents. WordCraft is still in development, but I've tried it and it's really good, so I recommend it over Rune.
+>
+> The code stays here under the MIT license, along with the existing releases, if you'd like to learn from it or fork it. The original README follows.
+>
+> Tim, Nine Point Labs
+
+---
+
 # Rune
 
 **An AI-native, ODF-first word processor for Linux, built for [Omarchy](https://github.com/basecamp/omarchy).**
