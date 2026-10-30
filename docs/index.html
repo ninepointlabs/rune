@@ -360,12 +360,26 @@
   footer .social a { display: inline-flex; color: var(--ink-dim); }
   footer .social a:hover, footer .social a:focus-visible { color: var(--ember-bright); }
   footer .social svg { width: 18px; height: 18px; fill: currentColor; }
+
+  /* ---------- Retired banner ---------- */
+  .retired-banner {
+    position: relative; z-index: 11;
+    background: var(--bg-raised-2);
+    border-bottom: 1px solid var(--ember);
+    color: var(--ink);
+    font-family: var(--serif-body); font-size: 15px; line-height: 1.5;
+    text-align: center;
+  }
+  .retired-banner p { margin: 0 auto; max-width: 1040px; padding: 10px 20px; }
+  .retired-banner a { color: var(--ember-bright); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+  .retired-banner a:hover { color: var(--ink); }
 </style>
 <script>window.goatcounter={path:function(p){return location.host+p}}</script>
 <script data-goatcounter="https://goatcounter-production-af4b.up.railway.app/count" async src="https://goatcounter-production-af4b.up.railway.app/count.js"></script>
 </head>
 <body>
 
+<div class="retired-banner" role="note" aria-label="Rune is retired"><p>Rune has been retired and is no longer maintained. Try <a href="https://getartcraft.com/apps/wordcraft">WordCraft</a> instead. <span aria-hidden="true">&middot;</span> <a href="https://blog.ninepointlabs.com/2026/10/sunsetting-rune/">Why Rune was retired</a></p></div>
 <header>
   <div class="nav">
     <a href="#" class="wordmark">

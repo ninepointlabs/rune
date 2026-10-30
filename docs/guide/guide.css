@@ -47,6 +47,19 @@ kbd {
 }
 .ui { color: var(--ink); font-weight: 500; }
 
+/* ---------- Retired banner ---------- */
+.retired-banner {
+  position: relative; z-index: 11;
+  background: var(--bg-raised-2);
+  border-bottom: 1px solid var(--ember);
+  color: var(--ink);
+  font-family: var(--serif-body); font-size: 15px; line-height: 1.5;
+  text-align: center;
+}
+.retired-banner p { margin: 0 auto; max-width: 1040px; padding: 10px 20px; }
+.retired-banner a { color: var(--ember-bright); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; white-space: nowrap; }
+.retired-banner a:hover { color: var(--ink); }
+
 /* ---------- Header ---------- */
 header {
   position: sticky; top: 0; z-index: 10;
